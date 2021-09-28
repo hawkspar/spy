@@ -117,7 +117,7 @@ class yaj():
 			#mass (variational formulation)
 			F = div_cyl(u)*self.Test[1]*self.r*dx
 			#momentum (different test functions and IBP)
-			F -= inner(grad_cyl(u)*u, self.Test[0])*self.r*dx
+			F -= inner(grad(u)*u, self.Test[0])*self.r*dx
 			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
 			F += inner(p, div_cyl(self.Test[0]))*self.r*dx
 			return F
