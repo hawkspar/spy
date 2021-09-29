@@ -1,7 +1,7 @@
 """
-Created on Fri Apr  9 16:05:26 2021
+Created on Mon Sep 27 12:05:26 2021
 
-@author: cwang
+@author: hawkspar
 """
 
 from dolfin import *
@@ -12,26 +12,7 @@ import scipy.sparse as sps
 import scipy.sparse.linalg as la
 
 class yaj():
-	def __init__(self,meshpath,flowmode,dnspath,import_flag):
-		self.label=flowmode
-		self.dnspath=dnspath
-		self.private_path='doing/'
-		self.resolvent_path='resolvent/'
-		self.eig_path='eigenvalues/'
-		self.mesh=self.LoadMesh(meshpath)
-		self.Space=self.BuildFunctionSpace()
-
-		self.bcs=self.BoundaryConditions()
-		self.ru = self.InitialConditions() #main function space
-		self.r = SpatialCoordinate(self.mesh)[1] 
-		self.bcp = None
-		self.Trial = None
-		
-		if import_flag:
-			directory=self.dnspath+"baseflow000.xml"
-			File(directory) >> self.ru.vector()
-		self.Test= self.GenerateTestFunction()
-
+	def __init__(self,meshpath,flowmode,dnspath,import_flag,m,eta):
 		#physical parameters
 		self.Re=1000
 		self.U=1
@@ -40,13 +21,36 @@ class yaj():
 
 		#control Newton solver
 		self.play=1.0 #viscosity prefator
-		self.minus_play=0.0 #increment of viscosity prefactor
+		self.minus_play=0. #increment of viscosity prefactor
 		self.rp=0.99 #relaxation_parameter
 		self.stop_it=1 #number of iteration
 		self.ae=1e-12 #absolute_tolerance
 
-		self.form=self.OperatorNonlinear()
+		self.m=m # azimuthal decomposition
+		self.eta=eta #swirl amplitude relative to main flow
+		self.eps=1e-9 #DOLFIN_EPS does not work well
 
+		#fundamental flow type
+		self.label=flowmode
+		self.dnspath=dnspath
+		self.private_path  ='doing/'
+		self.resolvent_path='resolvent/'
+		self.eig_path	   ='eigenvalues/'
+		
+		#geometry
+		self.mesh  = self.LoadMesh(meshpath)
+		self.Space = self.BuildFunctionSpace()
+		self.Test  = self.GenerateTestFunction()
+		self.Trial = TrialFunction(self.Space)
+
+		self.bcs= self.BoundaryConditions()
+		self.q  = self.InitialConditions() #main function space
+		self.r  = SpatialCoordinate(self.mesh)[1]
+		
+		if import_flag:
+			directory=self.dnspath+"baseflow000.xml"
+			File(directory) >> self.q.vector()
+	
 	def LoadMesh(self,path):
 		if path.split('.')[-1]=='xml':
 			# Read mesh from xml file
@@ -62,27 +66,26 @@ class yaj():
 		FE_vector  =VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
 		FE_scalar_1=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
 		FE_Space=[FE_vector,FE_scalar_1] #velocity & pressure
-		if self.label=='lowMach':
-			FE_Space.append(FE_scalar_1) #density
+		if self.label=='lowMach': FE_Space.append(FE_scalar_1) #density
 		return FunctionSpace(self.mesh,MixedElement(FE_Space))
 
 	def InitialConditions(self):
 		if self.label=='incompressible':
-			U_init = Expression(("1.","0.","0.1","0"), 	  	  degree=2)
+			U_init = Expression(("1.","0.",str(self.eta),"0"), 	  	  degree=2)
 		elif self.label=='lowMach':
-			U_init = Expression(("1.","0.","0.1","1e5","1."), degree=2)
+			U_init = Expression(("1.","0.",str(self.eta),"0.","1e5"), degree=2)
 		return interpolate(U_init, self.Space)
 
 	def GenerateTestFunction(self):
 		testFunction = TestFunction(self.Space)
-		q=[as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
-		if self.label=='incompressible': return q
-		elif self.label=='lowMach': 	 return q+testFunction[4]
+		tests=[as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
+		if self.label=='incompressible': return tests
+		elif self.label=='lowMach': 	 return tests+testFunction[4]
 
-	def OperatorNonlinear(self):
+	def OperatorNonlinear(self,m):
 		if self.label=='incompressible':
-			u=as_vector((self.ru[0],self.ru[1],self.ru[2]))
-			p=self.ru[3]
+			u=as_vector((self.q[0],self.q[1],self.q[2]))
+			p=self.q[3]
 
 			######################################################
 			# Can's code for cylindrical coordinates
@@ -93,11 +96,11 @@ class yaj():
 
 			# Gradient with x[0] is x and x[1] is r
 			def grad_cyl(v):
-				return as_tensor([[v[0].dx(0), v[0].dx(1),  0		   ],
-								  [v[1].dx(0), v[1].dx(1), -v[2]/self.r],
-								  [v[2].dx(0), v[2].dx(1),  v[1]/self.r]])
+				return as_tensor([[v[0].dx(0), v[0].dx(1),  1j*m*v[0]	   /self.r],
+								  [v[1].dx(0), v[1].dx(1), (1j*m*v[1]-v[2])/self.r],
+								  [v[2].dx(0), v[2].dx(1), (1j*m*v[2]+v[1])/self.r]])
 			
-			def div_cyl(v): return v[0].dx(0) + (self.r*v[1]).dx(1)/self.r
+			def div_cyl(v): return v[0].dx(0) + (self.r*v[1]).dx(1)/self.r + 1j*m*v[2]/self.r
 
 			######################################################
 			#for stress tensor in Compressible case (not used in current Incompressible case)
@@ -117,16 +120,17 @@ class yaj():
 			#mass (variational formulation)
 			F = div_cyl(u)*self.Test[1]*self.r*dx
 			#momentum (different test functions and IBP)
-			F -= inner(grad(u)*u, self.Test[0])*self.r*dx
+			F -= inner(as_vector([u[0]*u[0].dx(0)+u[1]*u[0].dx(1)+u[2]/self.r* 1j*m*u[0],
+								  u[0]*u[1].dx(0)+u[1]*u[1].dx(1)+u[2]/self.r*(1j*m*u[1]-u[2]),
+								  u[0]*u[2].dx(0)+u[1]*u[2].dx(1)+u[2]/self.r*(1j*m*u[2]+u[1])]), self.Test[0])*self.r*dx
 			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
 			F += inner(p, div_cyl(self.Test[0]))*self.r*dx
 			return F
 
 		elif self.label=='lowMach':
-
-			u=as_vector((self.ru[0],self.ru[1],self.ru[2]))
-			p=self.ru[3]
-			rho=self.ru[4]
+			u=as_vector((self.q[0],self.q[1],self.q[2]))
+			p=self.q[3]
+			rho=self.q[4]
 
 
 			####
@@ -135,29 +139,29 @@ class yaj():
 
 	def Newton(self):
 		ifile =0
-
 		while ifile<self.stop_it and self.play>0.99:
 			print("viscosity prefactor: ",self.play)
-			solve(self.form == 0, self.ru, self.bcs, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
+			self.bcs=self.BoundaryConditions() #for temporal-dependant boundary condition
+			self.base_form = self.OperatorNonlinear(0) #no azimuthal decomposition for base flow
+			self.dbase_form = derivative(self.base_form, self.q, self.Trial)
+			solve(self.base_form == 0, self.q, self.bcs, J=self.dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
 			if self.label=='incompressible':
 				#write results in private_path for a given mu
-				u_r,p_r = self.ru.split()
+				u_r,p_r = self.q.split()
 				ll="mu"+str(np.round(self.play, decimals=2))
 				File(self.dnspath+self.private_path+"u"+f"{ifile:03d}"+ll+".pvd") << u_r
-				File(self.dnspath+self.private_path+"baseflow"+f"{ifile:03d}"+ll+'_'+".xml") << self.ru.vector()
+				File(self.dnspath+self.private_path+"baseflow"+f"{ifile:03d}"+ll+'_'+".xml") << self.q.vector()
 				print(self.dnspath+self.private_path+"baseflow"+f"{ifile:03d}"+ll+'_'+".xml written!")
 			elif self.label=='lowMach':
 				pass
-			
-			#write result of current mu
-			File(self.dnspath+"u.pvd") << u_r
-			File(self.dnspath+"baseflow000.xml") << self.ru.vector()
-			print(self.dnspath+"baseflow000.xml written!")
 
 			ifile+=1
 			self.play-=self.minus_play #increment of viscosity
-			self.form=self.OperatorNonlinear()
-			self.bcs=self.BoundaryConditions() #for temporal-dependant boundary condition
+			
+		#write result of current mu
+		File(self.dnspath+"u.pvd") << u_r
+		File(self.dnspath+"baseflow000.xml") << self.q.vector()
+		print(self.dnspath+"baseflow000.xml written!")
 
 	def get_indices(self):
 		# Collect all dirichlet boundary dof indices
@@ -172,52 +176,46 @@ class yaj():
 		# indices of free nodes
 		freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
 		return freeinds
+	
+	#jet geometry
+	def BoundaryGeometry(self):
+		def symmetry(x, on_boundary):  #symétrie de l'écoulement stationnaire
+			return x[1] < 	 self.eps   and on_boundary 
+		def inlet(	 x, on_boundary):     #entrée abscisse
+			return x[0] <    self.eps-5 and on_boundary 
+		def outlet(	 x, on_boundary):    #sortie
+			return x[0] > 30-self.eps   and on_boundary 
+		def wall(	 x, on_boundary):
+			return x[1] >  	 self.eps   and (self.eps-5 < x[0] < 	self.eps) and on_boundary
+		def misc(	 x, on_boundary):      #upper boundary
+			return x[1] > 10-self.eps   and (self.eps   < x[0] < 40-self.eps) and on_boundary
+		return symmetry,inlet,outlet,wall,misc
 
 	def BoundaryConditions(self):
-		eps=0.000001#DOLFIN_EPS does not work well
-		#jet
-		def symmetry(x, on_boundary):  #symétrie de l'écoulement stationnaire
-			return x[1] <  0.000000001 and on_boundary 
-		def inlet(x, on_boundary):       #entrée abscisse
-			return x[0] < -4.999999999 and on_boundary 
-		def outlet(x, on_boundary):         #sortie
-			return x[0] > 39.999999999 and on_boundary 
-		def wall(x, on_boundary):
-			return x[1] >  0.999999999 and (-4.9999999 < x[0] <  0.000000001) and on_boundary
-		def misc(x, on_boundary):      #ordonnée
-			return x[1] >  9.999999999 and ( 0.0000001 < x[0] < 39.999999999) and on_boundary
+		symmetry,inlet,outlet,wall,misc=self.BoundaryGeometry()
 		# define boundary conditions for Newton/timestepper
 		if self.label=='incompressible':
-			ux_tanh =Expression(   'tanh(5*(1-x[1]))', degree=2)
-			uth_tanh=Expression('.1*tanh(5*(1-x[1]))', degree=2)
-			bcs_inflow_x  = DirichletBC(self.Space.sub(0).sub(0), ux_tanh,  inlet)
-			bcs_inflow_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 		inlet)
-			bcs_inflow_th = DirichletBC(self.Space.sub(0).sub(2), uth_tanh, inlet)
-			bcs_wall	  = DirichletBC(self.Space.sub(0), 		 (0,0,0), 	wall)
-			bcs_symmetry  = DirichletBC(self.Space.sub(0).sub(1), 0, 		symmetry)
-			return [bcs_inflow_x,bcs_inflow_r,bcs_inflow_th,bcs_wall,bcs_symmetry]
+			ux_tanh  = Expression(   			 'tanh(5*(1-x[1]))', degree=2)
+			uth_tanh = Expression(str(self.eta)+'*tanh(5*(1-x[1]))', degree=2)
+			bcs_inflow_x  	= DirichletBC(self.Space.sub(0).sub(0), ux_tanh,  inlet) 	# Tanh inflow
+			bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,	      inlet) 	# No radial flow
+			bcs_inflow_th	= DirichletBC(self.Space.sub(0).sub(2), uth_tanh, inlet) 	# Little theta flow
+			bcs_wall	  	= DirichletBC(self.Space.sub(0),	   (0,0,0),   wall)  	# No flow at wall
+			bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0, 	      symmetry) # No flow through central axis
+			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	      symmetry) # No flow through central axis
+			return [bcs_inflow_x,bcs_inflow_r,bcs_inflow_th,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
 		elif self.label=='lowMach':
 			pass #not implemented
 			#return [bcs_square_u,bcs_square_rho,bcs_inflow_ux,bcs_inflow_uy,bcs_inflow_rho,bcs_upperandlower]
 
 	def BoundaryConditionsPerturbations(self):
-		eps=0.000001#DOLFIN_EPS does not work well
-		#jet
-		def symmetry(x, on_boundary):  #symétrie de l'écoulement stationnaire
-			return x[1] <  0.000000001 and on_boundary 
-		def inlet(x, on_boundary):       #entrée abscisse
-			return x[0] < -4.999999999 and on_boundary 
-		def outlet(x, on_boundary):         #sortie
-			return x[0] > 39.999999999 and on_boundary 
-		def wall(x, on_boundary):
-			return x[1] >  0.999999999 and (-4.9999999 < x[0] <  0.000001) and on_boundary 
-		def misc(x, on_boundary):      #upper boundary
-			return x[1] >  9.999999999 and ( 0.0000001 < x[0] < 39.999999999) and on_boundary 
+		symmetry,inlet,outlet,wall,misc=self.BoundaryGeometry()
 		if self.label=='incompressible':
-			bcs_inflow = DirichletBC(self.Space.sub(0).sub(1), 0, 	   inlet)
-			bcs_wall   = DirichletBC(self.Space.sub(0), 	  (0,0,0), wall)
-			bcs_symmetry=DirichletBC(self.Space.sub(0).sub(1), 0, 	   symmetry)
-			return [bcs_inflow,bcs_wall,bcs_symmetry]
+			bcs_inflow_x	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No inflow
+			bcs_wall   		= DirichletBC(self.Space.sub(0), 	   (0,0,0), wall)	  # No flow at wall
+			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # No flow through central axis
+			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry) # No flow through central axis
+			return [bcs_inflow_x,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
 		elif self.label=='lowMach':
 			pass
 			#return [bcs_square_rho,bcs_square_u,bcs_inflow_rho,bcs_inflow_u,bcs_upperandlower_u]
@@ -225,11 +223,11 @@ class yaj():
 	def Resolvent(self,k,freq_list):
 		parameters['linear_algebra_backend'] = 'Eigen'
 		print("check base flow max and min in u:")
-		print(np.max(self.ru.vector()[:]))
-		print(np.min(self.ru.vector()[:]))
-		self.Trial=TrialFunction(self.Space)
+		print(np.max(self.q.vector()[:]))
+		print(np.min(self.q.vector()[:]))
 		#matrix A (m*m): Jacobian calculated by automatic derivative
-		Aform = derivative(self.form,self.ru,self.Trial)
+		self.perturbation_form = self.OperatorNonlinear(self.m)
+		Aform = derivative(self.perturbation_form,self.q,self.Trial)
 		Aa = assemble(Aform)
 		rows, cols, values = as_backend_type(Aa).data()
 		Aa = sps.csr_matrix((values, cols, rows))
@@ -242,7 +240,7 @@ class yaj():
 		rows, cols, values = as_backend_type(Ba).data()
 		Ba = sps.csr_matrix((values, cols, rows))
 
-		#forcing norm Mf (m*m): here we choose ux^2+ur^2 as forcing norm
+		#forcing norm Mf (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		#other userdefined norm can be used, to be added later
 		Mf_form=inner(up,self.Test[0])*self.r*dx
 		Mfa = assemble(Mf_form)
@@ -258,7 +256,7 @@ class yaj():
 		rows, cols, values = as_backend_type(Qa).data()
 		Qa = sps.csr_matrix((values, cols, rows))
 
-		self.bcp=self.BoundaryConditionsPerturbations()
+		self.bcp = self.BoundaryConditionsPerturbations()
 		freeinds = self.get_indices()	
 
 		#matrix P (m*n) reshapes forcing vector (n*1) to (m*1). In principal, it contains only 0 and 1 elements.
@@ -279,13 +277,13 @@ class yaj():
 		#matrix I (m*n) reshapes forcing matrix Mf (m*m) to I^T*Mf*I (n*n). The matrix I can be different from P in that very rare case remarked above.
 		Ia=Pa
 
-		A = Aa[freeinds,:][:,freeinds].tocsc()
-		B = Ba[freeinds,:][:,freeinds].tocsc()
+		A  = Aa[freeinds,:][:,freeinds].tocsc()
+		B  = Ba[freeinds,:][:,freeinds].tocsc()
 		Mf = Mfa[freeinds,:][:,freeinds].tocsc()
 		Mr = Mra[freeinds,:][:,freeinds].tocsc()
-		P = Pa[freeinds].tocsc()
-		I = Ia[freeinds].tocsc()
-		Q = Qa[freeinds,:][:,freeinds].tocsc()
+		P  = Pa[freeinds].tocsc()
+		I  = Ia[freeinds].tocsc()
+		Q  = Qa[freeinds,:][:,freeinds].tocsc()
 
 		Q_shape=np.shape(Q)
 		print('matrix Q size: '+str(Q_shape))
@@ -293,19 +291,10 @@ class yaj():
 		print('matrix P size: '+str(P_shape))
 
 		for freq in freq_list:
-			R_inv=A-freq*1j*B
-			R = la.splu(R_inv,permc_spec=3)
+			R = la.splu(A-2*np.pi*freq*1j*B,permc_spec=3)
 			# get response linear operator P^H*Q^H*R^H*Mr*R*Q*P
 			def lhs(f):
-				fq=Q*P*f
-				re=R.solve(fq)
-				x=Mr*re
-
-				w=R.solve(x,trans='H')
-				z=Q.transpose()*w
-				y=P.transpose()*z			
-
-				return y
+				return P.transpose()*Q.transpose()*R.solve(Mr*R.solve(Q*P*f),trans='H')
 
 			LHS = la.LinearOperator((min(P_shape),min(P_shape)),matvec=lhs,dtype='complex')
 
@@ -318,16 +307,15 @@ class yaj():
 
 			ua = Function(self.Space)
 
-			for i in range(0,1):
-				if self.label=='incompressible':
-					ua.vector()[freeinds] = P*f0
-					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"forcing_u_"+str(np.round(freq, decimals=3))+".pvd") << u
-					ua.vector()[freeinds] = r0
-					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"response_u_"+str(np.round(freq, decimals=3))+".pvd") << u
-				if self.label=='lowMach':
-					pass
+			if self.label=='incompressible':
+				ua.vector()[freeinds] = P*f0
+				u,p  = ua.split()
+				File(self.dnspath+self.resolvent_path+"forcing_u_"+str(np.round(freq, decimals=3))+".pvd") << u
+				ua.vector()[freeinds] = r0
+				u,p  = ua.split()
+				File(self.dnspath+self.resolvent_path+"response_u_"+str(np.round(freq, decimals=3))+".pvd") << u
+			if self.label=='lowMach':
+				pass
 			
 			#write gains
 			file = open(self.dnspath+self.resolvent_path+"gains.dat","w")
@@ -339,11 +327,9 @@ class yaj():
 	def Eigenvalues(self,sigma,k,flag_mode,savematt,loadmatt):
 		parameters['linear_algebra_backend'] = 'Eigen'
 		print("check base flow max and min in u:")
-		print(np.max(self.ru.vector()[:]))
-		print(np.min(self.ru.vector()[:]))
+		print(np.max(self.q.vector()[:]))
+		print(np.min(self.q.vector()[:]))
 		
-		self.Trial=TrialFunction(self.Space)
-
 		up=as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
 		pp=self.Trial[3]
 
@@ -354,8 +340,9 @@ class yaj():
 
 		rows, cols, values = as_backend_type(Ma).data()
 		Ma = sps.csr_matrix((values, cols, rows))
-
-		Aform = derivative(self.form,self.ru,self.Trial)
+		
+		self.perturbation_form = self.OperatorNonlinear(self.m)
+		Aform = derivative(self.perturbation_form,self.q,self.Trial)
 		Aa = assemble(Aform)
 		rows, cols, values = as_backend_type(Aa).data()
 		Aa = sps.csr_matrix((values, cols, rows))
