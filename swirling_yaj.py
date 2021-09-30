@@ -17,17 +17,16 @@ class yaj():
 		self.Re=1000
 		self.U=1
 		self.D=2
-		self.mu=self.U*self.D/self.Re
 
 		#control Newton solver
-		self.play=1.0 #viscosity prefator
-		self.minus_play=0. #increment of viscosity prefactor
+		self.nu=1.0 #viscosity prefator
+		self.n_nu=1 #number of visocity iterations
+		self.eta=eta #swirl amplitude relative to main flow
+		self.n_eta=5 #number of swirl iterations
 		self.rp=0.99 #relaxation_parameter
-		self.stop_it=1 #number of iteration
 		self.ae=1e-12 #absolute_tolerance
 
 		self.m=m # azimuthal decomposition
-		self.eta=eta #swirl amplitude relative to main flow
 		self.eps=1e-9 #DOLFIN_EPS does not work well
 
 		#fundamental flow type
@@ -43,8 +42,7 @@ class yaj():
 		self.Test  = self.GenerateTestFunction()
 		self.Trial = TrialFunction(self.Space)
 
-		self.bcs= self.BoundaryConditions()
-		self.q  = self.InitialConditions() #main function space
+		self.q  = self.InitialConditions() #main function space, start swirlless
 		self.r  = SpatialCoordinate(self.mesh)[1]
 		
 		if import_flag:
@@ -69,18 +67,61 @@ class yaj():
 		if self.label=='lowMach': FE_Space.append(FE_scalar_1) #density
 		return FunctionSpace(self.mesh,MixedElement(FE_Space))
 
-	def InitialConditions(self):
-		if self.label=='incompressible':
-			U_init = Expression(("1.","0.",str(self.eta),"0"), 	  	  degree=2)
-		elif self.label=='lowMach':
-			U_init = Expression(("1.","0.",str(self.eta),"0.","1e5"), degree=2)
-		return interpolate(U_init, self.Space)
-
 	def GenerateTestFunction(self):
 		testFunction = TestFunction(self.Space)
 		tests=[as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
 		if self.label=='incompressible': return tests
 		elif self.label=='lowMach': 	 return tests+testFunction[4]
+
+	def InitialConditions(self):
+		if self.label=='incompressible':
+			U_init = Expression(("1.","0.","0.","0."), 	  	 degree=2)
+		elif self.label=='lowMach':
+			U_init = Expression(("1.","0.","0.","0.","1e5"), degree=2)
+		return interpolate(U_init, self.Space)
+	
+	#jet geometry
+	def BoundaryGeometry(self):
+		def symmetry(x, on_boundary):  #symétrie de l'écoulement stationnaire
+			return x[1] < 	 self.eps   and on_boundary 
+		def inlet(	 x, on_boundary):     #entrée abscisse
+			return x[0] <    self.eps-5 and on_boundary 
+		def outlet(	 x, on_boundary):    #sortie
+			return x[0] > 30-self.eps   and on_boundary 
+		def wall(	 x, on_boundary):
+			return x[1] >  	 self.eps   and (self.eps-5 < x[0] < 	self.eps) and on_boundary
+		def misc(	 x, on_boundary):      #upper boundary
+			return x[1] > 10-self.eps   and (self.eps   < x[0] < 40-self.eps) and on_boundary
+		return symmetry,inlet,outlet,wall,misc
+
+	def BoundaryConditions(self,eta):
+		symmetry,inlet,outlet,wall,misc=self.BoundaryGeometry()
+		# define boundary conditions for Newton/timestepper
+		if self.label=='incompressible':
+			ux_tanh  = Expression(   		'tanh(5*(1-x[1]))', degree=2)
+			uth_tanh = Expression(str(eta)+'*tanh(5*(1-x[1]))', degree=2)
+			bcs_inflow_x  	= DirichletBC(self.Space.sub(0).sub(0), ux_tanh,  inlet) 	# Tanh inflow
+			bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,	      inlet) 	# No radial flow
+			bcs_inflow_th	= DirichletBC(self.Space.sub(0).sub(2), uth_tanh, inlet) 	# Little theta flow
+			bcs_wall	  	= DirichletBC(self.Space.sub(0),	   (0,0,0),   wall)  	# No flow at wall
+			bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0, 	      symmetry) # No flow through central axis
+			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	      symmetry) # No flow through central axis
+			return [bcs_inflow_x,bcs_inflow_r,bcs_inflow_th,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
+		elif self.label=='lowMach':
+			pass #not implemented
+			#return [bcs_square_u,bcs_square_rho,bcs_inflow_ux,bcs_inflow_uy,bcs_inflow_rho,bcs_upperandlower]
+
+	def BoundaryConditionsPerturbations(self):
+		symmetry,inlet,outlet,wall,misc=self.BoundaryGeometry()
+		if self.label=='incompressible':
+			bcs_inflow_x	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No inflow
+			bcs_wall   		= DirichletBC(self.Space.sub(0), 	   (0,0,0), wall)	  # No flow at wall
+			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # No flow through central axis
+			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry) # No flow through central axis
+			return [bcs_inflow_x,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
+		elif self.label=='lowMach':
+			pass
+			#return [bcs_square_rho,bcs_square_u,bcs_inflow_rho,bcs_inflow_u,bcs_upperandlower_u]
 
 	def OperatorNonlinear(self,m):
 		if self.label=='incompressible':
@@ -114,8 +155,6 @@ class yaj():
 				return -(2./3.)*div_cyl(v)*Identity(3) + 2.*d_cyl(v)
 			######################################################
 			######################################################
-
-			self.mu=self.mu*self.play #update viscosity
 			
 			#mass (variational formulation)
 			F = div_cyl(u)*self.Test[1]*self.r*dx
@@ -131,32 +170,29 @@ class yaj():
 			u=as_vector((self.q[0],self.q[1],self.q[2]))
 			p=self.q[3]
 			rho=self.q[4]
-
-
 			####
 			#not implmented yet
 			####
 
 	def Newton(self):
 		ifile =0
-		while ifile<self.stop_it and self.play>0.99:
-			print("viscosity prefactor: ",self.play)
-			self.bcs=self.BoundaryConditions() #for temporal-dependant boundary condition
-			self.base_form = self.OperatorNonlinear(0) #no azimuthal decomposition for base flow
-			self.dbase_form = derivative(self.base_form, self.q, self.Trial)
-			solve(self.base_form == 0, self.q, self.bcs, J=self.dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
-			if self.label=='incompressible':
-				#write results in private_path for a given mu
-				u_r,p_r = self.q.split()
-				ll="mu"+str(np.round(self.play, decimals=2))
-				File(self.dnspath+self.private_path+"u"+f"{ifile:03d}"+ll+".pvd") << u_r
-				File(self.dnspath+self.private_path+"baseflow"+f"{ifile:03d}"+ll+'_'+".xml") << self.q.vector()
-				print(self.dnspath+self.private_path+"baseflow"+f"{ifile:03d}"+ll+'_'+".xml written!")
-			elif self.label=='lowMach':
-				pass
-
-			ifile+=1
-			self.play-=self.minus_play #increment of viscosity
+		for eta_current in np.linspace(0,self.eta,self.n_eta): 	#increase swirl
+			for nu_current in np.linspace(self.nu,1,self.n_nu): #decrease viscosity
+				print("viscosity prefactor: ",nu_current)
+				print("swirl intensity: ",eta_current)
+				self.mu=nu_current*self.U*self.D/self.Re #recalculate viscosity with prefactor
+				self.bcs=self.BoundaryConditions(eta_current) #for temporal-dependant boundary condition
+				self.base_form = self.OperatorNonlinear(0) #no azimuthal decomposition for base flow
+				self.dbase_form = derivative(self.base_form, self.q, self.Trial)
+				solve(self.base_form == 0, self.q, self.bcs, J=self.dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
+				if self.label=='incompressible':
+					#write results in private_path for a given mu
+					u_r,p_r = self.q.split()
+					File(self.dnspath+self.private_path+"u_nu="+f"{nu_current:00.3f}"+"_eta="+f"{eta_current:00.3f}"+".pvd") << u_r
+					File(self.dnspath+self.private_path+"baseflow_nu="+f"{nu_current:00.3f}"+"_eta="+f"{eta_current:00.3f}"+".xml") << self.q.vector()
+					print(self.dnspath+self.private_path+"baseflow_nu="+f"{nu_current:00.3f}"+"_eta="+f"{eta_current:00.3f}"+".xml written!")
+				elif self.label=='lowMach':
+					pass
 			
 		#write result of current mu
 		File(self.dnspath+"u.pvd") << u_r
@@ -176,49 +212,6 @@ class yaj():
 		# indices of free nodes
 		freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
 		return freeinds
-	
-	#jet geometry
-	def BoundaryGeometry(self):
-		def symmetry(x, on_boundary):  #symétrie de l'écoulement stationnaire
-			return x[1] < 	 self.eps   and on_boundary 
-		def inlet(	 x, on_boundary):     #entrée abscisse
-			return x[0] <    self.eps-5 and on_boundary 
-		def outlet(	 x, on_boundary):    #sortie
-			return x[0] > 30-self.eps   and on_boundary 
-		def wall(	 x, on_boundary):
-			return x[1] >  	 self.eps   and (self.eps-5 < x[0] < 	self.eps) and on_boundary
-		def misc(	 x, on_boundary):      #upper boundary
-			return x[1] > 10-self.eps   and (self.eps   < x[0] < 40-self.eps) and on_boundary
-		return symmetry,inlet,outlet,wall,misc
-
-	def BoundaryConditions(self):
-		symmetry,inlet,outlet,wall,misc=self.BoundaryGeometry()
-		# define boundary conditions for Newton/timestepper
-		if self.label=='incompressible':
-			ux_tanh  = Expression(   			 'tanh(5*(1-x[1]))', degree=2)
-			uth_tanh = Expression(str(self.eta)+'*tanh(5*(1-x[1]))', degree=2)
-			bcs_inflow_x  	= DirichletBC(self.Space.sub(0).sub(0), ux_tanh,  inlet) 	# Tanh inflow
-			bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,	      inlet) 	# No radial flow
-			bcs_inflow_th	= DirichletBC(self.Space.sub(0).sub(2), uth_tanh, inlet) 	# Little theta flow
-			bcs_wall	  	= DirichletBC(self.Space.sub(0),	   (0,0,0),   wall)  	# No flow at wall
-			bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0, 	      symmetry) # No flow through central axis
-			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	      symmetry) # No flow through central axis
-			return [bcs_inflow_x,bcs_inflow_r,bcs_inflow_th,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
-		elif self.label=='lowMach':
-			pass #not implemented
-			#return [bcs_square_u,bcs_square_rho,bcs_inflow_ux,bcs_inflow_uy,bcs_inflow_rho,bcs_upperandlower]
-
-	def BoundaryConditionsPerturbations(self):
-		symmetry,inlet,outlet,wall,misc=self.BoundaryGeometry()
-		if self.label=='incompressible':
-			bcs_inflow_x	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No inflow
-			bcs_wall   		= DirichletBC(self.Space.sub(0), 	   (0,0,0), wall)	  # No flow at wall
-			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # No flow through central axis
-			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry) # No flow through central axis
-			return [bcs_inflow_x,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
-		elif self.label=='lowMach':
-			pass
-			#return [bcs_square_rho,bcs_square_u,bcs_inflow_rho,bcs_inflow_u,bcs_upperandlower_u]
 
 	def Resolvent(self,k,freq_list):
 		parameters['linear_algebra_backend'] = 'Eigen'
@@ -302,7 +295,7 @@ class yaj():
 			gains,eigenvectors = la.eigs(LHS, k=k, M=I.transpose()*Mf*I, sigma=None,  maxiter=100, tol=10-15, return_eigenvectors=True)
 			
 			#write forcing and response
-			f0=eigenvectors[:,0]
+			f0=eigenvectors[:,0] #take most amplified only
 			r0=R.solve(Q*P*f0)
 
 			ua = Function(self.Space)

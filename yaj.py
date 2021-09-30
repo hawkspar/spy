@@ -150,7 +150,7 @@ class yaj():
 		while (ifile<self.stop_it and self.play>0.99):
 			print("viscosity prefactor:")
 			print(self.play)
-			solve(self.form == 0, self.ru, self.bcs, solver_parameters={"newton_solver":{'linear_solver' : 'petsc','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
+			solve(self.form == 0, self.ru, self.bcs, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
 			if self.label=='incompressible':
 				#write results in private_path for a given mu
 				u_r,p_r = self.ru.split()
