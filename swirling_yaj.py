@@ -1,3 +1,4 @@
+# coding: utf-8
 """
 Created on Mon Sep 27 12:05:26 2021
 
@@ -74,25 +75,9 @@ class yaj():
 		elif self.label=='lowMach': 	 return tests+testFunction[4]
 
 	def InitialConditions(self):
-		if self.label=='incompressible':
-			U_init = Expression(("1.","0.","0.","0."), 	  	 degree=2)
-		elif self.label=='lowMach':
-			U_init = Expression(("1.","0.","0.","0.","1e5"), degree=2)
-		return interpolate(U_init, self.Space)
-
-	def get_indices(self):
-		# Collect all dirichlet boundary dof indices
-		bcinds = []
-		for b in self.bcp:
-			bcdict = b.get_boundary_values()
-			bcinds.extend(bcdict.keys())
-
-		# total number of dofs
-		N = self.Space.dim()
-
-		# indices of free nodes
-		self.freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
-		return self.freeinds
+		U_init = ["1.","0.","0.","0."]
+		if self.label=='lowMach': U_init.append("1e5")
+		return interpolate(Expression(tuple(U_init), degree=2), self.Space)
 	
 	#jet geometry
 	def BoundaryGeometry(self):
@@ -105,7 +90,7 @@ class yaj():
 		def misc(	 x, on_boundary):      #upper boundary
 			return x[1] > 10-self.eps   and on_boundary
 		def wall(	 x, on_boundary):
-			return x[1] >  1-self.eps   and (self.eps-5 < x[0] < 	self.eps) and on_boundary
+			return x[1] >  1-self.eps   and x[0] < self.eps and on_boundary
 		return symmetry,inlet,outlet,wall,misc
 
 	def BoundaryConditions(self,eta):
@@ -120,7 +105,7 @@ class yaj():
 			bcs_inflow_x  	= DirichletBC(self.Space.sub(0).sub(0), ux_tanh,  inlet) 	# Tanh inflow
 			bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,	      inlet) 	# No radial flow
 			bcs_inflow_th	= DirichletBC(self.Space.sub(0).sub(2), uth_tanh, inlet) 	# Little theta flow
-			return [bcs_inflow_x,bcs_inflow_r,bcs_inflow_th,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
+			self.bc = [bcs_inflow_x,bcs_inflow_r,bcs_inflow_th,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
 		elif self.label=='lowMach':
 			pass #not implemented
 			#return [bcs_square_u,bcs_square_rho,bcs_inflow_ux,bcs_inflow_uy,bcs_inflow_rho,bcs_upperandlower]
@@ -132,10 +117,23 @@ class yaj():
 			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # No flow through central axis
 			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry) # No flow through central axis
 			bcs_inflow_x	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No inflow
-			return [bcs_inflow_x,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
+			self.bcp = [bcs_inflow_x,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
 		elif self.label=='lowMach':
 			pass
 			#return [bcs_square_rho,bcs_square_u,bcs_inflow_rho,bcs_inflow_u,bcs_upperandlower_u]
+
+	def ComputeIndices(self):
+		# Collect all dirichlet boundary dof indices
+		bcinds = []
+		for b in self.bcp:
+			bcdict = b.get_boundary_values()
+			bcinds.extend(bcdict.keys())
+
+		# total number of dofs
+		N = self.Space.dim()
+
+		# indices of free nodes
+		self.freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
 
 	def OperatorNonlinearReal(self):
 		if self.label=='incompressible':
@@ -166,7 +164,7 @@ class yaj():
 
 			# Viscous part of the stress lambda div(u)*Identity + div(2*mu*D)
 			def tau_cyl(v):
-				return -(2./3.)*div_cyl(v)*Identity(3) + 2.*d_cyl(v)
+				return -2./3.*div_cyl(v)*Identity(3) + 2.*d_cyl(v)
 			######################################################
 			
 			#mass (variational formulation)
@@ -234,10 +232,10 @@ class yaj():
 				print("viscosity prefactor: ", nu_current)
 				print("swirl intensity: ",	  eta_current)
 				self.mu=nu_current*self.U*self.D/self.Re #recalculate viscosity with prefactor
-				bcs=self.BoundaryConditions(eta_current) #for temporal-dependant boundary condition
+				self.BoundaryConditions(eta_current) #for temporal-dependant boundary condition
 				base_form  = self.OperatorNonlinearReal() #no azimuthal decomposition for base flow
 				dbase_form = derivative(base_form, self.q, self.Trial)
-				solve(base_form == 0, self.q, bcs, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
+				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'petsc','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
 				if self.label=='incompressible':
 					#write results in private_path for a given mu
 					u_r,p_r = self.q.split()
@@ -251,43 +249,34 @@ class yaj():
 		File( self.dnspath+"u.pvd") << u_r
 		File( self.dnspath+"baseflow000.xml") << self.q.vector()
 		print(self.dnspath+"baseflow000.xml written!")
-	
-	def SanityCheck(self):
-		self.mu=self.U*self.D/self.Re
-		self.bcp = self.BoundaryConditionsPerturbations()
-		self.freeinds = self.get_indices()
-		Aform = derivative(self.OperatorNonlinearReal(),self.InitialConditions(),self.Trial)
-		Aa = assemble(Aform)
-		rows, cols, values = as_backend_type(Aa).data()
-		Aa = sps.csr_matrix((values, cols, rows))
 
 	def ComputeAM(self):
+		parameters['linear_algebra_backend'] = 'Eigen'
 		#matrix A (m*m): Jacobian calculated by automatic derivative
 		perturbation_form_real = self.OperatorNonlinearReal()
 		Aform_real = derivative(perturbation_form_real,self.q,self.Trial)
 		Aa_real = assemble(Aform_real)
 		rows_real, cols_real, values_real = as_backend_type(Aa_real).data()
-		Aa = sps.csr_matrix((values_real, cols_real, rows_real))
+		Aa = sps.csc_matrix((values_real, cols_real, rows_real))
 		if self.m!=0:
 			perturbation_form_imag = self.OperatorNonlinearImaginary()
 			Aform_imag = derivative(perturbation_form_imag,self.q,self.Trial)
 			Aa_imag = assemble(Aform_imag)
 			rows_imag, cols_imag, values_imag = as_backend_type(Aa_imag).data()
-			Aa_imag = sps.csr_matrix((values_imag, cols_imag, rows_imag))
+			Aa_imag = sps.csc_matrix((values_imag, cols_imag, rows_imag))
 			Aa += 1j*Aa_imag
 		self.A = Aa[self.freeinds,:][:,self.freeinds]
 
-		#forcing norm Mf (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
+		#forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		#other userdefined norm can be used, to be added later
 		up = as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
 		M_form=inner(up,self.Test[0])*self.r*dx
 		Ma = assemble(M_form)
 		rows, cols, values = as_backend_type(Ma).data()
-		Ma = sps.csr_matrix((values, cols, rows))
+		Ma = sps.csc_matrix((values, cols, rows))
 		self.M = Ma[self.freeinds,:][:,self.freeinds]
 
 	def Resolvent(self,k,freq_list):
-		parameters['linear_algebra_backend'] = 'Eigen'
 		print("check base flow max and min in u: ",np.max(self.q.vector()[:]),np.min(self.q.vector()[:]))
 
 		#matrix B (m*m): with matrix A form altogether the resolvent operator
@@ -296,7 +285,7 @@ class yaj():
 		B_form=inner(up,self.Test[0])*self.r*dx
 		Ba = assemble(B_form)
 		rows, cols, values = as_backend_type(Ba).data()
-		Ba = sps.csr_matrix((values, cols, rows))
+		Ba = sps.csc_matrix((values, cols, rows))
 
 		#response norm Mr (m*m): here we choose the same as forcing norm
 		Mr, Mf = self.M, self.M
@@ -305,7 +294,7 @@ class yaj():
 		Q_form=inner(up,self.Test[0])*self.r*dx+pp*self.Test[1]*self.r*dx
 		Qa = assemble(Q_form)
 		rows, cols, values = as_backend_type(Qa).data()
-		Qa = sps.csr_matrix((values, cols, rows))
+		Qa = sps.csc_matrix((values, cols, rows))
 
 		#matrix P (m*n) reshapes forcing vector (n*1) to (m*1). In principal, it contains only 0 and 1 elements.
 		#It can also restrict the flow regions of forcing, to be implemented later. 
@@ -319,8 +308,7 @@ class yaj():
 		m=len(self.Space.dofmap().dofs())
 		n=len(row_ind)
 		col_ind=np.arange(n)
-		Pa=sps.csr_matrix((np.ones(n),(row_ind,col_ind)),(m,n))
-
+		Pa=sps.csc_matrix((np.ones(n),(row_ind,col_ind)),(m,n))
 
 		#matrix I (m*n) reshapes forcing matrix Mf (m*m) to I^T*Mf*I (n*n). The matrix I can be different from P in that very rare case remarked above.
 		Ia=Pa
@@ -353,13 +341,13 @@ class yaj():
 			ua = Function(self.Space) #declaration for efficiency
 
 			if self.label=='incompressible':
-				for n in range(k):
-					ua.vector()[self.freeinds] = P*f[:,k]
+				for i in range(k):
+					ua.vector()[self.freeinds] = np.abs(P*f[:,i])
 					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"forcing_u_nu=" +f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{k+1:1d}"+".pvd") << u
-					ua.vector()[self.freeinds] = r[:,k]
+					File(self.dnspath+self.resolvent_path+"forcing_u_nu=" +f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
+					ua.vector()[self.freeinds] = np.abs(r[:,i])
 					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"response_u_nu="+f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{k+1:1d}"+".pvd") << u
+					File(self.dnspath+self.resolvent_path+"response_u_nu="+f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
 			if self.label=='lowMach':
 				pass
 			
@@ -371,7 +359,6 @@ class yaj():
 			file.close()
 
 	def Eigenvalues(self,sigma,k,flag_mode,savematt,loadmatt):
-		parameters['linear_algebra_backend'] = 'Eigen'
 		print("check base flow max and min in u:")
 		print(np.max(self.q.vector()[:]))
 		print(np.min(self.q.vector()[:]))

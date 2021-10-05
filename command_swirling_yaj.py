@@ -1,3 +1,4 @@
+# coding: utf-8
 """
 Created on Fri Apr  9 16:23:28 2021
 
@@ -11,16 +12,15 @@ MeshPath='Mesh/jet/jet.xml'
 datapath='swirling_jet_incompressible/' #folder for results
 
 
-import_flag=0 #1: import base flow from file #0: not import
 flow_mode='incompressible' #currently only incompressible is implemented.
-yo=yaj(MeshPath,flow_mode,datapath,import_flag,0,.1,3)
-
-yo.SanityCheck()
+yo=yaj(MeshPath,flow_mode,datapath,False,0,1,10)
 
 #Newton solver
 yo.Newton()
 
 #efficiency
+yo.BoundaryConditionsPerturbations()
+yo.ComputeIndices()
 yo.ComputeAM()
 
 #resolvent analysis
