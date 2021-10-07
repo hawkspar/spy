@@ -13,7 +13,7 @@ datapath='swirling_jet_incompressible/' #folder for results
 
 
 flow_mode='incompressible' #currently only incompressible is implemented.
-yo=yaj(MeshPath,flow_mode,datapath,False,0,1,10)
+yo=yaj(MeshPath,flow_mode,datapath,True,0,1,10)
 
 #Newton solver
 yo.Newton()

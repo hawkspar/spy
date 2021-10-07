@@ -235,7 +235,7 @@ class yaj():
 				self.BoundaryConditions(eta_current) #for temporal-dependant boundary condition
 				base_form  = self.OperatorNonlinearReal() #no azimuthal decomposition for base flow
 				dbase_form = derivative(base_form, self.q, self.Trial)
-				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'petsc','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
+				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
 				if self.label=='incompressible':
 					#write results in private_path for a given mu
 					u_r,p_r = self.q.split()
