@@ -1,3 +1,5 @@
 jet_incompressible/**
 swirling_jet_incompressible/**
+validation/**
 __pycache__/**
+jitfailure*/**
