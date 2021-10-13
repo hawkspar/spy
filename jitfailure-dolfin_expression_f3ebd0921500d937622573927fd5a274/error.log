@@ -1,0 +1,14 @@
+/tmp/tmphir1doio/dolfin_expression_f3ebd0921500d937622573927fd5a274.cpp: In member function ‘virtual void dolfin::dolfin_expression_f3ebd0921500d937622573927fd5a274::eval(Eigen::Ref<Eigen::Matrix<double, -1, 1> >, Eigen::Ref<const Eigen::Matrix<double, -1, 1> >) const’:
+/tmp/tmphir1doio/dolfin_expression_f3ebd0921500d937622573927fd5a274.cpp:62:44: warning: comparisons like ‘X<=Y<=Z’ do not have their mathematical meaning [-Wparentheses]
+           values[1] = -2.72032227584368e+01<x[1]<-4.81481481481481e+00 ? 0.00000000000000e+00+7.84941616798328e-01*(x[1]--2.72032227584368e+01) : 0;
+                       ~~~~~~~~~~~~~~~~~~~~~^~~~~
+/tmp/tmphir1doio/dolfin_expression_f3ebd0921500d937622573927fd5a274.cpp:62:121: error: lvalue required as decrement operand
+           values[1] = -2.72032227584368e+01<x[1]<-4.81481481481481e+00 ? 0.00000000000000e+00+7.84941616798328e-01*(x[1]--2.72032227584368e+01) : 0;
+                                                                                                                         ^~
+/tmp/tmphir1doio/dolfin_expression_f3ebd0921500d937622573927fd5a274.cpp:62:123: error: expected ‘)’ before numeric constant
+           values[1] = -2.72032227584368e+01<x[1]<-4.81481481481481e+00 ? 0.00000000000000e+00+7.84941616798328e-01*(x[1]--2.72032227584368e+01) : 0;
+                                                                                                                           ^~~~~~~~~~~~~~~~~~~~
+/tmp/tmphir1doio/dolfin_expression_f3ebd0921500d937622573927fd5a274.cpp:62:148: error: expected ‘:’ before ‘;’ token
+           values[1] = -2.72032227584368e+01<x[1]<-4.81481481481481e+00 ? 0.00000000000000e+00+7.84941616798328e-01*(x[1]--2.72032227584368e+01) : 0;
+                                                                                                                                                    ^
+/tmp/tmphir1doio/dolfin_expression_f3ebd0921500d937622573927fd5a274.cpp:62:148: error: expected primary-expression before ‘;’ token

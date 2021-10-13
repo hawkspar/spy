@@ -43,7 +43,7 @@ class yaj():
 		self.Test  = self.GenerateTestFunction()
 		self.Trial = TrialFunction(self.Space)
 
-		self.q = self.InitialConditions() #main function space, start swirlless
+		self.q = self.InitialConditions() #main function space, start swirless
 		self.r = SpatialCoordinate(self.mesh)[1]
 		
 		if import_flag:
@@ -116,7 +116,7 @@ class yaj():
 			bcs_wall   		= DirichletBC(self.Space.sub(0), 	   (0,0,0), wall)	  # No flow at wall
 			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # No flow through central axis
 			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry) # No flow through central axis
-			bcs_inflow_x	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No inflow
+			bcs_inflow_x	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No radial inflow
 			self.bcp = [bcs_inflow_x,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
 		elif self.label=='lowMach':
 			pass
