@@ -114,10 +114,13 @@ class yaj():
 		symmetry,inlet,outlet,wall,misc=self.BoundaryGeometry()
 		if self.label=='incompressible':
 			bcs_wall   		= DirichletBC(self.Space.sub(0), 	   (0,0,0), wall)	  # No flow at wall
-			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # No flow through central axis
+			bcs_symmetry    = DirichletBC(self.Space.sub(0), 	   (0,0,0), symmetry) # No flow through central axis
+			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # Weaker conditions is m==0
 			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry) # No flow through central axis
-			bcs_inflow_x	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No radial inflow
-			self.bcp = [bcs_inflow_x,bcs_wall,bcs_symmetry_r,bcs_symmetry_th]
+			bcs_inflow_r	= DirichletBC(self.Space.sub(0).sub(1), 0, 	    inlet) 	  # No radial inflow
+			self.bcp = [bcs_inflow_r,bcs_wall]
+			if self.m==0: self.bcp.extend([bcs_symmetry_r,bcs_symmetry_th])
+			else:		  self.bcp.append(bcs_symmetry)
 		elif self.label=='lowMach':
 			pass
 			#return [bcs_square_rho,bcs_square_u,bcs_inflow_rho,bcs_inflow_u,bcs_upperandlower_u]

@@ -13,7 +13,7 @@ datapath='validation/' #folder for results
 
 
 flow_mode='incompressible' #currently only incompressible is implemented.
-yo=yaj(MeshPath,flow_mode,datapath,False,0,200,1,20)
+yo=yaj(MeshPath,flow_mode,datapath,False,0,200,1,10)
 
 #Newton solver
 yo.Newton()

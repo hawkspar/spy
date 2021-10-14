@@ -44,10 +44,10 @@ class yaj():
 		self.Re_s=.1
 		# Sponged Reynolds number
 		self.Re=interpolate(Expression("x[0]<=70 && x[1]<=10 ? "+str(Re)+" : " +\
-									   "x[0]<=70 && x[1]> 10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*(.5+.5*tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))) : "+\
-									   "x[0]> 70 && x[1]<=10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*(.5+.5*tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) : "+\
-									   							 str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*(.5+.5*tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50)))+"+\
-																		  "("+str(self.Re_s)+"-"+str(Re)+"-("+str(self.Re_s)+"-"+str(Re)+")*(.5+.5*tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))))*(.5+.5*tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) ",
+									   "x[0]<=70 && x[1]> 10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))) : "+\
+									   "x[0]> 70 && x[1]<=10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) : "+\
+									   							 str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50)))+"+\
+																		  "("+str(self.Re_s)+"-"+str(Re)+"-("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))))*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) ",
 									   degree=2), FunctionSpace(self.mesh,"Lagrange",1))
 		
 		if import_flag:
@@ -85,7 +85,7 @@ class yaj():
 	
 	#jet geometry
 	def BoundaryGeometry(self):
-		def symmetry(x, on_boundary):  #symétrie de l'écoulement stationnaire
+		def symmetry(x, on_boundary):  #symmétrie de l'écoulement stationnaire
 			return x[1] < 	  self.eps and on_boundary 
 		def inlet(	 x, on_boundary):     #entrée abscisse
 			return x[0] <     self.eps and on_boundary 
@@ -99,31 +99,36 @@ class yaj():
 		symmetry,inlet,outlet,misc=self.BoundaryGeometry()
 		# define boundary conditions for Newton/timestepper
 		if self.label=='incompressible':
-			uth_tanh = Expression(str(S)+'*(x[1]<1 ? x[1]*(2-x[1]*x[1]) : 1/x[1])', degree=2)
-			bcs_symmetry	= DirichletBC(self.Space.sub(0), 		(0,0,0),  symmetry) # Derivated from momentum eqs as r->0
-			bcs_misc_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   	  misc)
-			bcs_misc_th	  	= DirichletBC(self.Space.sub(0).sub(2),	0,   	  misc)  	# Free slip at top (x is Neumann as right hand side of variational formulation)
-			bcs_inflow_x  	= DirichletBC(self.Space.sub(0).sub(0), 1,  	  inlet) 	# Constant inflow
-			bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,	      inlet) 	# No radial flow
-			bcs_inflow_th	= DirichletBC(self.Space.sub(0).sub(2), uth_tanh, inlet) 	# Little theta flow
-			self.bc = [bcs_symmetry,bcs_misc_r,bcs_misc_th,bcs_inflow_x,bcs_inflow_r,bcs_inflow_th]
+			uth = Expression(str(S)+'*(x[1]<1 ? x[1]*(2-x[1]*x[1]) : 1/x[1])', degree=2)
+			bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0,   symmetry)  # Derivated from momentum eqs as r->0
+			bcs_symmetry_th	= DirichletBC(self.Space.sub(0).sub(2), 0,   symmetry)
+			bcs_misc_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   misc)
+			bcs_misc_th	  	= DirichletBC(self.Space.sub(0).sub(2),	0,   misc)  	# Free slip at top (x is Neumann as right hand side of variational formulation)
+			bcs_inflow_x  	= DirichletBC(self.Space.sub(0).sub(0), 1,   inlet) 	# Constant inflow
+			bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   inlet) 	# No radial flow
+			bcs_inflow_th	= DirichletBC(self.Space.sub(0).sub(2), uth, inlet) 	# Little theta flow
+			self.bc = [bcs_symmetry_r,bcs_symmetry_th,bcs_misc_r,bcs_misc_th,bcs_inflow_x,bcs_inflow_r,bcs_inflow_th]
 		elif self.label=='lowMach':
 			pass #not implemented
 			#return [bcs_square_u,bcs_square_rho,bcs_inflow_ux,bcs_inflow_uy,bcs_inflow_rho,bcs_upperandlower]
 	
 	def NeumannBoundaryConditions(self):
-		# Neumann at outlet
-		g = Expression("x[1] > 60-"+str(self.eps)+"? "+f"{0:.14e}".format(self.q[3]*self.Re_s)+": 0", degree=2)
-		return inner(as_vector([g,0,0]), self.Test[0])*self.r*ds
+		# Neumann at outlet (g must vanish on other boundaries to have other Neumanns verified)
+		ident = Expression("x[0] > 120-"+str(self.eps)+" ? 1 : 0", degree=2)
+		return inner(as_vector([self.q[3]*self.Re_s*ident,0,0]), self.Test[0])*self.r*ds
 
 	def BoundaryConditionsPerturbations(self):
 		symmetry,inlet,outlet,misc=self.BoundaryGeometry()
 		if self.label=='incompressible':
-			bcs_symmetry	= DirichletBC(self.Space.sub(0), 		(0,0,0),  symmetry) # Derivated from momentum eqs as r->0
-			bcs_misc_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   	  misc)
-			bcs_misc_th	  	= DirichletBC(self.Space.sub(0).sub(2),	0,   	  misc)  	# Free slip at top (x is Neumann as right hand side of variational formulation)
-			bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,	      inlet) 	# No radial flow
-			self.bcp = [bcs_symmetry,bcs_misc_r,bcs_misc_th,bcs_inflow_r]
+			bcs_misc_r   	= DirichletBC(self.Space.sub(0).sub(1), 0,    	misc)
+			bcs_misc_th	 	= DirichletBC(self.Space.sub(0).sub(2), 0,   	misc)     # Free slip at top (x is Neumann as right hand side of variational formulation)
+			bcs_inflow_r 	= DirichletBC(self.Space.sub(0).sub(1), 0,	    inlet)    # No radial flow
+			bcs_symmetry    = DirichletBC(self.Space.sub(0), 	   (0,0,0), symmetry) # Derivated from momentum eqs as r->0
+			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # Weaker conditions is m==0
+			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry)
+			self.bcp = [bcs_misc_r,bcs_misc_th,bcs_inflow_r]
+			if self.m==0: self.bcp.extend([bcs_symmetry_r,bcs_symmetry_th])
+			else:		  self.bcp.append(bcs_symmetry)
 		elif self.label=='lowMach':
 			pass
 			#return [bcs_square_rho,bcs_square_u,bcs_inflow_rho,bcs_inflow_u,bcs_upperandlower_u]
@@ -181,6 +186,7 @@ class yaj():
 								  u[0]*u[2].dx(0)+u[1]*u[2].dx(1)+u[2]*u[1]/self.r]), self.Test[0])*self.r*dx
 			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
 			F += inner(p, div_cyl(self.Test[0]))*self.r*dx
+			F -= self.NeumannBoundaryConditions()
 			return F
 
 	def OperatorNonlinearImaginary(self):
@@ -221,6 +227,7 @@ class yaj():
 								  self.m*u[2]*u[1]/self.r,
 								  self.m*u[2]*u[2]/self.r]), self.Test[0])*self.r*dx
 			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
+			#F -= self.NeumannBoundaryConditions()
 			return F
 
 		elif self.label=='lowMach':
@@ -239,7 +246,7 @@ class yaj():
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
 				self.BoundaryConditions(S_current) #for temporal-dependant boundary condition
-				base_form  = self.OperatorNonlinearReal()-self.NeumannBoundaryConditions() #no azimuthal decomposition for base flow
+				base_form  = self.OperatorNonlinearReal() #no azimuthal decomposition for base flow (so no imaginary part to operator)
 				dbase_form = derivative(base_form, self.q, self.Trial)
 				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
 				if self.label=='incompressible':
