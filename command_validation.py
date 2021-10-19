@@ -7,6 +7,8 @@ Created on Wed Oct  13 17:07:00 2021
 from validation_yaj import yaj
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy.interpolate import interp1d as inter
+from scipy.optimize import root
 
 MeshPath='Mesh/validation/validation.xml'
 
@@ -26,7 +28,10 @@ for i in range(n):
 plt.plot(Ss,w0s)
 plt.savefig(datapath+"validation_graph_w0.png")
 
-yo=yaj(MeshPath,flow_mode,datapath,False,-1,200,1,15)
+f_S=inter(Ss,w0s,'quadratic')
+print(root(f_S,.89).x)
+
+yo=yaj(MeshPath,flow_mode,datapath,True,-1,200,1,1)
 yo.Newton()
 
 #efficiency

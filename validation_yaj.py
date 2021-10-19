@@ -51,8 +51,16 @@ class yaj():
 									   degree=2), FunctionSpace(self.mesh,"Lagrange",1))
 		
 		if import_flag:
-			directory=self.dnspath+"baseflow000.xml"
-			File(directory) >> self.q.vector()
+			file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f.split('.')[-1]=='xml']
+			closest_file_name=self.dnspath+"baseflow000.xml"
+			d=1e12
+			for file_name in file_names:
+				S=float((file_name.split('=')[-1])[:-4])
+				if abs(self.S-S)<d:
+					d=abs(self.S-S)
+					closest_file_name=self.dnspath+self.private_path+file_name
+
+			File(closest_file_name) >> self.q.vector()
 	
 	def LoadMesh(self,path):
 		if path.split('.')[-1]=='xml':
