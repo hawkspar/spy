@@ -11,7 +11,6 @@ MeshPath='Mesh/jet/jet.xml'
 
 datapath='swirling_jet_incompressible/' #folder for results
 
-
 flow_mode='incompressible' #currently only incompressible is implemented.
 yo=yaj(MeshPath,flow_mode,datapath,True,0,1,10)
 

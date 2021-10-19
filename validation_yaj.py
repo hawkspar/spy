@@ -100,7 +100,6 @@ class yaj():
 		# define boundary conditions for Newton/timestepper
 		if self.label=='incompressible':
 			uth = Expression(str(S)+'*(x[1]<1 ? x[1]*(2-x[1]*x[1]) : 1/x[1])', degree=2)
-			#bcs_symmetry    = DirichletBC(self.Space.sub(0), 	   (0,0,0), symmetry) # Derivated from momentum eqs as r->0
 			bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0,   symmetry)  # Derivated from momentum eqs as r->0
 			bcs_symmetry_th	= DirichletBC(self.Space.sub(0).sub(2), 0,   symmetry)
 			bcs_misc_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   misc)
@@ -113,11 +112,6 @@ class yaj():
 			pass #not implemented
 			#return [bcs_square_u,bcs_square_rho,bcs_inflow_ux,bcs_inflow_uy,bcs_inflow_rho,bcs_upperandlower]
 	
-	def NeumannBoundaryConditions(self):
-		# Neumann at outlet (g must vanish on other boundaries to have other Neumanns verified)
-		ident = Expression("x[0] > 120-"+str(self.eps)+" ? 1 : 0", degree=2)
-		return inner(as_vector([self.q[3]*self.Re_s*ident,0,0]), self.Test[0])*self.r*ds
-
 	def BoundaryConditionsPerturbations(self):
 		symmetry,inlet,outlet,misc=self.BoundaryGeometry()
 		if self.label=='incompressible':
@@ -187,7 +181,6 @@ class yaj():
 								  u[0]*u[2].dx(0)+u[1]*u[2].dx(1)+u[2]*u[1]/self.r]), self.Test[0])*self.r*dx
 			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
 			F += inner(p, div_cyl(self.Test[0]))*self.r*dx
-			F -= self.NeumannBoundaryConditions()
 			return F
 
 	def OperatorNonlinearImaginary(self):
@@ -228,7 +221,6 @@ class yaj():
 								  self.m*u[2]*u[1]/self.r,
 								  self.m*u[2]*u[2]/self.r]), self.Test[0])*self.r*dx
 			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
-			#F -= self.NeumannBoundaryConditions()
 			return F
 
 		elif self.label=='lowMach':
@@ -240,7 +232,8 @@ class yaj():
 			####
 
 	def Newton(self):
-		Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S #Chebychev spacing
+		if self.n_S>1: Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S #Chebychev spacing
+		else: Ss=[self.S]
 		for S_current in Ss: 	#increase swirl
 			for nu_current in np.linspace(self.nu,1,self.n_nu): #decrease viscosity
 				print("viscosity prefactor: ", nu_current)
@@ -290,8 +283,15 @@ class yaj():
 		Ma = sps.csc_matrix((values, cols, rows))
 		self.M = Ma[self.freeinds,:][:,self.freeinds]
 
+	def Getw0(self):
+		#disqualify sponged regions
+		u,p=self.q.split(deepcopy=True)
+		u,v,w=u.split(deepcopy=True)
+		u=u.vector().get_local()
+		return np.min(u)
+
 	def Resolvent(self,k,freq_list):
-		print("check base flow max and min in u: ",np.max(self.q.vector()[:]),np.min(self.q.vector()[:]))
+		print("check base flow max and min in u:",np.max(self.q.vector()[:]),",",np.min(self.q.vector()[:]))
 
 		#matrix B (m*m): with matrix A form altogether the resolvent operator
 		up=as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
@@ -437,8 +437,4 @@ class yaj():
 						File(self.dnspath+self.eig_path+"anim_y_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << y
 		
 		#write eigenvalues
-		file = open(self.dnspath+self.eig_path+"evals.dat","w")
-		for val in vals:
-			print(np.real(val), np.imag(val))
-			file.write("%s\n" % val)
-		file.close()
+		np.savetxt(self.dnspath+self.eig_path+"evals.dat",vals)
