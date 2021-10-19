@@ -20,7 +20,7 @@ class yaj():
 		self.S  =S #swirl amplitude relative to main flow
 		self.n_S=n_S #number of swirl iterations
 		self.rp	  =.99 #relaxation_parameter
-		self.ae	  =1e-12 #absolute_tolerance
+		self.ae	  =1e-9 #absolute_tolerance
 
 		self.m  =m # azimuthal decomposition
 		self.eps=1e-12 #DOLFIN_EPS does not work well
@@ -100,6 +100,7 @@ class yaj():
 		# define boundary conditions for Newton/timestepper
 		if self.label=='incompressible':
 			uth = Expression(str(S)+'*(x[1]<1 ? x[1]*(2-x[1]*x[1]) : 1/x[1])', degree=2)
+			#bcs_symmetry    = DirichletBC(self.Space.sub(0), 	   (0,0,0), symmetry) # Derivated from momentum eqs as r->0
 			bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0,   symmetry)  # Derivated from momentum eqs as r->0
 			bcs_symmetry_th	= DirichletBC(self.Space.sub(0).sub(2), 0,   symmetry)
 			bcs_misc_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   misc)
@@ -120,12 +121,12 @@ class yaj():
 	def BoundaryConditionsPerturbations(self):
 		symmetry,inlet,outlet,misc=self.BoundaryGeometry()
 		if self.label=='incompressible':
-			bcs_misc_r   	= DirichletBC(self.Space.sub(0).sub(1), 0,    	misc)
-			bcs_misc_th	 	= DirichletBC(self.Space.sub(0).sub(2), 0,   	misc)     # Free slip at top (x is Neumann as right hand side of variational formulation)
-			bcs_inflow_r 	= DirichletBC(self.Space.sub(0).sub(1), 0,	    inlet)    # No radial flow
 			bcs_symmetry    = DirichletBC(self.Space.sub(0), 	   (0,0,0), symmetry) # Derivated from momentum eqs as r->0
 			bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # Weaker conditions is m==0
 			bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry)
+			bcs_misc_r   	= DirichletBC(self.Space.sub(0).sub(1), 0,    	misc)
+			bcs_misc_th	 	= DirichletBC(self.Space.sub(0).sub(2), 0,   	misc)     # Free slip at top (x is Neumann as right hand side of variational formulation)
+			bcs_inflow_r 	= DirichletBC(self.Space.sub(0).sub(1), 0,	    inlet)    # No radial flow
 			self.bcp = [bcs_misc_r,bcs_misc_th,bcs_inflow_r]
 			if self.m==0: self.bcp.extend([bcs_symmetry_r,bcs_symmetry_th])
 			else:		  self.bcp.append(bcs_symmetry)
@@ -357,10 +358,10 @@ class yaj():
 				for i in range(k):
 					ua.vector()[self.freeinds] = np.abs(P*f[:,i])
 					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"forcing_u_nu=" +f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
+					File(self.dnspath+self.resolvent_path+"forcing_u_nu=" +f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
 					ua.vector()[self.freeinds] = np.abs(r[:,i])
 					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"response_u_nu="+f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
+					File(self.dnspath+self.resolvent_path+"response_u_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
 			if self.label=='lowMach':
 				pass
 			
@@ -412,9 +413,9 @@ class yaj():
 				File(self.dnspath+self.eig_path+"evec_u_"+str(np.round(vals[i], decimals=3))+".pvd") << u
 			if self.label=='lowMach':
 				u,p,rho  = ua.split()
-				File(self.dnspath+self.eig_path+"evec_rho_nu="+f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_n="+str(i+1)+".pvd") << rho
-				File(self.dnspath+self.eig_path+"evec_u_nu="  +f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_n="+str(i+1)+".pvd") << u
-				File(self.dnspath+self.eig_path+"evec_p_nu="  +f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_n="+str(i+1)+".pvd") << p
+				File(self.dnspath+self.eig_path+"evec_rho_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_n="+str(i+1)+".pvd") << rho
+				File(self.dnspath+self.eig_path+"evec_u_nu="  +f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_n="+str(i+1)+".pvd") << u
+				File(self.dnspath+self.eig_path+"evec_p_nu="  +f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_n="+str(i+1)+".pvd") << p
 			if flag_video: # export animation
 				print("Exporting video for eig "+str(i+1))
 				angSteps = 20
@@ -430,10 +431,10 @@ class yaj():
 						u,p,rho  = ua.split()
 					if self.label=='lowMach_reacting':
 						u,p,rho,y  = ua.split()
-					File(self.dnspath+self.eig_path+"anim_rho_nu="+f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << rho
-					File(self.dnspath+self.eig_path+"anim_u_nu="+f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << u
+					File(self.dnspath+self.eig_path+"anim_rho_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << rho
+					File(self.dnspath+self.eig_path+"anim_u_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << u
 					if self.label=='lowMach_reacting':
-						File(self.dnspath+self.eig_path+"anim_y_nu="+f"{self.nu:00.3f}"+"_eta="+f"{self.eta:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << y
+						File(self.dnspath+self.eig_path+"anim_y_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << y
 		
 		#write eigenvalues
 		file = open(self.dnspath+self.eig_path+"evals.dat","w")
