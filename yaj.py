@@ -11,6 +11,7 @@ import numpy as np
 import os as os
 import scipy.sparse as sps
 import scipy.sparse.linalg as la
+from pdb import set_trace
 
 
 class yaj():
@@ -171,7 +172,6 @@ class yaj():
 			self.form=self.OperatorNonlinear()
 			self.bcs=self.BoundaryConditions() #for temporal-dependant boundary condition
 
-
 	def get_indices(self):
 		# Collect all dirichlet boundary dof indices
 		bcinds = []
@@ -263,8 +263,6 @@ class yaj():
 		#response norm Mr (m*m): here we choose the same as forcing norm
 		Mra = Mfa
 
-
-
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
 		Q_form=inner(up,self.Test[0])*self.r*dx+pp*self.Test[1]*self.r*dx
 		Qa = assemble(Q_form)
@@ -304,9 +302,6 @@ class yaj():
 		print('matrix Q size: '+str(Q_shape))
 		P_shape=np.shape(P)
 		print('matrix P size: '+str(P_shape))
-
-
-
 
 		for freq in freq_list:
 			R_inv=A-freq*1j*B
@@ -352,9 +347,6 @@ class yaj():
 				file.write("%s\n" % np.real(gain))
 			file.close()
 
-
-
-
 	def Eigenvalues(self,sigma,k,flag_mode,savematt,loadmatt):
 		parameters['linear_algebra_backend'] = 'Eigen'
 		print("check base flow max and min in u:")
@@ -386,7 +378,6 @@ class yaj():
 		M = Ma[freeinds,:][:,freeinds]
 		A = Aa[freeinds,:][:,freeinds]
 
-
 		if flag_mode==0:
 			print("save matrix to file "+savematt+" and quit!")
 			from scipy.io import savemat
@@ -402,6 +393,7 @@ class yaj():
 		elif flag_mode==2:			
 			print("Computing eigenvalues/vectors in Python!")
 			ncv = np.max([10,2*k])
+			set_trace()
 			vals, vecs = la.eigs(A, k=k, M=M, sigma=sigma, maxiter=60, tol=10e-13,ncv=ncv)
 		else:
 			print("Operation mode for eigenvalues is not correct. Nothing done.")
