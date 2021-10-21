@@ -1,8 +1,7 @@
-load('incompressible_jet.mat')
+load('AM_S=1.000_m=-1.mat')
 
-[V,D]=eigs(A*1j,M,50,0.25-0.3j);
-vals=diag(D)
+[V,D]=eigs(A,M,20,-.05-1j);
 
-plot(real(vals),imag(vals),'*')
+%plot(-imag(vals),-real(vals),'*')
 
-save('incompressible_jet.mat')
+save('validation_S=1.000_m=-1.mat')

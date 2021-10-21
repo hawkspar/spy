@@ -10,57 +10,61 @@ import numpy as np
 import os as os
 import scipy.sparse as sps
 import scipy.sparse.linalg as la
+#from pdb import set_trace
 
 class yaj():
-	def __init__(self,meshpath,flowmode,dnspath,import_flag,m,Re,S,n_S):
-
+	def __init__(self,meshpath,flowmode,dnspath,m,Re,S,n_S):
 		#control Newton solver
-		self.nu	  =1. #viscosity prefator
-		self.n_nu =1 #number of visocity iterations
-		self.S  =S #swirl amplitude relative to main flow
-		self.n_S=n_S #number of swirl iterations
-		self.rp	  =.99 #relaxation_parameter
-		self.ae	  =1e-9 #absolute_tolerance
+		self.nu	 =1. #viscosity prefator
+		self.n_nu=1 #number of visocity iterations
+		self.S   =S #swirl amplitude relative to main flow
+		self.n_S =n_S #number of swirl iterations
+		self.rp	 =.99 #relaxation_parameter
+		self.ae	 =1e-9 #absolute_tolerance
 
 		self.m  =m # azimuthal decomposition
 		self.eps=1e-12 #DOLFIN_EPS does not work well
 
-		#fundamental flow type
+		# Fundamental flow type
 		self.label  =flowmode
 		self.dnspath=dnspath
-		self.private_path  ='doing/'
-		self.resolvent_path='resolvent/'
-		self.eig_path	   ='eigenvalues/'
+		self.private_path  	='doing/'
+		self.resolvent_path	='resolvent/'
+		self.eig_path		='eigenvalues/'
+		#self.Re_string		='_Re='+str(Re)+'_'
+		self.baseflow_string='_S='+f"{S:00.3f}"
+		self.save_string   	=self.baseflow_string+'_m='+str(m)
 		
-		#geometry
+		# Geometry
 		self.mesh  = self.LoadMesh(meshpath)
 		self.Space = self.BuildFunctionSpace()
 		self.Test  = self.GenerateTestFunction()
 		self.Trial = TrialFunction(self.Space)
 
-		self.q = self.InitialConditions() #main function space, start swirlless
+		self.q = self.InitialConditions() # Main function space, start swirlless
 		self.r = SpatialCoordinate(self.mesh)[1]
-		#physical parameters
+		# Physical parameters
 		self.Re_s=.1
 		# Sponged Reynolds number
-		self.Re=interpolate(Expression("x[0]<=70 && x[1]<=10 ? "+str(Re)+" : " +\
+		self.Re=interpolate(Expression("x[0]<=70 && x[1]<=10 ? "+str(Re)+" : "+\
 									   "x[0]<=70 && x[1]> 10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))) : "+\
 									   "x[0]> 70 && x[1]<=10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) : "+\
 									   							 str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50)))+"+\
 																		  "("+str(self.Re_s)+"-"+str(Re)+"-("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))))*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) ",
 									   degree=2), FunctionSpace(self.mesh,"Lagrange",1))
-		
-		if import_flag:
-			file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f.split('.')[-1]=='xml']
-			closest_file_name=self.dnspath+"baseflow000.xml"
-			d=1e12
-			for file_name in file_names:
-				S=float((file_name.split('=')[-1])[:-4])
-				if abs(self.S-S)<d:
-					d=abs(self.S-S)
-					closest_file_name=self.dnspath+self.private_path+file_name
+ 
+		# Memoisation routine - find closest in Re and S
+		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='xml']
+		closest_file_name=self.dnspath+"last_baseflow.xml"
+		d=1e12
+		for file_name in file_names:
+			for entry in file_name[:-4].split('_'):
+				if entry[0]=='S': 	Sd =float(entry[2:])
+				#if entry[:1]=='Re': Red=float(entry[3:])
+			fd=abs(S-Sd)#+abs(Re-Red)
+			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+file_name
 
-			File(closest_file_name) >> self.q.vector()
+		File(closest_file_name) >> self.q.vector()
 	
 	def LoadMesh(self,path):
 		if path.split('.')[-1]=='xml':
@@ -91,7 +95,7 @@ class yaj():
 		if self.label=='lowMach': U_init.append("1e5")
 		return interpolate(Expression(tuple(U_init), degree=2), self.Space)
 	
-	#jet geometry
+	# Jet geometry
 	def BoundaryGeometry(self):
 		def symmetry(x, on_boundary):  #symmétrie de l'écoulement stationnaire
 			return x[1] < 	  self.eps and on_boundary 
@@ -177,23 +181,21 @@ class yaj():
 				return .5*(aa + aa.T)
 
 			# Viscous part of the stress lambda div(u)*Identity + div(2*mu*D)
-			def tau_cyl(v):
-				return -2./3.*div_cyl(v)*Identity(3) + 2.*d_cyl(v)
+			def tau_cyl(v): return -2./3.*div_cyl(v)*Identity(3) + 2.*d_cyl(v)
 			######################################################
 			
 			#mass (variational formulation)
 			F = div_cyl(u)*self.Test[1]*self.r*dx
 			#momentum (different test functions and IBP)
-			F -= inner(as_vector([u[0]*u[0].dx(0)+u[1]*u[0].dx(1),
-								  u[0]*u[1].dx(0)+u[1]*u[1].dx(1)-u[2]*u[2]/self.r,
-								  u[0]*u[2].dx(0)+u[1]*u[2].dx(1)+u[2]*u[1]/self.r]), self.Test[0])*self.r*dx
-			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
-			F += inner(p, div_cyl(self.Test[0]))*self.r*dx
+			F += 		 inner(grad_cyl(u)*u, 		 self.Test[0]) *self.r*dx # Convection
+			F += self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx # Diffusion
+			F -= 		 inner(p, 			 div_cyl(self.Test[0]))*self.r*dx # Pressure
 			return F
 
 	def OperatorNonlinearImaginary(self):
 		if self.label=='incompressible':
 			u=as_vector((self.q[0],self.q[1],self.q[2]))
+			p=self.q[3]
 
 			######################################################
 			# Can's code for cylindrical coordinates
@@ -204,9 +206,9 @@ class yaj():
 
 			# Gradient with x[0] is x and x[1] is r
 			def grad_cyl(v):
-				return as_tensor([[0, 0, self.m*v[0]/self.r],
-								  [0, 0, self.m*v[1]/self.r],
-								  [0, 0, self.m*v[2]/self.r]])
+				return self.m*as_tensor([[0, 0, v[0]],
+										 [0, 0, v[1]],
+										 [0, 0, v[2]]])/self.r
 			
 			def div_cyl(v): return self.m*v[2]/self.r
 
@@ -218,17 +220,15 @@ class yaj():
 				return .5*(aa + aa.T)
 
 			# Viscous part of the stress lambda div(u)*Identity + div(2*mu*D)
-			def tau_cyl(v):
-				return -(2./3.)*div_cyl(v)*Identity(3) + 2.*d_cyl(v)
+			def tau_cyl(v): return -(2./3.)*div_cyl(v)*Identity(3) + 2.*d_cyl(v)
 			######################################################
 			
 			#mass (variational formulation)
 			F = div_cyl(u)*self.Test[1]*self.r*dx
 			#momentum (different test functions and IBP)
-			F -= inner(as_vector([self.m*u[2]*u[0]/self.r,
-								  self.m*u[2]*u[1]/self.r,
-								  self.m*u[2]*u[2]/self.r]), self.Test[0])*self.r*dx
-			F -= self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx
+			F += 		 inner(grad_cyl(u)*u, 		 self.Test[0]) *self.r*dx # Convection
+			F += self.mu*inner(grad_cyl(u), grad_cyl(self.Test[0]))*self.r*dx # Diffusion
+			F -= 		 inner(p, 			 div_cyl(self.Test[0]))*self.r*dx # Pressure
 			return F
 
 		elif self.label=='lowMach':
@@ -240,10 +240,10 @@ class yaj():
 			####
 
 	def Newton(self):
-		if self.n_S>1: Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S #Chebychev spacing
-		else: Ss=[self.S]
-		for S_current in Ss: 	#increase swirl
-			for nu_current in np.linspace(self.nu,1,self.n_nu): #decrease viscosity
+		if self.n_S>1: Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S # Chebychev spacing
+		else: 		   Ss=[self.S]
+		for S_current in Ss: 	# Increase swirl
+			for nu_current in np.linspace(self.nu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
 				print("viscosity prefactor: ", nu_current)
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
@@ -251,19 +251,19 @@ class yaj():
 				base_form  = self.OperatorNonlinearReal() #no azimuthal decomposition for base flow (so no imaginary part to operator)
 				dbase_form = derivative(base_form, self.q, self.Trial)
 				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
-				if self.label=='incompressible':
+				if self.label=='incompressible' and nu_current==1:
 					#write results in private_path for a given mu
 					u_r,p_r = self.q.split()
-					File( self.dnspath+self.private_path+"u_nu="	   +f"{nu_current:00.3f}"+"_S="+f"{S_current:00.3f}"+".pvd") << u_r
-					File( self.dnspath+self.private_path+"baseflow_nu="+f"{nu_current:00.3f}"+"_S="+f"{S_current:00.3f}"+".xml") << self.q.vector()
-					print(self.dnspath+self.private_path+"baseflow_nu="+f"{nu_current:00.3f}"+"_S="+f"{S_current:00.3f}"+".xml written!")
+					File(self.dnspath+self.private_path+"u_S="		 +f"{S_current:00.3f}"+".pvd") << u_r
+					File(self.dnspath+self.private_path+"baseflow_S="+f"{S_current:00.3f}"+".xml") << self.q.vector()
+					print(".xml written!")
 				elif self.label=='lowMach':
 					pass
 			
 		#write result of current mu
-		File( self.dnspath+"u.pvd") << u_r
-		File( self.dnspath+"baseflow000.xml") << self.q.vector()
-		print(self.dnspath+"baseflow000.xml written!")
+		File( self.dnspath+"last_u.pvd") << u_r
+		File( self.dnspath+"last_baseflow.xml") << self.q.vector()
+		print(self.dnspath+"last_baseflow.xml written!")
 
 	def ComputeAM(self):
 		parameters['linear_algebra_backend'] = 'Eigen'
@@ -354,7 +354,7 @@ class yaj():
 			LHS = la.LinearOperator((min(P_shape),min(P_shape)),matvec=lhs,dtype='complex')
 
 			# forcing linear operator is on the rhs M=I.transpose()*Mf*I
-			gains,eigenvectors = la.eigs(LHS, k=k, M=I.transpose()*Mf*I, sigma=None,  maxiter=100, tol=1e-15, return_eigenvectors=True)
+			gains,eigenvectors = la.eigs(LHS, k=k, M=I.transpose()*Mf*I, sigma=None,  maxiter=100, tol=self.ae, return_eigenvectors=True)
 			
 			#write forcing and response
 			f=eigenvectors
@@ -366,19 +366,15 @@ class yaj():
 				for i in range(k):
 					ua.vector()[self.freeinds] = np.abs(P*f[:,i])
 					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"forcing_u_nu=" +f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
+					File(self.dnspath+self.resolvent_path+"forcing_u"+self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
 					ua.vector()[self.freeinds] = np.abs(r[:,i])
 					u,p  = ua.split()
-					File(self.dnspath+self.resolvent_path+"response_u_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
+					File(self.dnspath+self.resolvent_path+"response_u"+self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
 			if self.label=='lowMach':
 				pass
 			
 			#write gains
-			file = open(self.dnspath+self.resolvent_path+"gains.dat","w")
-			for gain in gains:
-				print(gain)
-				file.write("%s\n" % np.real(gain))
-			file.close()
+			np.savetxt(self.dnspath+self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.real(gains))
 
 	def Eigenvalues(self,sigma,k,flag_mode,savematt,loadmatt):
 		print("check base flow max and min in u:")
@@ -390,10 +386,10 @@ class yaj():
 
 		#RHS
 		if flag_mode==0:
-			print("save matrix to file "+savematt+" and quit!")
+			print("save matrix to file "+savematt+self.save_string+".mat and quit!")
 			from scipy.io import savemat
 			mdic = {"A": self.A, "M": self.M}
-			savemat(savematt, mdic)
+			savemat(savematt+self.save_string+".mat", mdic)
 			return 0
 		elif flag_mode==1:
 			print("load matlab result from file "+loadmatt)
@@ -403,8 +399,8 @@ class yaj():
 			vals=np.diag(mdic['D'])
 		elif flag_mode==2:			
 			print("Computing eigenvalues/vectors in Python!")
-			ncv = np.max([10,2*k])
-			vals, vecs = la.eigs(self.A, k=k, M=self.M, sigma=sigma, maxiter=60, tol=1e-12,ncv=ncv)
+			ncv = max(10,2*k)
+			vals, vecs = la.eigs(self.A, k=k, M=self.M, sigma=sigma, maxiter=60, tol=self.ae, ncv=ncv)
 		else:
 			print("Operation mode for eigenvalues is not correct. Nothing done.")
 			return 0
@@ -412,18 +408,16 @@ class yaj():
 		# only writing real parts of eigenvectors to file
 		ua = Function(self.Space)
 		flag_video=0 #1: export animation
-		for i in range(k):
-			ua.vector()[self.freeinds] = vecs[:,i]
-			File(self.dnspath+self.eig_path+"evec"+str(i+1)+".xml") << ua.vector()
+		for i in range(0,k+1,k//10+1):
+			ua.vector()[self.freeinds] = vecs[:,i].real
 
 			if self.label=='incompressible':
 				u,p  = ua.split()
-				File(self.dnspath+self.eig_path+"evec_u_"+str(np.round(vals[i], decimals=3))+".pvd") << u
 			if self.label=='lowMach':
 				u,p,rho  = ua.split()
-				File(self.dnspath+self.eig_path+"evec_rho_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_n="+str(i+1)+".pvd") << rho
-				File(self.dnspath+self.eig_path+"evec_u_nu="  +f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_n="+str(i+1)+".pvd") << u
-				File(self.dnspath+self.eig_path+"evec_p_nu="  +f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_n="+str(i+1)+".pvd") << p
+				File(self.dnspath+self.eig_path+"evec_rho"+self.save_string+"_n="+str(i+1)+".pvd") << rho
+			File(	 self.dnspath+self.eig_path+"evec_u"  +self.save_string+"_n="+str(i+1)+".pvd") << u
+			File(	 self.dnspath+self.eig_path+"evec_p"  +self.save_string+"_n="+str(i+1)+".pvd") << p
 			if flag_video: # export animation
 				print("Exporting video for eig "+str(i+1))
 				angSteps = 20
@@ -443,6 +437,5 @@ class yaj():
 					File(self.dnspath+self.eig_path+"anim_u_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << u
 					if self.label=='lowMach_reacting':
 						File(self.dnspath+self.eig_path+"anim_y_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << y
-		
 		#write eigenvalues
-		np.savetxt(self.dnspath+self.eig_path+"evals.dat",vals)
+		np.savetxt(self.dnspath+self.eig_path+"evals"+self.save_string+".dat",np.column_stack([vals.real, vals.imag]))
