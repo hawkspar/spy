@@ -140,85 +140,58 @@ class yaj():
 		self.freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
 
 	# Gradient with x[0] is x, x[1] is r, x[2] is theta
-	def grad_cyl_re(self,v):
+	def GradientReal(self,v):
 		return as_tensor([[v[0].dx(0), v[0].dx(1),  0],
 						  [v[1].dx(0), v[1].dx(1), -v[2]/self.r],
 						  [v[2].dx(0), v[2].dx(1),  v[1]/self.r]])
 
-	def grad_cyl_im(self,v):
+	def GradientImaginary(self,v):
 		return self.m*as_tensor([[0, 0, v[0]],
 								 [0, 0, v[1]],
 								 [0, 0, v[2]]])/self.r
 
-	def div_cyl_re(self,v): return v[0].dx(0) + (self.r*v[1]).dx(1)/self.r
+	# Divergent with x[0] is x, x[1] is r, x[2] is theta
+	def DivergentReal(self,v): return v[0].dx(0) + (self.r*v[1]).dx(1)/self.r
 	
-	def div_cyl_im(self,v): return self.m*v[2]/self.r
+	def DivergentImaginary(self,v): return self.m*v[2]/self.r
 
-	def NonlinearOperator(self):
-		u=as_vector((self.q[0],self.q[1],self.q[2]))
-		p=self.q[3]
+	# Simple extractor
+	def ExtractUP(self,q): return as_vector((q[0],q[1],q[2])),q[3]
+
+	def NonlinearOperator(self,perturbations):
+		u,p=self.ExtractUP(self.q)
 		
 		#mass (variational formulation)
-		F = self.div_cyl_re(u)*self.Test[1]*self.r*dx
+		F  = self.DivergentReal(u)*self.Test[1]*self.r*dx
 		#momentum (different test functions and IBP)
-		F += 		 inner(self.grad_cyl_re(u)*u, 		 		 self.Test[0]) *self.r*dx # Convection
-		F += self.mu*inner(self.grad_cyl_re(u), self.grad_cyl_re(self.Test[0]))*self.r*dx # Diffusion
-		F -= 		 inner(p, 			 		 self.div_cyl_re(self.Test[0]))*self.r*dx # Pressure
+		F += 		 inner(self.GradientReal(u)*u, 		 	     			 self.Test[0]) *self.r*dx # Convection
+		F += self.mu*inner(self.GradientReal(u), 		   self.GradientReal(self.Test[0]))*self.r*dx # Diffusion
+		F -= 		 inner(p, 			 	     		  self.DivergentReal(self.Test[0]))*self.r*dx # Pressure
 		return F
 
 	def NonlinearOperatorPerturbationsReal(self):
-		u_r=as_vector((self.q[0],self.q[1],self.q[2]))
-		p_r=self.q[3]
-		u_i=as_vector((self.q[0],self.q[1],self.q[2]))
-		p_i=self.q[3]
+		u,p=self.ExtractUP(self.q)
 		
 		#mass (variational formulation)
-		F  = self.div_cyl_re(u_r)*self.Test[1]*self.r*dx
-		F -= self.div_cyl_im(u_i)*self.Test[1]*self.r*dx
+		F  = self.DivergentReal(u)*self.Test[1]*self.r*dx
 		#momentum (different test functions and IBP)
-		F += 		 inner(self.grad_cyl_re(u_r)*u_r, 		 	   self.Test[0]) *self.r*dx # Convection
-		F -= 		 inner(self.grad_cyl_re(u_i)*u_i, 		 	   self.Test[0]) *self.r*dx
-		F -= 		 inner(self.grad_cyl_im(u_i)*u_r, 		 	   self.Test[0]) *self.r*dx
-		F -= 		 inner(self.grad_cyl_im(u_r)*u_i,  	 		   self.Test[0]) *self.r*dx
-		F += self.mu*inner(self.grad_cyl_re(u_r), self.grad_cyl_re(self.Test[0]))*self.r*dx # Diffusion
-		F -= self.mu*inner(self.grad_cyl_im(u_r), self.grad_cyl_im(self.Test[0]))*self.r*dx
-		F -= self.mu*inner(self.grad_cyl_im(u_i), self.grad_cyl_re(self.Test[0]))*self.r*dx
-		F -= self.mu*inner(self.grad_cyl_re(u_i), self.grad_cyl_im(self.Test[0]))*self.r*dx
-		F -= 		 inner(p_r, 			 	   self.div_cyl_re(self.Test[0]))*self.r*dx # Pressure
-		F += 		 inner(p_i, 			 	   self.div_cyl_im(self.Test[0]))*self.r*dx
+		F += 		 inner(self.GradientReal(u)*u, 		 	     			 self.Test[0]) *self.r*dx # Convection
+		F += self.mu*inner(self.GradientReal(u), 		   self.GradientReal(self.Test[0]))*self.r*dx # Diffusion
+		F -= self.mu*inner(self.GradientImaginary(u), self.GradientImaginary(self.Test[0]))*self.r*dx
+		F -= 		 inner(p, 			 	     		  self.DivergentReal(self.Test[0]))*self.r*dx # Pressure
 		return F
 
 	def NonlinearOperatorPerturbationsImaginary(self):
-		u_r=as_vector((self.q[0],self.q[1],self.q[2]))
-		p_r=self.q[3]
-		u_i=as_vector((self.q[0],self.q[1],self.q[2]))
-		p_i=self.q[3]
-		
-		#mass (variational formulation)
-		F  = self.div_cyl_re(u_i)*self.Test[1]*self.r*dx
-		F += self.div_cyl_im(u_r)*self.Test[1]*self.r*dx
-		#momentum (different test functions and IBP)
-		F += 		 inner(self.grad_cyl_im(u_r)*u_r, 		 	   self.Test[0]) *self.r*dx # Convection
-		F += 		 inner(self.grad_cyl_re(u_i)*u_r, 		 	   self.Test[0]) *self.r*dx
-		F += 		 inner(self.grad_cyl_re(u_r)*u_i, 		 	   self.Test[0]) *self.r*dx
-		F -= 		 inner(self.grad_cyl_im(u_i)*u_i,  	 		   self.Test[0]) *self.r*dx
-		F += self.mu*inner(self.grad_cyl_im(u_r), self.grad_cyl_re(self.Test[0]))*self.r*dx # Diffusion
-		F += self.mu*inner(self.grad_cyl_re(u_i), self.grad_cyl_re(self.Test[0]))*self.r*dx
-		F += self.mu*inner(self.grad_cyl_re(u_r), self.grad_cyl_im(self.Test[0]))*self.r*dx
-		F -= self.mu*inner(self.grad_cyl_im(u_i), self.grad_cyl_im(self.Test[0]))*self.r*dx
-		F -= 		 inner(p_i, 			 	   self.div_cyl_re(self.Test[0]))*self.r*dx # Pressure
-		F -= 		 inner(p_r, 			 	   self.div_cyl_im(self.Test[0]))*self.r*dx
-
 		u=as_vector((self.q[0],self.q[1],self.q[2]))
 		p=self.q[3]
-
+		
 		#mass (variational formulation)
-		F = self.div_cyl_im(u)*self.Test[1]*self.r*dx
+		F = self.DivergentImaginary(u)*self.Test[1]*self.r*dx
 		#momentum (different test functions and IBP)
-		F += 		 inner(self.grad_cyl_im(u)*u, 		 		 self.Test[0]) *self.r*dx # Convection
-		F += self.mu*inner(self.grad_cyl_re(u), self.grad_cyl_im(self.Test[0]))*self.r*dx # Diffusion
-		F += self.mu*inner(self.grad_cyl_im(u), self.grad_cyl_re(self.Test[0]))*self.r*dx # Diffusion
-		F -= 		 inner(p, 			 		 self.div_cyl_im(self.Test[0]))*self.r*dx # Pressure
+		F += 		 inner(self.GradientImaginary(u)*u, 		 	    self.Test[0]) *self.r*dx # Convection
+		F += self.mu*inner(self.GradientImaginary(u), self.GradientReal(self.Test[0]))*self.r*dx # Diffusion
+		F += self.mu*inner(self.GradientReal(u), self.GradientImaginary(self.Test[0]))*self.r*dx
+		F -= 		 inner(p, 			 	   	self.DivergentImaginary(self.Test[0]))*self.r*dx # Pressure
 		return F
 
 	def Newton(self):
@@ -230,7 +203,7 @@ class yaj():
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
 				self.BoundaryConditions(S_current) #for temporal-dependant boundary condition
-				base_form  = self.NonlinearOperator() #no azimuthal decomposition for base flow (so no imaginary part to operator)
+				base_form  = self.NonlinearOperatorReal(False) #no azimuthal decomposition for base flow (so no imaginary part to operator)
 				dbase_form = derivative(base_form, self.q, self.Trial)
 				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':self.rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":self.ae}})
 				if nu_current==1:
@@ -247,28 +220,26 @@ class yaj():
 
 	def ComputeAM(self):
 		parameters['linear_algebra_backend'] = 'Eigen'
-		
-		qi = interpolate(Expression(tuple(["0.","0.","0.","0."]), degree=2), self.Space)
-		self.qc=as_vector((self.q[0],self.q[1],self.q[2],self.q[3],
-							   qi[0],	 qi[1],	   qi[2],	 qi[3]))
 		#matrix A (m*m): Jacobian calculated by automatic derivative
-		perturbation_form_real = self.NonlinearOperatorPerturbationsReal()
-		Aform_real = derivative(perturbation_form_real,self.qc,self.Trial)
+		perturbation_form_real = self.NonlinearOperatorReal(True)
+		Aform_real = derivative(perturbation_form_real,self.q,self.Trial)
 		Aa_real = assemble(Aform_real)
 		rows_real, cols_real, values_real = as_backend_type(Aa_real).data()
-		Aa = sps.csc_matrix((values_real, cols_real, rows_real))
-		if self.m!=0:
+		if self.m==0:
+			Aa = sps.csc_matrix((values_real, cols_real, rows_real))
+		else:
+			Aa = sps.csc_matrix((values_real, cols_real, rows_real),dtype=np.complex)
 			perturbation_form_imag = self.NonlinearOperatorPerturbationsImaginary()
-			Aform_imag = derivative(perturbation_form_imag,self.qc,self.Trial)
+			Aform_imag = derivative(perturbation_form_imag,self.q,self.Trial)
 			Aa_imag = assemble(Aform_imag)
 			rows_imag, cols_imag, values_imag = as_backend_type(Aa_imag).data()
-			Aa_imag = sps.csc_matrix((values_imag, cols_imag, rows_imag))
+			Aa_imag = sps.csc_matrix((values_imag, cols_imag, rows_imag),dtype=np.complex)
 			Aa += 1j*Aa_imag
 		self.A = Aa[self.freeinds,:][:,self.freeinds]
 
 		#forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		#other userdefined norm can be used, to be added later
-		up = as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
+		up,_ = self.ExtractUP(self.Trial)
 		M_form=inner(up,self.Test[0])*self.r*dx
 		Ma = assemble(M_form)
 		rows, cols, values = as_backend_type(Ma).data()
@@ -276,7 +247,6 @@ class yaj():
 		self.M = Ma[self.freeinds,:][:,self.freeinds]
 
 	def Getw0(self):
-		#disqualify sponged regions
 		u,p=self.q.split(deepcopy=True)
 		u,v,w=u.split(deepcopy=True)
 		u=u.vector().get_local()
@@ -286,8 +256,7 @@ class yaj():
 		print("check base flow max and min in u:",np.max(self.q.vector()[:]),",",np.min(self.q.vector()[:]))
 
 		#matrix B (m*m): with matrix A form altogether the resolvent operator
-		up=as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
-		pp=self.Trial[3]
+		up,pp=self.ExtractUP(self.Trial)
 		B_form=inner(up,self.Test[0])*self.r*dx
 		Ba = assemble(B_form)
 		rows, cols, values = as_backend_type(Ba).data()
@@ -330,7 +299,7 @@ class yaj():
 		print('matrix P size: '+str(P_shape))
 
 		for freq in freq_list:
-			R = la.splu(self.A-2*np.pi*1j*freq*B,permc_spec=3)
+			R = la.splu(-self.A-2*np.pi*1j*freq*B,permc_spec=3)
 			# get response linear operator P^H*Q^H*R^H*Mr*R*Q*P
 			def lhs(f):
 				return P.transpose()*Q.transpose()*R.solve(Mr*R.solve(Q*P*f),trans='H')

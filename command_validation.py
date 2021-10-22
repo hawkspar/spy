@@ -38,8 +38,10 @@ yo.BoundaryConditionsPerturbations()
 yo.ComputeIndices()
 yo.ComputeAM()
 
+yo.Resolvent(1,[4.*np.pi])
+
 #modal analysis
-flag_mode=1 #0: save matrix as .mat with file name "savematt"; 1: load result matrix from .mat with file name "loadmatt"; 2: calculate eigenvalues in python  
+flag_mode=2 #0: save matrix as .mat with file name "savematt"; 1: load result matrix from .mat with file name "loadmatt"; 2: calculate eigenvalues in python  
 savematt="Matlab/AM"
 loadmatt="Matlab/validation_S=1.000_m=-1.mat"
 
