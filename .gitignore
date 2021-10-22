@@ -3,3 +3,4 @@ swirling_jet_incompressible/**
 validation/**
 __pycache__/**
 jitfailure*/**
+**.mat

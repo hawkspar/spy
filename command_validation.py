@@ -6,7 +6,6 @@ Created on Wed Oct  13 17:07:00 2021
 """
 from validation_yaj import yaj
 import numpy as np
-import matplotlib
 from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d as inter
 from scipy.optimize import root
@@ -14,13 +13,12 @@ from scipy.optimize import root
 MeshPath='Mesh/validation/validation.xml'
 
 datapath='validation/' #folder for results
-flow_mode='incompressible' #currently only incompressible is implemented.
 """
 n=100
 Ss=np.linspace(0,1.8,n)
 w0s=np.empty(n)
 for i in range(n):
-    yo=yaj(MeshPath,flow_mode,datapath,0,200,Ss[i],1)
+    yo=yaj(MeshPath,datapath,0,200,Ss[i],1)
 
     #Newton solver
     yo.Newton()
@@ -32,7 +30,7 @@ plt.savefig(datapath+"validation_graph_w0.png")
 f_S=inter(Ss,w0s,'quadratic')
 print(root(f_S,.89).x)
 """
-yo=yaj(MeshPath,flow_mode,datapath,-1,200,1,1)
+yo=yaj(MeshPath,datapath,-1,200,1,1)
 yo.Newton()
 
 #efficiency
