@@ -4,7 +4,15 @@ Created on Wed Oct 13 13:50:00 2021
 
 @author: hawkspar
 """
-from dolfin import *
+#from dolfin import *
+from mpi4py import MPI
+from dolfinx import Function, FunctionSpace, solve, Mesh, SpatialCoordinate
+from dolfinx.function import Constant, Expression
+from dolfinx.fem.assemble import assemble_scalar
+from dolfinx.io import XDMFFile
+import meshio
+import PETSc
+from ufl import TestFunction, TrialFunction, dx, inner, FiniteElement, VectorElement, MixedElement, as_vector
 import numpy as np
 import os as os
 import scipy.sparse as sps
@@ -34,7 +42,7 @@ class yaj():
 		self.save_string   	=self.baseflow_string+'_m='+str(m)
 		
 		# Geometry
-		self.mesh  = self.LoadMesh(meshpath)
+		self.LoadMesh(meshpath)
 		self.Space = self.BuildFunctionSpace()
 		self.Test  = self.GenerateTestFunction()
 		self.Trial = TrialFunction(self.Space)
@@ -44,16 +52,19 @@ class yaj():
 		# Physical parameters
 		self.Re_s=.1
 		# Sponged Reynolds number
-		self.Re=interpolate(Expression("x[0]<=70 && x[1]<=10 ? "+str(Re)+" : "+\
-									   "x[0]<=70 && x[1]> 10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))) : "+\
-									   "x[0]> 70 && x[1]<=10 ? "+str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) : "+\
-									   							 str(Re)+"+("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50)))+"+\
-																		  "("+str(self.Re_s)+"-"+str(Re)+"-("+str(self.Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))))*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) ",
-									   degree=2), FunctionSpace(self.mesh,"Lagrange",1))
- 
+		self.Re=Function(FunctionSpace(self.mesh,("Lagrange",2)))
+		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*abs(a-b)/50)))
+		def Ref(x):
+			if   x[0]<=70 and x[1]<=10: return Re
+			elif x[0]<=70 and x[1]> 10: return Re+(self.Re_s-Re)*csi(x[1],10)
+			else: 						return Ref([x[0],10])+(self.Re_s-Ref([x[0],10]))*csi(x[1],10)
+		self.Re.interpolate(Ref)
+
+		self.comm=MPI.COMM_WORLD
+		"""
 		# Memoisation routine - find closest in Re and S
-		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='xml']
-		closest_file_name=self.dnspath+"last_baseflow.xml"
+		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='dat']
+		closest_file_name=self.dnspath+"last_baseflow.dat"
 		d=1e12
 		for file_name in file_names:
 			for entry in file_name[:-4].split('_'):
@@ -62,32 +73,40 @@ class yaj():
 			fd=abs(S-Sd)#+abs(Re-Red)
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+file_name
 
-		File(closest_file_name) >> self.q.vector()
+		viewer = PETSc.Viewer().createMPIIO(closest_file_name,'r',self.comm)
+		self.q.vector.load(viewer)
+		self.q.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+		"""
 	
+	def ConvertMesh(self,path):
+		msh = meshio.read(path)
+		for cell in msh.cells:
+			quad_cells = cell.data
+		for key in msh.cell_data_dict["gmsh:physical"].keys():
+			if key == "quad":
+				quad_data = msh.cell_data_dict["gmsh:physical"][key]
+		mesh =meshio.Mesh(points=msh.points,
+								cells=[("quad", quad_cells)],
+								cell_data={"name_to_read":[quad_data]})
+		meshio.write(path[:-3]+"xdmf",mesh)
+
 	def LoadMesh(self,path):
-		if path.split('.')[-1]=='xml':
-			# Read mesh from xml file
-			print ('Reading mesh in XML format from "'+path+'"...')
-			return Mesh(path)
-		elif path.split('.')[-1]=='msh':
-			# Convert mesh from .msh to .xml using dolfin-convert
-			print('Converting mesh from msh(gmsh) format to .xml')
-			os.system('dolfin-convert '+path+' '+path[:-4]+'.xml')
-			return Mesh(path[:-4]+'.xml')
+		try:
+			with XDMFFile(MPI.COMM_WORLD, path, "r") as file:
+				self.mesh=file.read_mesh(name="Grid")
+		except ValueError:
+			self.ConvertMesh(path[:-4]+"msh")
 
 	def BuildFunctionSpace(self):
 		FE_vector=VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
 		FE_scalar=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
-		FE_Space=[FE_vector,FE_scalar] #velocity & pressure
-		return FunctionSpace(self.mesh,MixedElement(FE_Space))
+		return FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar]))
 
 	def GenerateTestFunction(self):
 		testFunction = TestFunction(self.Space)
 		return [as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
 
-	def InitialConditions(self):
-		U_init = ["1.","0.","0.","0."]
-		return interpolate(Expression(tuple(U_init), degree=2), self.Space)
+	def InitialConditions(self): return Constant(self.mesh,np.array([1,0,0,0]))
 	
 	# Jet geometry
 	def BoundaryGeometry(self):
@@ -158,32 +177,21 @@ class yaj():
 	# Simple extractor
 	def ExtractUP(self,q): return as_vector((q[0],q[1],q[2])),q[3]
 
-	def NonlinearOperator(self,perturbations):
+	def NonlinearOperatorReal(self,perturbations):
 		u,p=self.ExtractUP(self.q)
 		
 		#mass (variational formulation)
-		F  = self.DivergentReal(u)*self.Test[1]*self.r*dx
+		F = self.DivergentReal(u)*self.Test[1]*self.r*dx
 		#momentum (different test functions and IBP)
-		F += 		 inner(self.GradientReal(u)*u, 		 	     			 self.Test[0]) *self.r*dx # Convection
-		F += self.mu*inner(self.GradientReal(u), 		   self.GradientReal(self.Test[0]))*self.r*dx # Diffusion
-		F -= 		 inner(p, 			 	     		  self.DivergentReal(self.Test[0]))*self.r*dx # Pressure
-		return F
-
-	def NonlinearOperatorPerturbationsReal(self):
-		u,p=self.ExtractUP(self.q)
-		
-		#mass (variational formulation)
-		F  = self.DivergentReal(u)*self.Test[1]*self.r*dx
-		#momentum (different test functions and IBP)
-		F += 		 inner(self.GradientReal(u)*u, 		 	     			 self.Test[0]) *self.r*dx # Convection
-		F += self.mu*inner(self.GradientReal(u), 		   self.GradientReal(self.Test[0]))*self.r*dx # Diffusion
-		F -= self.mu*inner(self.GradientImaginary(u), self.GradientImaginary(self.Test[0]))*self.r*dx
-		F -= 		 inner(p, 			 	     		  self.DivergentReal(self.Test[0]))*self.r*dx # Pressure
+		F 	  += 		 inner(self.GradientReal(u)*u, 		 	     			 self.Test[0]) *self.r*dx # Convection
+		F 	  += self.mu*inner(self.GradientReal(u), 		   self.GradientReal(self.Test[0]))*self.r*dx # Diffusion
+		if perturbations:
+			F -= self.mu*inner(self.GradientImaginary(u), self.GradientImaginary(self.Test[0]))*self.r*dx
+		F 	  -= 		 inner(p, 			 	     		  self.DivergentReal(self.Test[0]))*self.r*dx # Pressure
 		return F
 
 	def NonlinearOperatorPerturbationsImaginary(self):
-		u=as_vector((self.q[0],self.q[1],self.q[2]))
-		p=self.q[3]
+		u,p=self.ExtractUP(self.q)
 		
 		#mass (variational formulation)
 		F = self.DivergentImaginary(u)*self.Test[1]*self.r*dx
