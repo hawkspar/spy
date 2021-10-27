@@ -83,16 +83,18 @@ class yaj():
 		# Physical parameters
 		Re_s=.1
 		# Sponged Reynolds number
-		self.Re=interpolate(Expression("x[0]<=70 && x[1]<=10 ? "+str(Re)+" : "+\
-									   "x[0]<=70 && x[1]> 10 ? "+str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))) : "+\
-									   "x[0]> 70 && x[1]<=10 ? "+str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) : "+\
-									   							 str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50)))+"+\
-																		  "("+str(Re_s)+"-"+str(Re)+"-("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))))*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) ",
-									   degree=2), FunctionSpace(self.mesh,"Lagrange",1))
- 
+		self.Re=Function(FunctionSpace(self.mesh,("Lagrange",2)))
+		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*abs(a-b)/50)))
+		def Ref(x):
+			if   x[0]<=70 and x[1]<=10: return Re
+			elif x[0]<=70 and x[1]> 10: return Re+(self.Re_s-Re)*csi(x[1],10)
+			else: 						return Ref([x[0],10])+(self.Re_s-Ref([x[0],10]))*csi(x[1],10)
+		self.Re.interpolate(Ref)
+
+		"""
 		# Memoisation routine - find closest in Re and S
-		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='xml']
-		closest_file_name=self.dnspath+"last_baseflow.xml"
+		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='dat']
+		closest_file_name=self.dnspath+"last_baseflow.dat"
 		d=1e12
 		for file_name in file_names:
 			for entry in file_name[:-4].split('_'):
@@ -102,6 +104,7 @@ class yaj():
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+file_name
 
 		File(closest_file_name) >> self.q.vector()
+		"""
 
 	def BuildFunctionSpace(self):
 		# Taylor Hodd elements ; stable element pair
@@ -216,7 +219,7 @@ class yaj():
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
 				self.BoundaryConditions(S_current) #for temporal-dependant boundary condition
-				base_form  = self.NonlinearOperator() #no azimuthal decomposition for base flow (so no imaginary part to operator)
+				base_form  = self.NonlinearOperatorReal(False) #no azimuthal decomposition for base flow (so no imaginary part to operator)
 				dbase_form = derivative(base_form, self.q, self.Trial)
 				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":ae}})
 				if nu_current==1:
@@ -314,7 +317,7 @@ class yaj():
 		print('matrix P size: '+str(P_shape))
 
 		for freq in freq_list:
-			R = la.splu(self.A-2*np.pi*1j*freq*B,permc_spec=3)
+			R = la.splu(-self.A-2*np.pi*1j*freq*B,permc_spec=3)
 			# get response linear operator P^H*Q^H*R^H*Mr*R*Q*P
 			def lhs(f):
 				return P.transpose()*Q.transpose()*R.solve(Mr*R.solve(Q*P*f),trans='H')
