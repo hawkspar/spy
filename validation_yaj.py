@@ -40,6 +40,20 @@ def boundary_geometry():
 		return x[1] >  60-eps and on_boundary
 	return symmetry,inlet,outlet,misc
 
+# Gradient with x[0] is x, x[1] is r, x[2] is theta
+def grad_re(v,r):
+	return as_tensor([[v[0].dx(0), v[0].dx(1),  0],
+				 	  [v[1].dx(0), v[1].dx(1), -v[2]/r],
+					  [v[2].dx(0), v[2].dx(1),  v[1]/r]])
+
+def grad_im(v,r,m):
+	return m*as_tensor([[0, 0, v[0]],
+						[0, 0, v[1]],
+						[0, 0, v[2]]])/r
+
+def div_re(v,r):   return v[0].dx(0) + (r*v[1]).dx(1)/r
+
+def div_im(v,r,m): return m*v[2]/r
 class yaj():
 	def __init__(self,meshpath,dnspath,m,Re,S,n_S):
 		#control Newton solver
@@ -90,6 +104,7 @@ class yaj():
 		File(closest_file_name) >> self.q.vector()
 
 	def BuildFunctionSpace(self):
+		# Taylor Hodd elements ; stable element pair
 		FE_vector=VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
 		FE_scalar=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
 		self.Space=FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar]))
@@ -138,65 +153,58 @@ class yaj():
 		# indices of free nodes
 		self.freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
 
-	# Gradient with x[0] is x, x[1] is r, x[2] is theta
-	def GradientReal(self,v):
-		return as_tensor([[v[0].dx(0), v[0].dx(1),  0],
-						  [v[1].dx(0), v[1].dx(1), -v[2]/self.r],
-						  [v[2].dx(0), v[2].dx(1),  v[1]/self.r]])
-
-	def GradientImaginary(self,v):
-		return self.m*as_tensor([[0, 0, v[0]],
-								 [0, 0, v[1]],
-								 [0, 0, v[2]]])/self.r
-
-	def DivergentReal(self,v): return v[0].dx(0) + (self.r*v[1]).dx(1)/self.r
-	
-	def DivergentImaginary(self,v): return self.m*v[2]/self.r
-
 	def NonlinearOperator(self):
 		u,p=extract_up(self.q)
+		r,test_u,test_m=self.r,self.Test[0],self.Test[1]
 		
 		#mass (variational formulation)
-		F = self.DivergentReal(u)*self.Test[1]*self.r*dx
+		F = div_re(u,r)*test_m*r*dx
 		#momentum (different test functions and IBP)
-		F += 		 inner(self.GradientReal(u)*u, 		 		   self.Test[0]) *self.r*dx # Convection
-		F += self.mu*inner(self.GradientReal(u), self.GradientReal(self.Test[0]))*self.r*dx # Diffusion
-		F -= 		 inner(p, 			 		self.DivergentReal(self.Test[0]))*self.r*dx # Pressure
+		F += 	 	 dot(grad_re(u,r)*u,  	   test_u) 	 *r*dx # Convection
+		F += self.mu*dot(grad_re(u,r), grad_re(test_u,r))*r*dx # Diffusion
+		F -= 		 dot(p, 			div_re(test_u,r))*r*dx # Pressure
 		return F
 
 	def NonlinearOperatorReal(self):
 		u_r,p_r=extract_up(self.q_c)
 		u_i,p_i=extract_up(self.q_c,3)
+		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
 		
 		#mass (variational formulation)
-		F  = self.DivergentReal(u_r)	 *self.Test_c[1]*self.r*dx
-		F -= self.DivergentImaginary(u_i)*self.Test_c[1]*self.r*dx
+		F  = div_re(u_r,r)	*test_m*r*dx
+		F -= div_im(u_i,r,m)*test_m*r*dx
 		#momentum (different test functions and IBP)
-		F += 		 inner(self.GradientReal(u_r)*u_r, 		 	   			   self.Test_c[0]) *self.r*dx # Convection
-		F -= 		 inner(self.GradientReal(u_i)*u_i, 		 	   			   self.Test_c[0]) *self.r*dx
-		F -= 		 inner(self.GradientImaginary(u_i)*u_r, 		 	   	   self.Test_c[0]) *self.r*dx
-		F -= 		 inner(self.GradientImaginary(u_r)*u_i,  	 		   	   self.Test_c[0]) *self.r*dx
-		F += self.mu*inner(self.GradientReal(u_r), 			 self.GradientReal(self.Test_c[0]))*self.r*dx # Diffusion
-		F -= self.mu*inner(self.GradientImaginary(u_r), self.GradientImaginary(self.Test_c[0]))*self.r*dx
-		F -= self.mu*inner(self.GradientImaginary(u_i), 	 self.GradientReal(self.Test_c[0]))*self.r*dx
-		F -= self.mu*inner(self.GradientReal(u_i), 		self.GradientImaginary(self.Test_c[0]))*self.r*dx
-		F -= 		 inner(p_r, 			 	   			self.DivergentReal(self.Test_c[0]))*self.r*dx # Pressure
-		F += 		 inner(p_i, 			 	   	   self.DivergentImaginary(self.Test_c[0]))*self.r*dx
-		if self.m!=0:
-			#mass (imaginary part)
-			F  = self.DivergentReal(u_i)	 *self.Test_c[3]*self.r*dx
-			F += self.DivergentImaginary(u_r)*self.Test_c[3]*self.r*dx
-			#momentum (imaginary part)
-			F += 		 inner(self.GradientImaginary(u_r)*u_r, 		 	   	   self.Test_c[2]) *self.r*dx # Convection
-			F += 		 inner(self.GradientReal(u_i)*u_r, 		 	   			   self.Test_c[2]) *self.r*dx
-			F += 		 inner(self.GradientReal(u_r)*u_i, 		 	   			   self.Test_c[2]) *self.r*dx
-			F -= 		 inner(self.GradientImaginary(u_i)*u_i,  	 		   	   self.Test_c[2]) *self.r*dx
-			F += self.mu*inner(self.GradientImaginary(u_r), 	 self.GradientReal(self.Test_c[2]))*self.r*dx # Diffusion
-			F += self.mu*inner(self.GradientReal(u_i), 			 self.GradientReal(self.Test_c[2]))*self.r*dx
-			F += self.mu*inner(self.GradientReal(u_r), 		self.GradientImaginary(self.Test_c[2]))*self.r*dx
-			F -= self.mu*inner(self.GradientImaginary(u_i), self.GradientImaginary(self.Test_c[2]))*self.r*dx
-			F -= 		 inner(p_i, 			 	   			self.DivergentReal(self.Test_c[2]))*self.r*dx # Pressure
-			F -= 		 inner(p_r, 			 	   	   self.DivergentImaginary(self.Test_c[2]))*self.r*dx
+		F += 	 	 dot(grad_re(u_r,r)  *u_r,     test_u) 	   *r*dx # Convection
+		F -=     	 dot(grad_re(u_i,r)  *u_i,     test_u) 	   *r*dx
+		F -= 	 	 dot(grad_im(u_i,r,m)*u_r,     test_u) 	   *r*dx
+		F -= 	 	 dot(grad_im(u_r,r,m)*u_i,     test_u) 	   *r*dx
+		F += self.mu*dot(grad_re(u_r,r),   grad_re(test_u,r))  *r*dx # Diffusion
+		F -= self.mu*dot(grad_im(u_r,r,m), grad_im(test_u,r,m))*r*dx
+		F -= self.mu*dot(grad_im(u_i,r,m), grad_re(test_u,r))  *r*dx
+		F -= self.mu*dot(grad_re(u_i,r),   grad_im(test_u,r,m))*r*dx
+		F -= 		 dot(p_r, 			 	div_re(test_u,r))  *r*dx # Pressure
+		F += 		 dot(p_i, 			 	div_im(test_u,r,m))*r*dx
+		return F
+
+	def NonlinearOperatorImaginary(self):
+		u_r,p_r=extract_up(self.q_c)
+		u_i,p_i=extract_up(self.q_c,3)
+		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
+		
+		#mass (imaginary part)
+		F  = div_re(u_i,r)	*test_m*r*dx
+		F += div_im(u_r,r,m)*test_m*r*dx
+		#momentum (imaginary part)
+		F +=	 	 dot(grad_im(u_r,r,m)*u_r,     test_u) 	   *r*dx # Convection
+		F += 	 	 dot(grad_re(u_i,r)  *u_r,     test_u) 	   *r*dx
+		F += 	 	 dot(grad_re(u_r,r)  *u_i,     test_u) 	   *r*dx
+		F -= 	 	 dot(grad_im(u_i,r,m)*u_i,     test_u) 	   *r*dx
+		F += self.mu*dot(grad_im(u_r,r,m), grad_re(test_u,r))  *r*dx # Diffusion
+		F += self.mu*dot(grad_re(u_i,r),   grad_re(test_u,r))  *r*dx
+		F += self.mu*dot(grad_re(u_r,r),   grad_im(test_u,r,m))*r*dx
+		F -= self.mu*dot(grad_im(u_i,r,m), grad_im(test_u,r,m))*r*dx
+		F -= 		 dot(p_i, 			 	div_re(test_u,r))  *r*dx # Pressure
+		F -= 		 dot(p_r, 			 	div_im(test_u,r,m))*r*dx
 		return F
 
 	def Newton(self):
@@ -229,36 +237,29 @@ class yaj():
 		q_i = interpolate(Constant([0,0,0,0]), self.Space)
 		self.q_c=as_vector((self.q[0],self.q[1],self.q[2],self.q[3],  # Baseflow is purely real
 							   q_i[0],	 q_i[1],   q_i[2],	 q_i[3]))
-		Trial_i=TrialFunction(self.Space)
-		self.Trial_c=as_vector((self.Trial[0],self.Trial[1],self.Trial[2],self.Trial[3],  # Extend Trial functions too
-							  	   Trial_i[0],   Trial_i[1],   Trial_i[2],   Trial_i[3]))
-		Test_i=TestFunction(self.Space)
-		self.Test_c=self.Test+[as_vector((Test_i[0], Test_i[1], Test_i[2])), Test_i[3]]
-		
+		Trial_c=as_vector((self.Trial[0],self.Trial[1],self.Trial[2],self.Trial[3],  # Extend Trial functions too
+							  	   q_i[0],   q_i[1],   q_i[2],   q_i[3]))
+		#Trial_c=TrialFunction(FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar,Constant([0,0,0]),Constant(0)])))
+
 		#matrix A (m*m): Jacobian calculated by automatic derivative
-		perturbation_form = self.NonlinearOperatorComplex()
-		Aform = derivative(perturbation_form,self.q_c,self.Trial_c)
-		Aa = as_backend_type(assemble(Aform)).sparray()
-		from pdb import set_trace
-		set_trace()
-		N = Aa.shape[0]//2+1
-		freeinds_ext=list(self.freeinds)
-		freeinds_ext.extend(self.freeinds+N)
-		#Aa = Aa[]
-		N = Aa.shape[0]//2+1
-		Aa=Aa[:N,:].tocsc()
-		Aa=Aa[:,:N].astype(np.complex)-1j*Aa[:,N:].astype(np.complex)
-		self.A = Aa[self.freeinds,:][:,self.freeinds]
+		perturbation_form_real = self.NonlinearOperatorReal()
+		Aform_real = derivative(perturbation_form_real,self.q_c,Trial_c)
+		Aa = as_backend_type(assemble(Aform_real)).sparray()
+		if self.m!=0:
+			perturbation_form_imag = self.NonlinearOperatorImaginary()
+			Aform_imag = derivative(perturbation_form_imag,self.q_c,Trial_c)
+			Aa_imag = as_backend_type(assemble(Aform_imag)).sparray()
+			Aa=Aa.astype(np.complex)+1j*Aa_imag.astype(np.complex)
+		self.A = Aa[self.freeinds,:][:,self.freeinds].tocsc()
 
 		#forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		#other userdefined norm can be used, to be added later
 		up_r = as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
 		#up_i = as_vector((	 Trial_i[0],   Trial_i[1],   Trial_i[2]))
-		M_form=inner(up_r,self.Test[0])*self.r*dx
-		#M_form=inner(up_r,self.Test[0])*self.r*dx+inner(up_i,self.Test[2])*self.r*dx
+		M_form=dot(up_r,self.Test[0])*self.r*dx
+		#M_form=dot(up_r,self.Test[0])*r*dx+dot(up_i,self.Test[0])*self.r*dx
 		Ma = assemble(M_form)
-		indptr, indices, data = as_backend_type(Ma).data()
-		Ma = sps.csr_matrix((data, indices, indptr)).tocsc()
+		Ma = as_backend_type(Ma).sparray().tocsc()
 		self.M = Ma[self.freeinds,:][:,self.freeinds]
 
 	def Getw0(self):
@@ -273,19 +274,17 @@ class yaj():
 		#matrix B (m*m): with matrix A form altogether the resolvent operator
 		up=as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
 		pp=self.Trial[3]
-		B_form=inner(up,self.Test[0])*self.r*dx
+		B_form=dot(up,self.Test[0])*self.r*dx
 		Ba = assemble(B_form)
-		indptr, indices, data = as_backend_type(Ba).data()
-		Ba = sps.csr_matrix((data, indices, indptr)).tocsc()
+		Ba = as_backend_type(Ba).sparray().tocsc()
 
 		#response norm Mr (m*m): here we choose the same as forcing norm
 		Mr, Mf = self.M, self.M
 
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
-		Q_form=inner(up,self.Test[0])*self.r*dx+pp*self.Test[1]*self.r*dx
+		Q_form=dot(up,self.Test[0])*self.r*dx+pp*self.Test[1]*self.r*dx
 		Qa = assemble(Q_form)
-		indptr, indices, data = as_backend_type(Qa).data()
-		Qa = sps.csr_matrix((data, indices, indptr)).tocsc()
+		Qa = as_backend_type(Qa).sparray().tocsc()
 
 		#matrix P (m*n) reshapes forcing vector (n*1) to (m*1). In principal, it contains only 0 and 1 elements.
 		#It can also restrict the flow regions of forcing, to be implemented later. 
