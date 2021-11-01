@@ -9,6 +9,7 @@ import numpy as np
 import os as os
 import scipy.sparse as sps
 import scipy.sparse.linalg as la
+from ufl.coefficient import Coefficient
 #from pdb import set_trace
 
 rp =.99 #relaxation_parameter
@@ -51,9 +52,13 @@ def grad_im(v,r,m):
 						[0, 0, v[1]],
 						[0, 0, v[2]]])/r
 
+def grad(v,r,m): return grad_re(v,r)+1j*grad_im(v,r,m)
+
 def div_re(v,r):   return v[0].dx(0) + (r*v[1]).dx(1)/r
 
 def div_im(v,r,m): return m*v[2]/r
+
+def div(v,r,m): return div_re(v,r)+1j*div_im(v,r,m)
 class yaj():
 	def __init__(self,meshpath,dnspath,m,Re,S,n_S):
 		#control Newton solver
@@ -83,18 +88,17 @@ class yaj():
 		# Physical parameters
 		Re_s=.1
 		# Sponged Reynolds number
-		self.Re=Function(FunctionSpace(self.mesh,("Lagrange",2)))
-		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*abs(a-b)/50)))
-		def Ref(x):
-			if   x[0]<=70 and x[1]<=10: return Re
-			elif x[0]<=70 and x[1]> 10: return Re+(self.Re_s-Re)*csi(x[1],10)
-			else: 						return Ref([x[0],10])+(self.Re_s-Ref([x[0],10]))*csi(x[1],10)
-		self.Re.interpolate(Ref)
+		# Sponged Reynolds number
+		self.Re=interpolate(Expression("x[0]<=70 && x[1]<=10 ? "+str(Re)+" : "+\
+									   "x[0]<=70 && x[1]> 10 ? "+str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))) : "+\
+									   "x[0]> 70 && x[1]<=10 ? "+str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) : "+\
+									   							 str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50)))+"+\
+																		  "("+str(Re_s)+"-"+str(Re)+"-("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))))*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) ",
+									   degree=2), FunctionSpace(self.mesh,"Lagrange",1))
 
-		"""
 		# Memoisation routine - find closest in Re and S
-		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='dat']
-		closest_file_name=self.dnspath+"last_baseflow.dat"
+		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='xml']
+		closest_file_name=self.dnspath+"last_baseflow.xml"
 		d=1e12
 		for file_name in file_names:
 			for entry in file_name[:-4].split('_'):
@@ -104,7 +108,6 @@ class yaj():
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+file_name
 
 		File(closest_file_name) >> self.q.vector()
-		"""
 
 	def BuildFunctionSpace(self):
 		# Taylor Hodd elements ; stable element pair
@@ -163,51 +166,39 @@ class yaj():
 		#mass (variational formulation)
 		F = div_re(u,r)*test_m*r*dx
 		#momentum (different test functions and IBP)
-		F += 	 	 dot(grad_re(u,r)*u,  	   test_u) 	 *r*dx # Convection
-		F += self.mu*dot(grad_re(u,r), grad_re(test_u,r))*r*dx # Diffusion
-		F -= 		 dot(p, 			div_re(test_u,r))*r*dx # Pressure
+		F += 		   dot(grad_re(u,r)*u,  	 test_u)   *r*dx # Convection
+		F += self.mu*inner(grad_re(u,r), grad_re(test_u,r))*r*dx # Diffusion
+		F -= 		   dot(p, 			  div_re(test_u,r))*r*dx # Pressure
 		return F
 
-	def NonlinearOperatorReal(self):
+	def JacobianNonlinearOperatorReal(self):
 		u_r,p_r=extract_up(self.q_c)
-		u_i,p_i=extract_up(self.q_c,3)
+		u_0,p_0=extract_up(self.q)
 		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
 		
 		#mass (variational formulation)
-		F  = div_re(u_r,r)	*test_m*r*dx
-		F -= div_im(u_i,r,m)*test_m*r*dx
+		F  = div_re(u_r,r)*test_m*r*dx
 		#momentum (different test functions and IBP)
-		F += 	 	 dot(grad_re(u_r,r)  *u_r,     test_u) 	   *r*dx # Convection
-		F -=     	 dot(grad_re(u_i,r)  *u_i,     test_u) 	   *r*dx
-		F -= 	 	 dot(grad_im(u_i,r,m)*u_r,     test_u) 	   *r*dx
-		F -= 	 	 dot(grad_im(u_r,r,m)*u_i,     test_u) 	   *r*dx
-		F += self.mu*dot(grad_re(u_r,r),   grad_re(test_u,r))  *r*dx # Diffusion
-		F -= self.mu*dot(grad_im(u_r,r,m), grad_im(test_u,r,m))*r*dx
-		F -= self.mu*dot(grad_im(u_i,r,m), grad_re(test_u,r))  *r*dx
-		F -= self.mu*dot(grad_re(u_i,r),   grad_im(test_u,r,m))*r*dx
-		F -= 		 dot(p_r, 			 	div_re(test_u,r))  *r*dx # Pressure
-		F += 		 dot(p_i, 			 	div_im(test_u,r,m))*r*dx
+		F += 	 	   dot(grad_re(u_r,r)*u_0,     	 test_u) 	 *r*dx # Convection
+		F +=     	   dot(grad_re(u_0,r)*u_r,     	 test_u) 	 *r*dx
+		F += self.mu*inner(grad_re(u_r,r),   grad_re(test_u,r))  *r*dx # Diffusion
+		F -= self.mu*inner(grad_im(u_r,r,m), grad_im(test_u,r,m))*r*dx
+		F -= 		   dot(p_r, 			  div_re(test_u,r))  *r*dx # Pressure
 		return F
 
-	def NonlinearOperatorImaginary(self):
+	def JacobianNonlinearOperatorImaginary(self):
 		u_r,p_r=extract_up(self.q_c)
-		u_i,p_i=extract_up(self.q_c,3)
+		u_0,p_0=extract_up(self.q)
 		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
 		
 		#mass (imaginary part)
-		F  = div_re(u_i,r)	*test_m*r*dx
-		F += div_im(u_r,r,m)*test_m*r*dx
+		F  = div_im(u_r,r,m)*test_m*r*dx
 		#momentum (imaginary part)
-		F +=	 	 dot(grad_im(u_r,r,m)*u_r,     test_u) 	   *r*dx # Convection
-		F += 	 	 dot(grad_re(u_i,r)  *u_r,     test_u) 	   *r*dx
-		F += 	 	 dot(grad_re(u_r,r)  *u_i,     test_u) 	   *r*dx
-		F -= 	 	 dot(grad_im(u_i,r,m)*u_i,     test_u) 	   *r*dx
-		F += self.mu*dot(grad_im(u_r,r,m), grad_re(test_u,r))  *r*dx # Diffusion
-		F += self.mu*dot(grad_re(u_i,r),   grad_re(test_u,r))  *r*dx
-		F += self.mu*dot(grad_re(u_r,r),   grad_im(test_u,r,m))*r*dx
-		F -= self.mu*dot(grad_im(u_i,r,m), grad_im(test_u,r,m))*r*dx
-		F -= 		 dot(p_i, 			 	div_re(test_u,r))  *r*dx # Pressure
-		F -= 		 dot(p_r, 			 	div_im(test_u,r,m))*r*dx
+		F +=	 	   dot(grad_im(u_r,r,m)*u_0,     test_u) 	 *r*dx # Convection
+		F += 	 	   dot(grad_im(u_0,r,m)*u_r,     test_u) 	 *r*dx
+		F += self.mu*inner(grad_im(u_r,r,m), grad_re(test_u,r))  *r*dx # Diffusion
+		F += self.mu*inner(grad_re(u_r,r),   grad_im(test_u,r,m))*r*dx
+		F -= 		   dot(p_r, 			  div_im(test_u,r,m))*r*dx
 		return F
 
 	def Newton(self):
@@ -219,7 +210,7 @@ class yaj():
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
 				self.BoundaryConditions(S_current) #for temporal-dependant boundary condition
-				base_form  = self.NonlinearOperatorReal(False) #no azimuthal decomposition for base flow (so no imaginary part to operator)
+				base_form  = self.NonlinearOperator() #no azimuthal decomposition for base flow (so no imaginary part to operator)
 				dbase_form = derivative(base_form, self.q, self.Trial)
 				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":ae}})
 				if nu_current==1:
@@ -235,24 +226,21 @@ class yaj():
 		print(self.dnspath+"last_baseflow.xml written!")
 
 	def ComputeAM(self):
-		parameters['linear_algebra_backend'] = 'Eigen'
-		# Go complex
-		q_i = interpolate(Constant([0,0,0,0]), self.Space)
-		self.q_c=as_vector((self.q[0],self.q[1],self.q[2],self.q[3],  # Baseflow is purely real
-							   q_i[0],	 q_i[1],   q_i[2],	 q_i[3]))
-		Trial_c=as_vector((self.Trial[0],self.Trial[1],self.Trial[2],self.Trial[3],  # Extend Trial functions too
-							  	   q_i[0],   q_i[1],   q_i[2],   q_i[3]))
-		#Trial_c=TrialFunction(FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar,Constant([0,0,0]),Constant(0)])))
+		#parameters['linear_algebra_backend'] = 'Eigen'
 
-		#matrix A (m*m): Jacobian calculated by automatic derivative
-		perturbation_form_real = self.NonlinearOperatorReal()
-		Aform_real = derivative(perturbation_form_real,self.q_c,Trial_c)
-		Aa = as_backend_type(assemble(Aform_real)).sparray()
+		# Go complex
+		# Taylor Hodd elements ; stable element pair
+		FE_vector=VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
+		FE_scalar=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
+		self.q_c = Coefficient(FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar,FE_vector,FE_scalar])))
+
+		#matrix A (m*m): Jacobian calculated by hand
+		Aa = as_backend_type(assemble(self.JacobianNonlinearOperatorReal())).sparray()
+		#Aa = sps.csr_matrix((data, indices, indptr))
 		if self.m!=0:
-			perturbation_form_imag = self.NonlinearOperatorImaginary()
-			Aform_imag = derivative(perturbation_form_imag,self.q_c,Trial_c)
-			Aa_imag = as_backend_type(assemble(Aform_imag)).sparray()
-			Aa=Aa.astype(np.complex)+1j*Aa_imag.astype(np.complex)
+			Aa_imag = as_backend_type(assemble(self.JacobianNonlinearOperatorImaginary())).sparray()
+			Aa = Aa.view(dtype=np.complex)+1j*Aa_imag.view(dtype=np.complex)
+
 		self.A = Aa[self.freeinds,:][:,self.freeinds].tocsc()
 
 		#forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
