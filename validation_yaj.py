@@ -164,7 +164,7 @@ class yaj():
 		F -= 		 inner(p, 			 		self.DivergentReal(self.Test[0]))*self.r*dx # Pressure
 		return F
 
-	def NonlinearOperatorReal(self):
+	def NonlinearOperatorComplex(self):
 		u_r,p_r=extract_up(self.q_c)
 		u_i,p_i=extract_up(self.q_c,3)
 		
@@ -182,21 +182,20 @@ class yaj():
 		F -= self.mu*inner(self.GradientReal(u_i), 		self.GradientImaginary(self.Test_c[0]))*self.r*dx
 		F -= 		 inner(p_r, 			 	   			self.DivergentReal(self.Test_c[0]))*self.r*dx # Pressure
 		F += 		 inner(p_i, 			 	   	   self.DivergentImaginary(self.Test_c[0]))*self.r*dx
-		if self.m!=0:
-			#mass (imaginary part)
-			F  = self.DivergentReal(u_i)	 *self.Test_c[3]*self.r*dx
-			F += self.DivergentImaginary(u_r)*self.Test_c[3]*self.r*dx
-			#momentum (imaginary part)
-			F += 		 inner(self.GradientImaginary(u_r)*u_r, 		 	   	   self.Test_c[2]) *self.r*dx # Convection
-			F += 		 inner(self.GradientReal(u_i)*u_r, 		 	   			   self.Test_c[2]) *self.r*dx
-			F += 		 inner(self.GradientReal(u_r)*u_i, 		 	   			   self.Test_c[2]) *self.r*dx
-			F -= 		 inner(self.GradientImaginary(u_i)*u_i,  	 		   	   self.Test_c[2]) *self.r*dx
-			F += self.mu*inner(self.GradientImaginary(u_r), 	 self.GradientReal(self.Test_c[2]))*self.r*dx # Diffusion
-			F += self.mu*inner(self.GradientReal(u_i), 			 self.GradientReal(self.Test_c[2]))*self.r*dx
-			F += self.mu*inner(self.GradientReal(u_r), 		self.GradientImaginary(self.Test_c[2]))*self.r*dx
-			F -= self.mu*inner(self.GradientImaginary(u_i), self.GradientImaginary(self.Test_c[2]))*self.r*dx
-			F -= 		 inner(p_i, 			 	   			self.DivergentReal(self.Test_c[2]))*self.r*dx # Pressure
-			F -= 		 inner(p_r, 			 	   	   self.DivergentImaginary(self.Test_c[2]))*self.r*dx
+		#mass (imaginary part)
+		F  = self.DivergentReal(u_i)	 *self.Test_c[3]*self.r*dx
+		F += self.DivergentImaginary(u_r)*self.Test_c[3]*self.r*dx
+		#momentum (imaginary part)
+		F += 		 inner(self.GradientImaginary(u_r)*u_r, 		 	   	   self.Test_c[2]) *self.r*dx # Convection
+		F += 		 inner(self.GradientReal(u_i)*u_r, 		 	   			   self.Test_c[2]) *self.r*dx
+		F += 		 inner(self.GradientReal(u_r)*u_i, 		 	   			   self.Test_c[2]) *self.r*dx
+		F -= 		 inner(self.GradientImaginary(u_i)*u_i,  	 		   	   self.Test_c[2]) *self.r*dx
+		F += self.mu*inner(self.GradientImaginary(u_r), 	 self.GradientReal(self.Test_c[2]))*self.r*dx # Diffusion
+		F += self.mu*inner(self.GradientReal(u_i), 			 self.GradientReal(self.Test_c[2]))*self.r*dx
+		F += self.mu*inner(self.GradientReal(u_r), 		self.GradientImaginary(self.Test_c[2]))*self.r*dx
+		F -= self.mu*inner(self.GradientImaginary(u_i), self.GradientImaginary(self.Test_c[2]))*self.r*dx
+		F -= 		 inner(p_i, 			 	   			self.DivergentReal(self.Test_c[2]))*self.r*dx # Pressure
+		F -= 		 inner(p_r, 			 	   	   self.DivergentImaginary(self.Test_c[2]))*self.r*dx
 		return F
 
 	def Newton(self):
@@ -239,6 +238,9 @@ class yaj():
 		perturbation_form = self.NonlinearOperatorComplex()
 		Aform = derivative(perturbation_form,self.q_c,self.Trial_c)
 		Aa = as_backend_type(assemble(Aform)).sparray()
+		baseline_form = self.NonlinearOperator()
+		Bform = derivative(baseline_form,self.q,self.Trial)
+		Bb = as_backend_type(assemble(Bform)).sparray()
 		from pdb import set_trace
 		set_trace()
 		N = Aa.shape[0]//2+1
