@@ -4,11 +4,17 @@ Created on Wed Oct 13 13:50:00 2021
 
 @author: hawkspar
 """
-from dolfin import *
 import numpy as np
 import os
 import scipy.sparse as sps
 import scipy.sparse.linalg as la
+from mpi4py import MPI
+from dolfinx import Function, FunctionSpace, solve, Mesh, SpatialCoordinate
+from dolfinx.function import Constant, Expression
+from dolfinx.fem.assemble import assemble_scalar
+from dolfinx.io import XDMFFile
+import meshio
+from ufl import TestFunction, TrialFunction, dx, inner, FiniteElement, VectorElement, MixedElement, as_vector, as_tensor
 from pdb import set_trace
 #from ufl.algorithms.compute_form_data import compute_form_data
 
@@ -17,17 +23,6 @@ ae =1e-9 #absolute_tolerance
 eps=1e-12 #DOLFIN_EPS does not work well
 
 def extract_up(q,shift=0): return as_vector((q[shift],q[shift+1],q[shift+2])),q[shift+3]
-
-def load_mesh(path):
-	if path.split('.')[-1]=='xml':
-		# Read mesh from xml file
-		print ('Reading mesh in XML format from "'+path+'"...')
-		return Mesh(path)
-	elif path.split('.')[-1]=='msh':
-		# Convert mesh from .msh to .xml using dolfin-convert
-		print('Converting mesh from msh(gmsh) format to .xml')
-		os.system('dolfin-convert '+path+' '+path[:-4]+'.xml')
-		return Mesh(path[:-4]+'.xml')
 	
 # Jet geometry
 def boundary_geometry():
@@ -42,23 +37,13 @@ def boundary_geometry():
 	return symmetry,inlet,outlet,misc
 
 # Gradient with x[0] is x, x[1] is r, x[2] is theta
-def grad_re(v,r):
-	return as_tensor([[v[0].dx(0), v[0].dx(1),  0],
-				 	  [v[1].dx(0), v[1].dx(1), -v[2]/r],
-					  [v[2].dx(0), v[2].dx(1),  v[1]/r]])
+def grad(v,r,m):
+	return as_tensor([[v[0].dx(0), v[0].dx(1), m*1j*v[0]/r],
+				 	  [v[1].dx(0), v[1].dx(1), m*1j*v[1]/r-v[2]/r],
+					  [v[2].dx(0), v[2].dx(1), m*1j*v[2]/r+v[1]/r]])
 
-def grad_im(v,r,m):
-	return m*as_tensor([[0, 0, v[0]],
-						[0, 0, v[1]],
-						[0, 0, v[2]]])/r
+def div(v,r,m): return v[0].dx(0) + (r*v[1]).dx(1)/r + m*1j*v[2]/r
 
-def grad(v,r,m): return grad_re(v,r)+1j*grad_im(v,r,m)
-
-def div_re(v,r):   return v[0].dx(0) + (r*v[1]).dx(1)/r
-
-def div_im(v,r,m): return m*v[2]/r
-
-def div(v,r,m): return div_re(v,r)+1j*div_im(v,r,m)
 class yaj():
 	def __init__(self,meshpath,dnspath,m,Re,S,n_S):
 		#control Newton solver
@@ -78,8 +63,16 @@ class yaj():
 		self.save_string   	=self.baseflow_string+'_m='+str(m)
 		
 		# Geometry
-		self.mesh  = load_mesh(meshpath)
-		self.BuildFunctionSpace()
+		with XDMFFile(MPI.COMM_WORLD, path, "r") as file:
+			self.mesh = file.read_mesh(name="name_to_read")
+		
+		# Taylor Hodd elements ; stable element pair
+		FE_vector=VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
+		FE_scalar=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
+		self.Space=FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar]))
+		# Test functions
+		testFunction = TestFunction(self.Space)
+		self.Test = [as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
 		self.GenerateTestFunction()
 		self.Trial = TrialFunction(self.Space)
 
@@ -88,17 +81,19 @@ class yaj():
 		# Physical parameters
 		Re_s=.1
 		# Sponged Reynolds number
-		# Sponged Reynolds number
-		self.Re=interpolate(Expression("x[0]<=70 && x[1]<=10 ? "+str(Re)+" : "+\
-									   "x[0]<=70 && x[1]> 10 ? "+str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))) : "+\
-									   "x[0]> 70 && x[1]<=10 ? "+str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) : "+\
-									   							 str(Re)+"+("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50)))+"+\
-																		  "("+str(Re_s)+"-"+str(Re)+"-("+str(Re_s)+"-"+str(Re)+")*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[1]-10)/50))))*.5*(1+tanh(4*tan(-pi/2+pi*abs(x[0]-70)/50))) ",
-									   degree=2), FunctionSpace(self.mesh,"Lagrange",1))
+		self.Re=Function(FunctionSpace(self.mesh,("Lagrange",2)))
+		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*abs(a-b)/50)))
+		def Ref(x):
+			if   x[0]<=70 and x[1]<=10: return Re
+			elif x[0]<=70 and x[1]> 10: return Re+(self.Re_s-Re)*csi(x[1],10)
+			else: 						return Ref([x[0],10])+(self.Re_s-Ref([x[0],10]))*csi(x[1],10)
+		self.Re.interpolate(Ref)
 
+		self.comm=MPI.COMM_WORLD
+		"""
 		# Memoisation routine - find closest in Re and S
-		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='xml']
-		closest_file_name=self.dnspath+"last_baseflow.xml"
+		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='dat']
+		closest_file_name=self.dnspath+"last_baseflow.dat"
 		d=1e12
 		for file_name in file_names:
 			for entry in file_name[:-4].split('_'):
@@ -107,23 +102,22 @@ class yaj():
 			fd=abs(S-Sd)#+abs(Re-Red)
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+file_name
 
-		File(closest_file_name) >> self.q.vector()
+		viewer = PETSc.Viewer().createMPIIO(closest_file_name,'r',self.comm)
+		self.q.vector.load(viewer)
+		self.q.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+		"""
 
-	def BuildFunctionSpace(self):
-		# Taylor Hodd elements ; stable element pair
-		FE_vector=VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
-		FE_scalar=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
-		self.Space=FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar]))
-
-	def GenerateTestFunction(self):
-		testFunction = TestFunction(self.Space)
-		self.Test = [as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
-
-	def InitialConditions(self): self.q = interpolate(Constant([1,0,0,0]), self.Space)
+	def InitialConditions(self): self.q = Constant(self.mesh,[1,0,0,0])
 
 	def BoundaryConditions(self,S):
 		symmetry,inlet,outlet,misc=boundary_geometry()
 		# define boundary conditions for Newton/timestepper
+		def bcs_x(x):
+
+		def bcs_th(x):
+			if x[0] < eps:
+				if x[1]<1: return x[1]*(2-x[1]*x[1])
+				else: 	   return 1/x[1]
 		uth = Expression(str(S)+'*(x[1]<1 ? x[1]*(2-x[1]*x[1]) : 1/x[1])', degree=2)
 		bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0,   symmetry)  # Derivated from momentum eqs as r->0
 		bcs_symmetry_th	= DirichletBC(self.Space.sub(0).sub(2), 0,   symmetry)

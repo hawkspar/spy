@@ -4,3 +4,4 @@ validation/**
 __pycache__/**
 jitfailure*/**
 **.mat
+**.code-workspace
