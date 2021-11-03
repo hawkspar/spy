@@ -10,7 +10,7 @@ import os
 import scipy.sparse as sps
 import scipy.sparse.linalg as la
 from pdb import set_trace
-from ufl.algorithms.compute_form_data import compute_form_data
+#from ufl.algorithms.compute_form_data import compute_form_data
 
 rp =.99 #relaxation_parameter
 ae =1e-9 #absolute_tolerance
@@ -171,32 +171,30 @@ class yaj():
 		F -= 		   dot(p, 			  div_re(test_u,r))*r*dx # Pressure
 		return F
 
-	def NonlinearOperatorComplex(self):
+	def NonlinearOperatorReal(self):
 		u,p=extract_up(self.q)
 		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
 		
 		#mass (variational formulation)
-		F  = div(u,r,m)*test_m*r*dx
+		F  = div_re(u,r)*test_m*r*dx
 		#momentum (different test functions and IBP)
-		F += 	 	   dot(grad(u,r,m)*u,     	 test_u) 	 *r*dx # Convection
-		F += self.mu*inner(grad(u,r,m),   grad(test_u,r,m))  *r*dx # Diffusion
-		#F -= self.mu*inner(grad_im(u_r,r,m), grad_im(test_u,r,m))*r*dx
-		F -= 		   dot(p, 			  div(test_u,r,m))  *r*dx # Pressure
+		F += 	 	   dot(grad_re(u,r)*u,     	 test_u) 	 *r*dx # Convection
+		F += self.mu*inner(grad_re(u,r),   grad_re(test_u,r))  *r*dx # Diffusion
+		F -= self.mu*inner(grad_im(u,r,m),   grad_im(test_u,r,-m)) *r*dx
+		F -= 		   dot(p, 			  div_re(test_u,r))  *r*dx # Pressure
 		return F
 
-	def JacobianNonlinearOperatorImaginary(self):
-		u_r,p_r=extract_up(self.q_c)
-		u_0,p_0=extract_up(self.q)
+	def NonlinearOperatorImaginary(self):
+		u,p=extract_up(self.q)
 		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
 		
-		#mass (imaginary part)
-		F  = div_im(u_r,r,m)*test_m*r*dx
-		#momentum (imaginary part)
-		F +=	 	   dot(grad_im(u_r,r,m)*u_0,     test_u) 	 *r*dx # Convection
-		F += 	 	   dot(grad_im(u_0,r,m)*u_r,     test_u) 	 *r*dx
-		F += self.mu*inner(grad_im(u_r,r,m), grad_re(test_u,r))  *r*dx # Diffusion
-		F += self.mu*inner(grad_re(u_r,r),   grad_im(test_u,r,m))*r*dx
-		F -= 		   dot(p_r, 			  div_im(test_u,r,m))*r*dx
+		#mass (variational formulation)
+		F  = div_im(u,r,m)*test_m*r*dx
+		#momentum (different test functions and IBP)
+		F += 	 	   dot(grad_im(u,r,m)*u,     	 test_u) 	 *r*dx # Convection
+		F += self.mu*inner(grad_im(u,r,m),   grad_re(test_u,r))  *r*dx # Diffusion
+		F += self.mu*inner(grad_re(u,r),   grad_im(test_u,r,-m)) *r*dx
+		F -= 		   dot(p, 			  div_im(test_u,r,m))  *r*dx # Pressure
 		return F
 
 	def Newton(self):
@@ -227,22 +225,11 @@ class yaj():
 		parameters['linear_algebra_backend'] = 'Eigen'
 
 		# Go complex
-		non_lin_op=compute_form_data(self.NonlinearOperatorComplex(),complex_mode=True)
-		# Taylor Hodd elements ; stable element pair
-		"""
-		FE_vector=VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
-		FE_scalar=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
-		self.q_c = Coefficient(FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar,FE_vector,FE_scalar])))
-		"""
-
 		#matrix A (m*m): Jacobian calculated by hand
-		Aa = as_backend_type(assemble(derivative(non_lin_op,self.q,self.Trial))).sparray()
-		"""
-		#Aa = sps.csr_matrix((data, indices, indptr))
+		Aa = as_backend_type(assemble(derivative(self.NonlinearOperatorReal(),self.q,self.Trial))).sparray()
 		if self.m!=0:
-			Aa_imag = as_backend_type(assemble(self.JacobianNonlinearOperatorImaginary())).sparray()
-			Aa = Aa.view(dtype=np.complex)+1j*Aa_imag.view(dtype=np.complex)
-		"""
+			Aa_imag = as_backend_type(assemble(derivative(self.NonlinearOperatorImaginary(),self.q,self.Trial))).sparray()
+			Aa = Aa.astype(np.complex)+1j*Aa_imag.astype(np.complex)
 
 		self.A = Aa[self.freeinds,:][:,self.freeinds].tocsc()
 
