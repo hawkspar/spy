@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d as inter
 from scipy.optimize import root
 
-MeshPath='Mesh/validation/validation.xml'
+MeshPath='Mesh/validation/validation.xdmf'
 
 datapath='validation/' #folder for results
 """

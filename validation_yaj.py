@@ -5,40 +5,34 @@ Created on Wed Oct 13 13:50:00 2021
 @author: hawkspar
 """
 import numpy as np
-import os
+import os, dolfinx, ufl
+from petsc4py import PETSc
+from pdb import set_trace
 import scipy.sparse as sps
 import scipy.sparse.linalg as la
-from mpi4py import MPI
-from dolfinx import Function, FunctionSpace, solve, Mesh, SpatialCoordinate
-from dolfinx.function import Constant, Expression
-from dolfinx.fem.assemble import assemble_scalar
-from dolfinx.io import XDMFFile
-import meshio
-from ufl import TestFunction, TrialFunction, dx, inner, FiniteElement, VectorElement, MixedElement, as_vector, as_tensor
-from pdb import set_trace
-#from ufl.algorithms.compute_form_data import compute_form_data
+from mpi4py.MPI import COMM_WORLD
+from dolfinx.io import XDMFFile, VTKFile
 
 rp =.99 #relaxation_parameter
 ae =1e-9 #absolute_tolerance
-eps=1e-12 #DOLFIN_EPS does not work well
+eps=1e-14 #DOLFIN_EPS does not work well
 
-def extract_up(q,shift=0): return as_vector((q[shift],q[shift+1],q[shift+2])),q[shift+3]
+# Geometry parameters
+x_max=70
+r_max=10
+l=50
+
+def extract_up(q,shift=0): return ufl.as_vector((q[shift],q[shift+1],q[shift+2])),q[shift+3]
 	
 # Jet geometry
-def boundary_geometry():
-	def symmetry(x, on_boundary):  #symmétrie de l'écoulement stationnaire
-		return x[1] < 	  eps and on_boundary 
-	def inlet(	 x, on_boundary):     #entrée abscisse
-		return x[0] <     eps and on_boundary 
-	def outlet(	 x, on_boundary):    #sortie
-		return x[0] > 120-eps and on_boundary 
-	def misc(	 x, on_boundary):      #upper boundary
-		return x[1] >  60-eps and on_boundary
-	return symmetry,inlet,outlet,misc
+def inlet(	 x): return np.isclose(x[0],0,		eps) # Left border
+def symmetry(x): return np.isclose(x[1],0,		eps) # Axis of symmetry at r=0
+def outlet(	 x): return np.isclose(x[0],x_max+l,eps) # Right border
+def misc(	 x): return np.isclose(x[1],r_max+l,eps) # Top boundary
 
 # Gradient with x[0] is x, x[1] is r, x[2] is theta
 def grad(v,r,m):
-	return as_tensor([[v[0].dx(0), v[0].dx(1), m*1j*v[0]/r],
+	return ufl.as_tensor([[v[0].dx(0), v[0].dx(1), m*1j*v[0]/r],
 				 	  [v[1].dx(0), v[1].dx(1), m*1j*v[1]/r-v[2]/r],
 					  [v[2].dx(0), v[2].dx(1), m*1j*v[2]/r+v[1]/r]])
 
@@ -46,7 +40,7 @@ def div(v,r,m): return v[0].dx(0) + (r*v[1]).dx(1)/r + m*1j*v[2]/r
 
 class yaj():
 	def __init__(self,meshpath,dnspath,m,Re,S,n_S):
-		#control Newton solver
+		# Newton solver
 		self.nu	 =1. #viscosity prefator
 		self.n_nu=1 #number of visocity iterations
 		self.S   =S #swirl amplitude relative to main flow
@@ -62,83 +56,126 @@ class yaj():
 		self.baseflow_string='_S='+f"{S:00.3f}"
 		self.save_string   	=self.baseflow_string+'_m='+str(m)
 		
-		# Geometry
-		with XDMFFile(MPI.COMM_WORLD, path, "r") as file:
-			self.mesh = file.read_mesh(name="name_to_read")
+		# Mesh from file
+		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
+			self.mesh = file.read_mesh(name="Grid")
 		
 		# Taylor Hodd elements ; stable element pair
-		FE_vector=VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
-		FE_scalar=FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
-		self.Space=FunctionSpace(self.mesh,MixedElement([FE_vector,FE_scalar]))
+		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
+		FE_scalar=ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
+		self.Space=dolfinx.FunctionSpace(self.mesh,ufl.MixedElement([FE_vector,FE_scalar]))	# full vector function space
+		# Subspaces
+		self.U_space =  self.Space.sub(0).collapse()
+		self.u_space =self.U_space.sub(0).collapse()
+
+		# 3 components zero
+		self.Zeros=dolfinx.Function(self.U_space)
+		with self.Zeros.vector.localForm() as zero_loc: zero_loc.set(0)
+		# One component zero
+		self.zeros=dolfinx.Function(self.u_space)
+		with self.zeros.vector.localForm() as zero_loc: zero_loc.set(0)
+
 		# Test functions
-		testFunction = TestFunction(self.Space)
-		self.Test = [as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
-		self.GenerateTestFunction()
-		self.Trial = TrialFunction(self.Space)
+		testFunction = ufl.TestFunction(self.Space)
+		self.Test = [ufl.as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
+		self.Trial = ufl.TrialFunction(self.Space)
 
-		self.InitialConditions() # Main function space, start swirlless (initialises q)
-		self.r = SpatialCoordinate(self.mesh)[1]
-		# Physical parameters
-		Re_s=.1
+		self.q = dolfinx.Function(self.Space) # initialisation of q
+		self.r = dolfinx.Function(self.u_space)
+		self.r.interpolate(lambda x: x[1])
+		
 		# Sponged Reynolds number
-		self.Re=Function(FunctionSpace(self.mesh,("Lagrange",2)))
-		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*abs(a-b)/50)))
+		Re_s=.1
+		self.Re=dolfinx.Function(dolfinx.FunctionSpace(self.mesh,ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),2)))
+		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
 		def Ref(x):
-			if   x[0]<=70 and x[1]<=10: return Re
-			elif x[0]<=70 and x[1]> 10: return Re+(self.Re_s-Re)*csi(x[1],10)
-			else: 						return Ref([x[0],10])+(self.Re_s-Ref([x[0],10]))*csi(x[1],10)
+			Rem=np.ones(x[0].size)*Re
+			x_ext=x[0]>x_max
+			Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max+l),x_max)
+			r_ext=x[1]>r_max
+			Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_max+l),r_max)
+			return Rem
 		self.Re.interpolate(Ref)
-
-		self.comm=MPI.COMM_WORLD
-		"""
-		# Memoisation routine - find closest in Re and S
+		
+	# Memoisation routine - find closest in Re and S
+	def HotStart(self):
 		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='dat']
 		closest_file_name=self.dnspath+"last_baseflow.dat"
-		d=1e12
+		d=np.infty
 		for file_name in file_names:
 			for entry in file_name[:-4].split('_'):
 				if entry[0]=='S': 	Sd =float(entry[2:])
 				#if entry[:1]=='Re': Red=float(entry[3:])
-			fd=abs(S-Sd)#+abs(Re-Red)
+			fd=abs(self.S-Sd)#+abs(Re-Red)
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+file_name
 
-		viewer = PETSc.Viewer().createMPIIO(closest_file_name,'r',self.comm)
+		viewer = PETSc.Viewer().createMPIIO(closest_file_name,'r',COMM_WORLD)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-		"""
+		
+	def FreeSlip(self):
+		# Compute DoFs
+		dofs_misc_r  = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(1), self.u_space), misc)
+		dofs_misc_th = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(2), self.u_space), misc)
 
-	def InitialConditions(self): self.q = Constant(self.mesh,[1,0,0,0])
+		# Actual BCs
+		bcs_misc_r  = dolfinx.DirichletBC(self.zeros, dofs_misc_r,  self.Space.sub(0).sub(1)) # u_r=0 at r=R
+		bcs_misc_th = dolfinx.DirichletBC(self.zeros, dofs_misc_th, self.Space.sub(0).sub(2)) # u_th=0 at r=R
 
+		return [bcs_misc_r,bcs_misc_th]
+
+	def AxisSymmetry(self):
+		# Compute DoFs
+		dofs_symmetry_r  = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(1), self.u_space), symmetry)
+		dofs_symmetry_th = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(2), self.u_space), symmetry)
+
+		# Actual BCs
+		bcs_symmetry_r  = dolfinx.DirichletBC(self.zeros, dofs_symmetry_r,  self.Space.sub(0).sub(1)) # u_r=0 at r=0
+		bcs_symmetry_th = dolfinx.DirichletBC(self.zeros, dofs_symmetry_th, self.Space.sub(0).sub(2)) # u_th=0 at r=0
+
+		return [bcs_symmetry_r,bcs_symmetry_th]
+
+	# Baseflow
 	def BoundaryConditions(self,S):
-		symmetry,inlet,outlet,misc=boundary_geometry()
-		# define boundary conditions for Newton/timestepper
-		def bcs_x(x):
+		# Modified vortex that goes to zero at top boundary
+		def grabovski_berger(r):
+			psi=(r_max+l-r)/l/r_max
+			mr=r<1
+			psi[mr]=r[mr]*(2-r[mr]**2)
+			ir=np.logical_and(r>=1,r<r_max)
+			psi[ir]=1/r[ir]
+			return psi
+		# 3D inlet flow
+		def inlet_flow(x):
+			n=x[0].size
+			return np.array([np.ones(n),np.zeros(n),S*grabovski_berger(x[1])],dtype=PETSc.ScalarType) # Swirl intensity determined at a higher level
+		u_inlet=dolfinx.Function(self.U_space)
+		u_inlet.interpolate(inlet_flow)
+		u_inlet.x.scatter_forward()
+		
+		# Compute DoFs
+		dofs_inlet = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0), self.U_space), inlet)
 
-		def bcs_th(x):
-			if x[0] < eps:
-				if x[1]<1: return x[1]*(2-x[1]*x[1])
-				else: 	   return 1/x[1]
-		uth = Expression(str(S)+'*(x[1]<1 ? x[1]*(2-x[1]*x[1]) : 1/x[1])', degree=2)
-		bcs_symmetry_r	= DirichletBC(self.Space.sub(0).sub(1), 0,   symmetry)  # Derivated from momentum eqs as r->0
-		bcs_symmetry_th	= DirichletBC(self.Space.sub(0).sub(2), 0,   symmetry)
-		bcs_misc_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   misc)
-		bcs_misc_th	  	= DirichletBC(self.Space.sub(0).sub(2),	0,   misc)  	# Free slip at top (x is Neumann as right hand side of variational formulation)
-		bcs_inflow_x  	= DirichletBC(self.Space.sub(0).sub(0), 1,   inlet) 	# Constant inflow
-		bcs_inflow_r  	= DirichletBC(self.Space.sub(0).sub(1), 0,   inlet) 	# No radial flow
-		bcs_inflow_th	= DirichletBC(self.Space.sub(0).sub(2), uth, inlet) 	# Little theta flow
-		self.bc = [bcs_symmetry_r,bcs_symmetry_th,bcs_misc_r,bcs_misc_th,bcs_inflow_x,bcs_inflow_r,bcs_inflow_th]
-	
+		# Actual BCs
+		bcs_inlet = dolfinx.DirichletBC(u_inlet, dofs_inlet, self.Space.sub(0)) # u_x=1, u_r=0, u_th=S*psi(r) at x=0
+																				# x=X entirely handled by implicit Neumann
+		self.bcs = [bcs_inlet]
+		self.bcs.extend(self.FreeSlip())
+		self.bcs.extend(self.AxisSymmetry())
+
 	def BoundaryConditionsPerturbations(self):
-		symmetry,inlet,outlet,misc=boundary_geometry()
-		bcs_symmetry    = DirichletBC(self.Space.sub(0), 	   (0,0,0), symmetry) # Derivated from momentum eqs as r->0
-		bcs_symmetry_r  = DirichletBC(self.Space.sub(0).sub(1), 0, 	    symmetry) # Weaker conditions is m==0
-		bcs_symmetry_th = DirichletBC(self.Space.sub(0).sub(2), 0, 	    symmetry)
-		bcs_misc_r   	= DirichletBC(self.Space.sub(0).sub(1), 0,    	misc)
-		bcs_misc_th	 	= DirichletBC(self.Space.sub(0).sub(2), 0,   	misc)     # Free slip at top (x is Neumann as right hand side of variational formulation)
-		bcs_inflow_r 	= DirichletBC(self.Space.sub(0).sub(1), 0,	    inlet)    # No radial flow
-		self.bcp = [bcs_misc_r,bcs_misc_th,bcs_inflow_r]
-		if self.m==0: self.bcp.extend([bcs_symmetry_r,bcs_symmetry_th])
-		else:		  self.bcp.append(bcs_symmetry)
+		# Compute DoFs
+		dofs_inlet_r  	 = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(1), self.u_space), inlet)
+		dofs_symmetry    = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0), 		  self.u_space), symmetry)
+
+		# Actual BCs
+		bcs_inlet_r		= dolfinx.DirichletBC(self.zeros, dofs_inlet_r,  self.Space.sub(0).sub(1)) # u_r=0 at x=0
+		bcs_symmetry_r  = dolfinx.DirichletBC(self.Zeros, dofs_symmetry, self.Space.sub(0)) 	# u_r=0 at r=0
+		
+		self.bcps = [bcs_inlet_r]
+		self.bcps.extend(self.FreeSlip())
+		if self.m==0: self.bcp.extend(self.AxisSymmetry())
+		else:		  self.bcp.append(bcs_symmetry_r)
 
 	def ComputeIndices(self):
 		# Collect all dirichlet boundary dof indices
@@ -153,79 +190,62 @@ class yaj():
 		# indices of free nodes
 		self.freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
 
-	def NonlinearOperator(self):
+	def NonlinearOperator(self,m):
 		u,p=extract_up(self.q)
 		r,test_u,test_m=self.r,self.Test[0],self.Test[1]
 		
 		#mass (variational formulation)
-		F = div_re(u,r)*test_m*r*dx
+		F = ufl.inner(div(u,r,m),test_m)*r*ufl.dx
 		#momentum (different test functions and IBP)
-		F += 		   dot(grad_re(u,r)*u,  	 test_u)   *r*dx # Convection
-		F += self.mu*inner(grad_re(u,r), grad_re(test_u,r))*r*dx # Diffusion
-		F -= 		   dot(p, 			  div_re(test_u,r))*r*dx # Pressure
-		return F
-
-	def NonlinearOperatorReal(self):
-		u,p=extract_up(self.q)
-		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
-		
-		#mass (variational formulation)
-		F  = div_re(u,r)*test_m*r*dx
-		#momentum (different test functions and IBP)
-		F += 	 	   dot(grad_re(u,r)*u,     	 test_u) 	 *r*dx # Convection
-		F += self.mu*inner(grad_re(u,r),   grad_re(test_u,r))  *r*dx # Diffusion
-		F -= self.mu*inner(grad_im(u,r,m),   grad_im(test_u,r,-m)) *r*dx
-		F -= 		   dot(p, 			  div_re(test_u,r))  *r*dx # Pressure
-		return F
-
-	def NonlinearOperatorImaginary(self):
-		u,p=extract_up(self.q)
-		m,r,test_u,test_m=self.m,self.r,self.Test[0],self.Test[1]
-		
-		#mass (variational formulation)
-		F  = div_im(u,r,m)*test_m*r*dx
-		#momentum (different test functions and IBP)
-		F += 	 	   dot(grad_im(u,r,m)*u,     	 test_u) 	 *r*dx # Convection
-		F += self.mu*inner(grad_im(u,r,m),   grad_re(test_u,r))  *r*dx # Diffusion
-		F += self.mu*inner(grad_re(u,r),   grad_im(test_u,r,-m)) *r*dx
-		F -= 		   dot(p, 			  div_im(test_u,r,m))  *r*dx # Pressure
+		F += 		 ufl.inner(grad(u,r,m)*u,  	 test_u)     *r*ufl.dx # Convection
+		F += self.mu*ufl.inner(grad(u,r,m), grad(test_u,r,m))*r*ufl.dx # Diffusion
+		F -= 		 ufl.inner(p, 			 div(test_u,r,m))*r*ufl.dx # Pressure
 		return F
 
 	def Newton(self):
 		if self.n_S>1: Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S # Chebychev spacing
 		else: 		   Ss=[self.S]
+		S_constant=dolfinx.Constant(self.mesh,0)
 		for S_current in Ss: 	# Increase swirl
 			for nu_current in np.linspace(self.nu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
 				print("viscosity prefactor: ", nu_current)
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
 				self.BoundaryConditions(S_current) #for temporal-dependant boundary condition
-				base_form  = self.NonlinearOperator() #no azimuthal decomposition for base flow (so no imaginary part to operator)
-				dbase_form = derivative(base_form, self.q, self.Trial)
-				solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":ae}})
+				set_trace()
+				# Compute form
+				base_form = self.NonlinearOperator(0) #no azimuthal decomposition for base flow (so no imaginary part to operator)
+				dbase_form = ufl.derivative(base_form,self.q,self.Trial)
+				problem = dolfinx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs, J=dbase_form)
+				solver = dolfinx.NewtonSolver(COMM_WORLD, problem)
+				solver.rtol=eps
+				solver.solve(self.q)
+				#solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":ae}})
 				if nu_current==1:
 					#write results in private_path for a given mu
 					u_r,p_r = self.q.split()
-					File(self.dnspath+self.private_path+"u_S="		 +f"{S_current:00.3f}"+".pvd") << u_r
-					File(self.dnspath+self.private_path+"baseflow_S="+f"{S_current:00.3f}"+".xml") << self.q.vector()
-					print(".xml written!")
+					with VTKFile( COMM_WORLD, self.dnspath+self.private_path+"u_S="+f"{S_current:00.3f}"+".pvd","w") as vtk:
+						vtk.write([self.mesh,u_r._cpp_object])
+					viewer = PETSc.Viewer().createMPIIO(self.dnspath+self.private_path+"baseflow_S="+f"{S_current:00.3f}"+".dat", 'w', COMM_WORLD)
+					self.q.vector.view(viewer)
+					print(".pvd, .dat written!")
 				
 		#write result of current mu
-		File( self.dnspath+"last_u.pvd") << u_r
-		File( self.dnspath+"last_baseflow.xml") << self.q.vector()
-		print(self.dnspath+"last_baseflow.xml written!")
+		with VTKFile( COMM_WORLD, self.dnspath+"last_u.pvd","w") as vtk:
+			vtk.write([u_r._cpp_object])
+		viewer = PETSc.Viewer().createMPIIO(self.dnspath+"last_baseflow.dat", 'w', COMM_WORLD)
+		self.q.vector.view(viewer)
+		print(self.dnspath+"last_baseflow.dat written!")
 
 	def ComputeAM(self):
-		parameters['linear_algebra_backend'] = 'Eigen'
-
 		# Go complex
 		#matrix A (m*m): Jacobian calculated by hand
-		Aa = as_backend_type(assemble(derivative(self.NonlinearOperatorReal(),self.q,self.Trial))).sparray()
-		if self.m!=0:
-			Aa_imag = as_backend_type(assemble(derivative(self.NonlinearOperatorImaginary(),self.q,self.Trial))).sparray()
-			Aa = Aa.astype(np.complex)+1j*Aa_imag.astype(np.complex)
-
-		self.A = Aa[self.freeinds,:][:,self.freeinds].tocsc()
+		form=self.NonlinearOperator(self.m)
+		dform=ufl.derivative(form,self.q,self.Trial)
+		self.BoundaryConditionsPerturbations()
+		Aa = dolfinx.fem.assemble_matrix(dform, bcs=self.bcps)
+		Aa.assemble()
+		set_trace()
 
 		#forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		#other userdefined norm can be used, to be added later
@@ -303,7 +323,7 @@ class yaj():
 			f=eigenvectors
 			r=R.solve(Q*P*f)
 
-			ua = Function(self.Space) #declaration for efficiency
+			ua = dolfinx.Function(self.Space) #declaration for efficiency
 
 			for i in range(k):
 				ua.vector()[self.freeinds] = np.abs(P*f[:,i])
@@ -341,7 +361,7 @@ class yaj():
 			return 0
 
 		# only writing real parts of eigenvectors to file
-		ua = Function(self.Space)
+		ua = dolfinx.Function(self.Space)
 		flag_video=0 #1: export animation
 		for i in range(0,k+1,k//10+1):
 			ua.vector()[self.freeinds] = vecs[:,i].real
