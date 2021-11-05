@@ -98,8 +98,10 @@ class yaj():
 		self.HotStart()
 		self.r = dolfinx.Function(self.u_space)
 		self.r.interpolate(lambda x: x[1])
+		self.SpongedReynolds(Re)
 		
-		# Sponged Reynolds number
+	# Sponged Reynolds number
+	def SpongedReynolds(self,Re):
 		Re_s=.1
 		self.Re=dolfinx.Function(dolfinx.FunctionSpace(self.mesh,ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),2)))
 		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
@@ -118,12 +120,10 @@ class yaj():
 		closest_file_name=self.dnspath+"last_baseflow.dat"
 		d=np.infty
 		for file_name in file_names:
-			for entry in file_name[:-4].split('_'):
-				if entry[0]=='S': 	Sd =float(entry[2:-4])
-				#if entry[:1]=='Re': Red=float(entry[3:])
+			Sd =float(file_name[11:16]) # Take advantage of file format 
 			fd=abs(self.S-Sd)#+abs(Re-Red)
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+'dat/'+file_name
-
+		
 		viewer = PETSc.Viewer().createMPIIO(closest_file_name,'r',COMM_WORLD)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
@@ -227,6 +227,9 @@ class yaj():
 				problem = dolfinx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs, J=dbase_form)
 				solver  = dolfinx.NewtonSolver(COMM_WORLD, problem)
 				solver.rtol=eps
+				solver.relaxation_parameter=rp
+				solver.max_iter=30
+				solver.atol=ae   
 				solver.solve(self.q)
 				if nu_current==1:
 					#write results in private_path for a given mu
@@ -251,18 +254,18 @@ class yaj():
 		dform=ufl.derivative(form,self.q,self.Trial)
 		self.BoundaryConditionsPerturbations()
 		Aa = dolfinx.fem.assemble_matrix(dform, bcs=self.bcps)
-		Aa.assemble()
+		Aa.assemble().tocsc()
 		set_trace()
 
 		#forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		#other userdefined norm can be used, to be added later
-		up_r = as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
+		up_r = ufl.as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
 		#up_i = as_vector((	 Trial_i[0],   Trial_i[1],   Trial_i[2]))
-		M_form=dot(up_r,self.Test[0])*self.r*dx
+		M_form=ufl.dot(up_r,self.Test[0])*self.r*ufl.dx
 		#M_form=dot(up_r,self.Test[0])*r*dx+dot(up_i,self.Test[0])*self.r*dx
-		Ma = assemble(M_form)
-		Ma = as_backend_type(Ma).sparray().tocsc()
-		self.M = Ma[self.freeinds,:][:,self.freeinds]
+		Ma = dolfinx.fem.assemble_matrix(M_form)
+		Ma.assemble().tocsc()
+		#self.M = Ma[self.freeinds,:][:,self.freeinds]
 
 	def Getw0(self):
 		U,p=self.q.split()
@@ -273,19 +276,19 @@ class yaj():
 		print("check base flow max and min in u:",np.max(self.q.vector()[:]),",",np.min(self.q.vector()[:]))
 
 		#matrix B (m*m): with matrix A form altogether the resolvent operator
-		up=as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
+		up=ufl.as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
 		pp=self.Trial[3]
-		B_form=dot(up,self.Test[0])*self.r*dx
-		Ba = assemble(B_form)
-		Ba = as_backend_type(Ba).sparray().tocsc()
+		B_form=ufl.dot(up,self.Test[0])*self.r*ufl.dx
+		Ba = dolfinx.fem.assemble_matrix(B_form)
+		Ba.assemble().tocsc()
 
 		#response norm Mr (m*m): here we choose the same as forcing norm
 		Mr, Mf = self.M, self.M
 
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
-		Q_form=dot(up,self.Test[0])*self.r*dx+pp*self.Test[1]*self.r*dx
-		Qa = assemble(Q_form)
-		Qa = as_backend_type(Qa).sparray().tocsc()
+		Q_form=ufl.dot(up,self.Test[0])*self.r*ufl.dx+pp*self.Test[1]*self.r*ufl.dx
+		Qa = dolfinx.fem.assemble_matrix(Q_form)
+		Qa.assemble().tocsc()
 
 		#matrix P (m*n) reshapes forcing vector (n*1) to (m*1). In principal, it contains only 0 and 1 elements.
 		#It can also restrict the flow regions of forcing, to be implemented later. 
