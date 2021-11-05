@@ -38,6 +38,17 @@ def grad(v,r,m):
 
 def div(v,r,m): return v[0].dx(0) + (r*v[1]).dx(1)/r + m*1j*v[2]/r
 
+def grabovski_berger(r):
+	psi=(r_max+l-r)/l/r_max
+	mr=r<1
+	psi[mr]=r[mr]*(2-r[mr]**2)
+	ir=np.logical_and(r>=1,r<r_max)
+	psi[ir]=1/r[ir]
+	return psi
+class InletNormalVelocity():
+	def __init__(self, S): self.S = S
+
+	def __call__(self, x): return self.S*grabovski_berger(x[1])
 class yaj():
 	def __init__(self,meshpath,dnspath,m,Re,S,n_S):
 		# Newton solver
@@ -74,6 +85,9 @@ class yaj():
 		# One component zero
 		self.zeros=dolfinx.Function(self.u_space)
 		with self.zeros.vector.localForm() as zero_loc: zero_loc.set(0)
+		# One component one
+		self.ones=dolfinx.Function(self.u_space)
+		with self.ones.vector.localForm()  as one_loc:  one_loc.set(1)
 
 		# Test functions
 		testFunction = ufl.TestFunction(self.Space)
@@ -81,6 +95,7 @@ class yaj():
 		self.Trial = ufl.TrialFunction(self.Space)
 
 		self.q = dolfinx.Function(self.Space) # initialisation of q
+		self.HotStart()
 		self.r = dolfinx.Function(self.u_space)
 		self.r.interpolate(lambda x: x[1])
 		
@@ -99,15 +114,15 @@ class yaj():
 		
 	# Memoisation routine - find closest in Re and S
 	def HotStart(self):
-		file_names = [f for f in os.listdir(self.dnspath+self.private_path) if f[:-3]=='dat']
+		file_names = [f for f in os.listdir(self.dnspath+self.private_path+'dat/') if f[-3:]=="dat"]
 		closest_file_name=self.dnspath+"last_baseflow.dat"
 		d=np.infty
 		for file_name in file_names:
 			for entry in file_name[:-4].split('_'):
-				if entry[0]=='S': 	Sd =float(entry[2:])
+				if entry[0]=='S': 	Sd =float(entry[2:-4])
 				#if entry[:1]=='Re': Red=float(entry[3:])
 			fd=abs(self.S-Sd)#+abs(Re-Red)
-			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+file_name
+			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+'dat/'+file_name
 
 		viewer = PETSc.Viewer().createMPIIO(closest_file_name,'r',COMM_WORLD)
 		self.q.vector.load(viewer)
@@ -138,28 +153,22 @@ class yaj():
 	# Baseflow
 	def BoundaryConditions(self,S):
 		# Modified vortex that goes to zero at top boundary
-		def grabovski_berger(r):
-			psi=(r_max+l-r)/l/r_max
-			mr=r<1
-			psi[mr]=r[mr]*(2-r[mr]**2)
-			ir=np.logical_and(r>=1,r<r_max)
-			psi[ir]=1/r[ir]
-			return psi
-		# 3D inlet flow
-		def inlet_flow(x):
-			n=x[0].size
-			return np.array([np.ones(n),np.zeros(n),S*grabovski_berger(x[1])],dtype=PETSc.ScalarType) # Swirl intensity determined at a higher level
-		u_inlet=dolfinx.Function(self.U_space)
-		u_inlet.interpolate(inlet_flow)
-		u_inlet.x.scatter_forward()
-		
+		u_inlet_th=dolfinx.Function(self.u_space)
+		self.inlet_normal_velocity=InletNormalVelocity(S)
+		u_inlet_th.interpolate(self.inlet_normal_velocity)
+		u_inlet_th.x.scatter_forward()
+
 		# Compute DoFs
-		dofs_inlet = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0), self.U_space), inlet)
+		dofs_inlet_x  = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(0), self.u_space), inlet)
+		dofs_inlet_r  = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(1), self.u_space), inlet)
+		dofs_inlet_th = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(2), self.u_space), inlet)
 
 		# Actual BCs
-		bcs_inlet = dolfinx.DirichletBC(u_inlet, dofs_inlet, self.Space.sub(0)) # u_x=1, u_r=0, u_th=S*psi(r) at x=0
-																				# x=X entirely handled by implicit Neumann
-		self.bcs = [bcs_inlet]
+		bcs_inlet_x  = dolfinx.DirichletBC(self.ones,  dofs_inlet_x,  self.Space.sub(0).sub(0)) # u_x=1
+		bcs_inlet_r  = dolfinx.DirichletBC(self.zeros, dofs_inlet_r,  self.Space.sub(0).sub(1)) # u_r=0
+		bcs_inlet_th = dolfinx.DirichletBC(u_inlet_th, dofs_inlet_th, self.Space.sub(0).sub(2)) # u_th=S*psi(r) at x=0
+																						    	# x=X entirely handled by implicit Neumann
+		self.bcs = [bcs_inlet_x, bcs_inlet_r, bcs_inlet_th]
 		self.bcs.extend(self.FreeSlip())
 		self.bcs.extend(self.AxisSymmetry())
 
@@ -205,34 +214,32 @@ class yaj():
 	def Newton(self):
 		if self.n_S>1: Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S # Chebychev spacing
 		else: 		   Ss=[self.S]
-		S_constant=dolfinx.Constant(self.mesh,0)
+		self.BoundaryConditions(Ss[0]) #for temporal-dependant boundary condition
 		for S_current in Ss: 	# Increase swirl
 			for nu_current in np.linspace(self.nu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
 				print("viscosity prefactor: ", nu_current)
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
-				self.BoundaryConditions(S_current) #for temporal-dependant boundary condition
-				set_trace()
+				self.inlet_normal_velocity.S=S_current
 				# Compute form
 				base_form = self.NonlinearOperator(0) #no azimuthal decomposition for base flow (so no imaginary part to operator)
 				dbase_form = ufl.derivative(base_form,self.q,self.Trial)
 				problem = dolfinx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs, J=dbase_form)
-				solver = dolfinx.NewtonSolver(COMM_WORLD, problem)
+				solver  = dolfinx.NewtonSolver(COMM_WORLD, problem)
 				solver.rtol=eps
 				solver.solve(self.q)
-				#solve(base_form == 0, self.q, self.bc, J=dbase_form, solver_parameters={"newton_solver":{'linear_solver' : 'mumps','relaxation_parameter':rp,"relative_tolerance":1e-12,'maximum_iterations':30,"absolute_tolerance":ae}})
 				if nu_current==1:
 					#write results in private_path for a given mu
-					u_r,p_r = self.q.split()
-					with VTKFile( COMM_WORLD, self.dnspath+self.private_path+"u_S="+f"{S_current:00.3f}"+".pvd","w") as vtk:
-						vtk.write([self.mesh,u_r._cpp_object])
-					viewer = PETSc.Viewer().createMPIIO(self.dnspath+self.private_path+"baseflow_S="+f"{S_current:00.3f}"+".dat", 'w', COMM_WORLD)
+					u,p = self.q.split()
+					with VTKFile(COMM_WORLD, self.dnspath+self.private_path+"print/u_S="+f"{S_current:00.3f}"+".pvd","w") as vtk:
+						vtk.write([u._cpp_object])
+					viewer = PETSc.Viewer().createMPIIO(self.dnspath+self.private_path+"dat/baseflow_S="+f"{S_current:00.3f}"+".dat", 'w', COMM_WORLD)
 					self.q.vector.view(viewer)
 					print(".pvd, .dat written!")
 				
 		#write result of current mu
 		with VTKFile( COMM_WORLD, self.dnspath+"last_u.pvd","w") as vtk:
-			vtk.write([u_r._cpp_object])
+			vtk.write([u._cpp_object])
 		viewer = PETSc.Viewer().createMPIIO(self.dnspath+"last_baseflow.dat", 'w', COMM_WORLD)
 		self.q.vector.view(viewer)
 		print(self.dnspath+"last_baseflow.dat written!")
@@ -258,10 +265,9 @@ class yaj():
 		self.M = Ma[self.freeinds,:][:,self.freeinds]
 
 	def Getw0(self):
-		U,p=self.q.split(deepcopy=True)
-		u,v,w=U.split(deepcopy=True)
-		u=u.vector().get_local()
-		return np.min(u)
+		U,p=self.q.split()
+		u,v,w=U.split()
+		return np.min(u.compute_point_values())
 
 	def Resolvent(self,k,freq_list):
 		print("check base flow max and min in u:",np.max(self.q.vector()[:]),",",np.min(self.q.vector()[:]))
@@ -311,8 +317,7 @@ class yaj():
 		for freq in freq_list:
 			R = la.splu(-self.A-2*np.pi*1j*freq*B,permc_spec=3)
 			# get response linear operator P^H*Q^H*R^H*Mr*R*Q*P
-			def lhs(f):
-				return P.transpose()*Q.transpose()*R.solve(Mr*R.solve(Q*P*f),trans='H')
+			def lhs(f): return P.transpose()*Q.transpose()*R.solve(Mr*R.solve(Q*P*f),trans='H')
 
 			LHS = la.LinearOperator((min(P_shape),min(P_shape)),matvec=lhs,dtype='complex')
 
@@ -328,10 +333,12 @@ class yaj():
 			for i in range(k):
 				ua.vector()[self.freeinds] = np.abs(P*f[:,i])
 				u,p  = ua.split()
-				File(self.dnspath+self.resolvent_path+"forcing_u"+self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
+				with VTKFile(COMM_WORLD, self.dnspath+self.resolvent_path+"forcing_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd","w") as vtk:
+					vtk.write([u._cpp_object])
 				ua.vector()[self.freeinds] = np.abs(r[:,i])
 				u,p  = ua.split()
-				File(self.dnspath+self.resolvent_path+"response_u"+self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd") << u
+				with VTKFile(COMM_WORLD, self.dnspath+self.resolvent_path+"response_u"+self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".pvd","w") as vtk:
+					vtk.write([u._cpp_object])
 			
 			#write gains
 			np.savetxt(self.dnspath+self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.real(gains))
@@ -367,8 +374,10 @@ class yaj():
 			ua.vector()[self.freeinds] = vecs[:,i].real
 
 			u,p  = ua.split()
-			File(self.dnspath+self.eig_path+"evec_u"  +self.save_string+"_n="+str(i+1)+".pvd") << u
-			File(self.dnspath+self.eig_path+"evec_p"  +self.save_string+"_n="+str(i+1)+".pvd") << p
+			with VTKFile(COMM_WORLD, self.dnspath+self.eig_path+"u/evec_u"+self.save_string+"_n="+str(i+1)+".pvd","w") as vtk:
+				vtk.write([u._cpp_object])
+			with VTKFile(COMM_WORLD, self.dnspath+self.eig_path+"u/evec_u"+self.save_string+"_n="+str(i+1)+".pvd","w") as vtk:
+				vtk.write([p._cpp_object])
 			if flag_video: # export animation
 				print("Exporting video for eig "+str(i+1))
 				angSteps = 20

@@ -13,7 +13,7 @@ from scipy.optimize import root
 MeshPath='Mesh/validation/validation.xdmf'
 
 datapath='validation/' #folder for results
-"""
+
 n=100
 Ss=np.linspace(0,1.8,n)
 w0s=np.empty(n)
@@ -29,7 +29,7 @@ plt.savefig(datapath+"validation_graph_w0.png")
 
 f_S=inter(Ss,w0s,'quadratic')
 print(root(f_S,.89).x)
-"""
+
 yo=yaj(MeshPath,datapath,-1,200,1,1)
 yo.Newton()
 
