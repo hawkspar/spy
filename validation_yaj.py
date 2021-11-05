@@ -6,10 +6,9 @@ Created on Wed Oct 13 13:50:00 2021
 """
 import numpy as np
 import os, dolfinx, ufl
-from petsc4py import PETSc
+from petsc4py import PETSc as pet
+from slepc4py import SLEPc as slp
 from pdb import set_trace
-import scipy.sparse as sps
-import scipy.sparse.linalg as la
 from mpi4py.MPI import COMM_WORLD
 from dolfinx.io import XDMFFile, VTKFile
 
@@ -124,9 +123,9 @@ class yaj():
 			fd=abs(self.S-Sd)#+abs(Re-Red)
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+'dat/'+file_name
 		
-		viewer = PETSc.Viewer().createMPIIO(closest_file_name,'r',COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(closest_file_name,'r',COMM_WORLD)
 		self.q.vector.load(viewer)
-		self.q.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 		
 	def FreeSlip(self):
 		# Compute DoFs
@@ -175,29 +174,16 @@ class yaj():
 	def BoundaryConditionsPerturbations(self):
 		# Compute DoFs
 		dofs_inlet_r  	 = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0).sub(1), self.u_space), inlet)
-		dofs_symmetry    = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0), 		  self.u_space), symmetry)
+		dofs_symmetry    = dolfinx.fem.locate_dofs_geometrical((self.Space.sub(0), 		  self.U_space), symmetry)
 
 		# Actual BCs
 		bcs_inlet_r		= dolfinx.DirichletBC(self.zeros, dofs_inlet_r,  self.Space.sub(0).sub(1)) # u_r=0 at x=0
-		bcs_symmetry_r  = dolfinx.DirichletBC(self.Zeros, dofs_symmetry, self.Space.sub(0)) 	# u_r=0 at r=0
+		bcs_symmetry_r  = dolfinx.DirichletBC(self.Zeros, dofs_symmetry, self.Space.sub(0)) 	   # u=0 at r=0
 		
 		self.bcps = [bcs_inlet_r]
 		self.bcps.extend(self.FreeSlip())
-		if self.m==0: self.bcp.extend(self.AxisSymmetry())
-		else:		  self.bcp.append(bcs_symmetry_r)
-
-	def ComputeIndices(self):
-		# Collect all dirichlet boundary dof indices
-		bcinds = []
-		for b in self.bcp:
-			bcdict = b.get_boundary_values()
-			bcinds.extend(bcdict.keys())
-
-		# total number of dofs
-		N = self.Space.dim()
-
-		# indices of free nodes
-		self.freeinds = np.setdiff1d(range(N),bcinds,assume_unique=True).astype(np.int32)
+		if self.m==0: self.bcps.extend(self.AxisSymmetry())
+		else:		  self.bcps.append(bcs_symmetry_r)
 
 	def NonlinearOperator(self,m):
 		u,p=extract_up(self.q)
@@ -214,7 +200,7 @@ class yaj():
 	def Newton(self):
 		if self.n_S>1: Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S # Chebychev spacing
 		else: 		   Ss=[self.S]
-		self.BoundaryConditions(Ss[0]) #for temporal-dependant boundary condition
+		self.BoundaryConditions(Ss[0]) # Initialises boundary condition
 		for S_current in Ss: 	# Increase swirl
 			for nu_current in np.linspace(self.nu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
 				print("viscosity prefactor: ", nu_current)
@@ -236,14 +222,14 @@ class yaj():
 					u,p = self.q.split()
 					with VTKFile(COMM_WORLD, self.dnspath+self.private_path+"print/u_S="+f"{S_current:00.3f}"+".pvd","w") as vtk:
 						vtk.write([u._cpp_object])
-					viewer = PETSc.Viewer().createMPIIO(self.dnspath+self.private_path+"dat/baseflow_S="+f"{S_current:00.3f}"+".dat", 'w', COMM_WORLD)
+					viewer = pet.Viewer().createMPIIO(self.dnspath+self.private_path+"dat/baseflow_S="+f"{S_current:00.3f}"+".dat", 'w', COMM_WORLD)
 					self.q.vector.view(viewer)
 					print(".pvd, .dat written!")
 				
 		#write result of current mu
 		with VTKFile( COMM_WORLD, self.dnspath+"last_u.pvd","w") as vtk:
 			vtk.write([u._cpp_object])
-		viewer = PETSc.Viewer().createMPIIO(self.dnspath+"last_baseflow.dat", 'w', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(self.dnspath+"last_baseflow.dat", 'w', COMM_WORLD)
 		self.q.vector.view(viewer)
 		print(self.dnspath+"last_baseflow.dat written!")
 
@@ -253,19 +239,15 @@ class yaj():
 		form=self.NonlinearOperator(self.m)
 		dform=ufl.derivative(form,self.q,self.Trial)
 		self.BoundaryConditionsPerturbations()
-		Aa = dolfinx.fem.assemble_matrix(dform, bcs=self.bcps)
-		Aa.assemble().tocsc()
-		set_trace()
+		self.A = dolfinx.fem.assemble_matrix(dform, bcs=self.bcps)
+		self.A.assemble()
 
 		#forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		#other userdefined norm can be used, to be added later
-		up_r = ufl.as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
-		#up_i = as_vector((	 Trial_i[0],   Trial_i[1],   Trial_i[2]))
-		M_form=ufl.dot(up_r,self.Test[0])*self.r*ufl.dx
-		#M_form=dot(up_r,self.Test[0])*r*dx+dot(up_i,self.Test[0])*self.r*dx
-		Ma = dolfinx.fem.assemble_matrix(M_form)
-		Ma.assemble().tocsc()
-		#self.M = Ma[self.freeinds,:][:,self.freeinds]
+		tu = ufl.as_vector((self.Trial[0],self.Trial[1],self.Trial[2]))
+		M_form=ufl.inner(tu,self.Test[0])*self.r*ufl.dx
+		self.M = dolfinx.fem.assemble_matrix(M_form,bcs=self.bcps)
+		self.M.assemble()
 
 	def Getw0(self):
 		U,p=self.q.split()
@@ -346,59 +328,34 @@ class yaj():
 			#write gains
 			np.savetxt(self.dnspath+self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.real(gains))
 
-	def Eigenvalues(self,sigma,k,flag_mode,savematt,loadmatt):
-		print("check base flow max and min in u:",np.max(self.q.vector()[:]),",",np.min(self.q.vector()[:]))
+	# PETSc solver
+	def Eigenvalues(self,sigma,k):
+		print("Computing eigenvalues in PETSc!")
+		ncv = max(10,2*k)
+		# Preconditioner
+		PC=pet.PC(); PC.create()
+		PC.setType(PC.Type.LU)
+		PC.setFactorShift("nonzero",eps)
+		# Krylov subspace
+		KSP=pet.KSP(); KSP.create()
+		KSP.setType(KSP.Type.PREONLY)
+		KSP.setPC(PC)
+		# 
+		F = slp.ST(); F.create()
+		F.setType(F.Type.PRECOND)
+		F.setKSP(KSP)
+		# Solver
+		E = slp.EPS(); E.create()
+		E.setST(F)
+		E.setOperators(self.A,self.M) # Solve Ax=sigma*Mx
+		E.setWhichEigenpairs(E.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
+		E.setTarget(sigma)
+		E.setDimensions(k) # Find k eigenvalues only
+		E.setTolerances(ae,ncv) # Set absolute tolerance and number of iterations
+		E.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
+		E.solve()
+		# Conversion back into numpy 
+		vals=np.array([E.getEigenvalue(i) for i in range(k)],dtype=np.complex)
 
-		#RHS
-		if flag_mode==0:
-			print("save matrix to file "+savematt+self.save_string+".mat and quit!")
-			from scipy.io import savemat
-			mdic = {"A": self.A, "M": self.M}
-			savemat(savematt+self.save_string+".mat", mdic)
-			return 0
-		elif flag_mode==1:
-			print("load matlab result from file "+loadmatt)
-			from scipy.io import loadmat
-			mdic=loadmat(loadmatt)
-			vecs=mdic['V'] #if KeyError: 'V', it means the eigenvalue results are not saved into .mat
-			vals=np.diag(mdic['D'])
-		elif flag_mode==2:			
-			print("Computing eigenvalues/vectors in Python!")
-			ncv = max(10,2*k)
-			vals, vecs = la.eigs(self.A, k=k, M=self.M, sigma=sigma, maxiter=60, tol=ae, ncv=ncv)
-		else:
-			print("Operation mode for eigenvalues is not correct. Nothing done.")
-			return 0
-
-		# only writing real parts of eigenvectors to file
-		ua = dolfinx.Function(self.Space)
-		flag_video=0 #1: export animation
-		for i in range(0,k+1,k//10+1):
-			ua.vector()[self.freeinds] = vecs[:,i].real
-
-			u,p  = ua.split()
-			with VTKFile(COMM_WORLD, self.dnspath+self.eig_path+"u/evec_u"+self.save_string+"_n="+str(i+1)+".pvd","w") as vtk:
-				vtk.write([u._cpp_object])
-			with VTKFile(COMM_WORLD, self.dnspath+self.eig_path+"u/evec_u"+self.save_string+"_n="+str(i+1)+".pvd","w") as vtk:
-				vtk.write([p._cpp_object])
-			if flag_video: # export animation
-				print("Exporting video for eig "+str(i+1))
-				angSteps = 20
-				angList = list(2*np.pi/angSteps*np.arange(0,angSteps+1))
-
-				angle0=np.angle(vecs[:,i])
-				abs0=np.absolute(vecs[:,i])
-				for k in range(0,angSteps+1):
-					angle = angList[k]-angle0
-					amp = abs0*np.cos(angle)
-					ua.vector()[self.freeinds] = amp
-					if self.label=='lowMach':
-						u,p,rho  = ua.split()
-					if self.label=='lowMach_reacting':
-						u,p,rho,y  = ua.split()
-					File(self.dnspath+self.eig_path+"anim_rho_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << rho
-					File(self.dnspath+self.eig_path+"anim_u_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << u
-					if self.label=='lowMach_reacting':
-						File(self.dnspath+self.eig_path+"anim_y_nu="+f"{self.nu:00.3f}"+"_S="+f"{self.S:00.3f}"+"_"+str(i+1)+"_"+str(k)+".pvd") << y
 		#write eigenvalues
 		np.savetxt(self.dnspath+self.eig_path+"evals"+self.save_string+".dat",np.column_stack([vals.real, vals.imag]))
