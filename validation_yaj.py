@@ -44,10 +44,27 @@ def grabovski_berger(r):
 	ir=np.logical_and(r>=1,r<r_max)
 	psi[ir]=1/r[ir]
 	return psi
+
 class InletNormalVelocity():
 	def __init__(self, S): self.S = S
 
 	def __call__(self, x): return self.S*grabovski_berger(x[1])
+
+# Sponged Reynolds number
+def sponged_Reynolds(Re,mesh):
+	Re_s=.1
+	Red=dolfinx.Function(dolfinx.FunctionSpace(mesh,ufl.FiniteElement("Lagrange",mesh.ufl_cell(),2)))
+	def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
+	def Ref(x):
+		Rem=np.ones(x[0].size)*Re
+		x_ext=x[0]>x_max
+		Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max+l),x_max)
+		r_ext=x[1]>r_max
+		Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_max+l),r_max)
+		return Rem
+	Red.interpolate(Ref)
+	return Red
+
 class yaj():
 	def __init__(self,meshpath,dnspath,m,Re,S,n_S):
 		# Newton solver
@@ -55,7 +72,7 @@ class yaj():
 		self.n_nu=1 #number of visocity iterations
 		self.S   =S #swirl amplitude relative to main flow
 		self.n_S =n_S #number of swirl iterations
-		self.m  =m # azimuthal decomposition
+		self.m   =m # azimuthal decomposition
 
 		# Fundamental flow type
 		self.dnspath=dnspath
@@ -92,26 +109,14 @@ class yaj():
 		testFunction = ufl.TestFunction(self.Space)
 		self.Test = [ufl.as_vector((testFunction[0],testFunction[1],testFunction[2])),testFunction[3]]
 		self.Trial = ufl.TrialFunction(self.Space)
+		
+		# Extraction of r and Re computation
+		self.r = dolfinx.Function(self.u_space)
+		self.r.interpolate(lambda x: x[1])
+		self.Re= sponged_Reynolds(Re,self.mesh)
 
 		self.q = dolfinx.Function(self.Space) # initialisation of q
 		self.HotStart()
-		self.r = dolfinx.Function(self.u_space)
-		self.r.interpolate(lambda x: x[1])
-		self.SpongedReynolds(Re)
-		
-	# Sponged Reynolds number
-	def SpongedReynolds(self,Re):
-		Re_s=.1
-		self.Re=dolfinx.Function(dolfinx.FunctionSpace(self.mesh,ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),2)))
-		def csi(a,b): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
-		def Ref(x):
-			Rem=np.ones(x[0].size)*Re
-			x_ext=x[0]>x_max
-			Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max+l),x_max)
-			r_ext=x[1]>r_max
-			Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_max+l),r_max)
-			return Rem
-		self.Re.interpolate(Ref)
 		
 	# Memoisation routine - find closest in Re and S
 	def HotStart(self):
@@ -122,7 +127,6 @@ class yaj():
 			Sd =float(file_name[11:16]) # Take advantage of file format 
 			fd=abs(self.S-Sd)#+abs(Re-Red)
 			if fd<d: d,closest_file_name=fd,self.dnspath+self.private_path+'dat/'+file_name
-		
 		viewer = pet.Viewer().createMPIIO(closest_file_name,'r',COMM_WORLD)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
@@ -213,7 +217,7 @@ class yaj():
 				problem = dolfinx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs, J=dbase_form)
 				solver  = dolfinx.NewtonSolver(COMM_WORLD, problem)
 				solver.rtol=eps
-				solver.relaxation_parameter=rp
+				solver.relaxation_parameter=rp # Absolutely crucial for convergence
 				solver.max_iter=30
 				solver.atol=ae   
 				solver.solve(self.q)
@@ -332,27 +336,24 @@ class yaj():
 	def Eigenvalues(self,sigma,k):
 		print("Computing eigenvalues in PETSc!")
 		ncv = max(10,2*k)
-		# Preconditioner
-		PC=pet.PC(); PC.create()
-		PC.setType(PC.Type.LU)
-		PC.setFactorShift("nonzero",eps)
-		# Krylov subspace
-		KSP=pet.KSP(); KSP.create()
-		KSP.setType(KSP.Type.PREONLY)
-		KSP.setPC(PC)
-		# 
-		F = slp.ST(); F.create()
-		F.setType(F.Type.PRECOND)
-		F.setKSP(KSP)
 		# Solver
 		E = slp.EPS(); E.create()
-		E.setST(F)
 		E.setOperators(self.A,self.M) # Solve Ax=sigma*Mx
 		E.setWhichEigenpairs(E.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		E.setTarget(sigma)
 		E.setDimensions(k) # Find k eigenvalues only
 		E.setTolerances(ae,ncv) # Set absolute tolerance and number of iterations
 		E.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
+		# Spectral transform
+		ST = E.getST()
+		ST.setType(ST.Type.SINVERT)
+		# Krylov subspace
+		KSP = ST.getKSP()
+		# Preconditioner
+		PC =  KSP.getPC()
+		PC.setType(PC.Type.LU)
+		PC.setFactorShift("nonzero",eps)
+		E.setFromOptions()
 		E.solve()
 		# Conversion back into numpy 
 		vals=np.array([E.getEigenvalue(i) for i in range(k)],dtype=np.complex)

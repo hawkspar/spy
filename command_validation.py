@@ -27,6 +27,7 @@ for i in range(n):
 
 plt.plot(Ss,w0s)
 plt.savefig(datapath+"validation_graph_w0.png")
+plt.close()
 
 f_S=inter(Ss,w0s,'quadratic')
 print(root(f_S,.89).x)
@@ -45,7 +46,6 @@ yo.ComputeAM()
 yo.Eigenvalues(-.05-1j,10) #shift value; nb of eigenmode
 vals_real,vals_imag=np.loadtxt(yo.dnspath+yo.eig_path+"evals_S=1.000_m=-1.dat",unpack=True)
 
-#plt.close()
 plt.scatter(-vals_imag,-vals_real,edgecolors='k',facecolors='none')
 plt.plot([-1e1,1e1],[0,0],'k--')
 plt.axis([-3,3,-.15,.15])
