@@ -58,7 +58,7 @@ def sponged_Reynolds(Re,mesh) -> dolfinx.Function:
 	def Ref(x):
 		Rem=np.ones(x[0].size)*Re
 		x_ext=x[0]>x_max
-		Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max+l),x_max)
+		Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max+l),x_max) # min necessary to prevtn spurious jumps because of mesh conversion
 		r_ext=x[1]>r_max
 		Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_max+l),r_max)
 		return Rem
@@ -134,6 +134,8 @@ class yaj():
 		self.r.interpolate(lambda x: x[1])
 		self.Re = sponged_Reynolds(Re,self.mesh)
 		self.mu = 1/self.Re
+		with VTKFile(COMM_WORLD, self.datapath+"Re=.pvd","w") as vtk:
+			vtk.write([self.Re._cpp_object])
 
 		self.q = dolfinx.Function(self.Space) # initialisation of q
 		self.HotStart()
@@ -215,7 +217,7 @@ class yaj():
 		if self.m == 0:
 			as_dofs,as_bcs=self.AxisSymmetry()
 			self.bcps.extend(as_bcs)
-			self.dofps = np.hstack((dofps,as_dofs))
+			self.dofps = np.hstack((self.dofps,as_dofs))
 		elif abs(self.m)==1:  # If |m|==1, special BCs required
 			self.bcps.append(bcs_symmetry_x)
 			self.dofps = np.hstack((self.dofps,dofs_symmetry_x))
@@ -384,11 +386,11 @@ class yaj():
 
 	# PETSc solver
 	def Eigenvalues(self,sigma,k) -> None:
+		"""
 		print("save matrix to file and quit!")
 		from scipy.io import savemat
 		mdic = {"A": self.A, "M": self.M}
 		savemat("Matlab/AM_S=1.000_m=-1.mat", mdic)
-		"""
 			return 0
 		elif flag_mode==1:
 			print("load matlab result from file "+loadmatt)
@@ -400,6 +402,19 @@ class yaj():
 		print("Computing eigenvalues/vectors in Python!")
 		ncv = np.max([10,2*k])
 		vals, vecs = la.eigs(self.A, k=k, M=self.M, sigma=sigma, maxiter=60, tol=ae,ncv=ncv)
+
+		#write eigenvalues
+		np.savetxt(self.datapath+self.eig_path+"evals"+self.save_string+".dat",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.datapath+self.eig_path+"evecs"+self.save_string+".dat",np.column_stack([vecs.real, vecs.imag]))
+		# Write eigenvectors back in pvd
+		for i in range(k):
+			q=dolfinx.Function(self.Space)
+			q.vector.array[self.freeinds] = vecs[:,i]
+			u,p = q.split()
+			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_n="+str(i+1)+".pvd","w") as vtk:
+				vtk.write([u._cpp_object])
+			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"p/evec_p_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_n="+str(i+1)+".pvd","w") as vtk:
+				vtk.write([p._cpp_object])
 		"""
 		# only writing real parts of eigenvectors to file
 		ua = dolfinx.Function(self.Space)
@@ -415,6 +430,3 @@ class yaj():
 					vtk.write([u._cpp_object])
 			File(self.datapath+self.eig_path+"evec_u_"+str(np.round(vals[i], decimals=3))+".pvd") << u
 		"""
-
-		#write eigenvalues
-		np.savetxt(self.datapath+self.eig_path+"evals"+self.save_string+".dat",np.column_stack([vals.real, vals.imag]))

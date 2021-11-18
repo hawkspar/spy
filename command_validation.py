@@ -6,7 +6,7 @@ Created on Wed Oct  13 17:07:00 2021
 """
 from validation_yaj import yaj
 import numpy as np
-#from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d as inter
 from scipy.optimize import root
 
@@ -42,12 +42,11 @@ yo.ComputeAM()
 #yo.Resolvent(1,[4.*np.pi])
 
 #modal analysis
-yo.Eigenvalues(.05+1j,20) #shift value; nb of eigenmode
-vals_real,vals_imag=np.loadtxt(yo.dnspath+yo.eig_path+"evals_S=1.000_m=-1.dat",unpack=True)
-"""
+#yo.Eigenvalues(.05+1j,20) #shift value; nb of eigenmode
+vals_real,vals_imag=np.loadtxt(yo.datapath+yo.eig_path+"evals_S=1.000_m=-1.dat",unpack=True)
 plt.scatter(vals_imag,vals_real,edgecolors='k',facecolors='none')
 plt.plot([-1e1,1e1],[0,0],'k--')
 plt.axis([-3,3,-.15,.15])
 plt.xlabel(r'$\omega$')
 plt.ylabel(r'$\sigma$')
-plt.savefig(datapath+"validation_eigenvalues.png")"""
+plt.savefig(datapath+"validation_eigenvalues.png")
