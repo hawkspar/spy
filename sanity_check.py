@@ -1,11 +1,12 @@
-import dolfinx as dfx, ufl
 import numpy as np
+from pdb import set_trace
+import dolfinx as dfx, ufl
 import scipy.sparse as sps
 from dolfinx.io import VTKFile
 import scipy.sparse.linalg as la
 from mpi4py.MPI import COMM_WORLD
 
-n=100
+n=3
 mesh=dfx.UnitSquareMesh(COMM_WORLD,n,n)
 FE=ufl.VectorElement("Lagrange",mesh.ufl_cell(),1)
 V=dfx.FunctionSpace(mesh,FE)
@@ -35,7 +36,10 @@ def ConstantBC(direction, boundary) -> tuple:
     return dofs[0] # Only return unflattened dofs
 
 # Identify BC DoFs
-dofs=np.hstack([ConstantBC(i,bd) for i in range(2) for bd in boundaries])
+dofs=np.empty(0,dtype=np.int64)
+for i in range(2):
+    for bd in boundaries:
+        dofs=np.union1d(dofs,ConstantBC(i,bd)).astype(np.int64)
 
 # Sparse utilities
 def csr_zero_rows(csr : sps.csr_matrix, rows : np.ndarray):
@@ -68,9 +72,11 @@ B=B.tocsc()
 csc_zero_cols(B,dofs)
 B.eliminate_zeros()
 
+set_trace()
+
 # Solver
 k=5
-vals, vecs = la.eigs(A, k=k, M=B, sigma=0)
+vals, vecs = la.eigs(-A, k=k, M=B, sigma=0)
 # Write eigenvectors back in pvd
 for i in range(vals.size):
     q=dfx.Function(V)

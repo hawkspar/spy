@@ -93,11 +93,11 @@ def csc_zero_cols(csc : sps.csc_matrix, cols : np.ndarray):
 class yaj():
 	def __init__(self,meshpath:str,datapath:str,m:int,Re:float,S:float,n_S:int):
 		# Newton solver
-		self.nu	 =1   # viscosity prefator
+		self.mu	 =1   # viscosity prefator
 		self.n_nu=1   # number of viscosity iterations
 		self.S   =S   # swirl amplitude relative to main flow
 		self.n_S =n_S # number of swirl iterations
-		self.N   =m   # azimuthal decomposition
+		self.m   =m   # azimuthal decomposition
 
 		# Paths
 		self.datapath = datapath
@@ -110,25 +110,21 @@ class yaj():
 		
 		# Mesh from file
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
-			self.Nesh = file.read_mesh(name="Grid")
+			self.mesh = file.read_mesh(name="Grid")
 		
 		# Taylor Hodd elements ; stable element pair
-		FE_vector=ufl.VectorElement("Lagrange",self.Nesh.ufl_cell(),2,3)
-		FE_scalar=ufl.FiniteElement("Lagrange",self.Nesh.ufl_cell(),1)
-		self.Space=dfx.FunctionSpace(self.Nesh,FE_vector*FE_scalar)	# full vector function space
+		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
+		FE_scalar=ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
+		self.Space=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar)	# full vector function space
 		
 		# Test & trial functions
 		self.Test  = ufl.TestFunction(self.Space)
-		self.Test  = (ufl.as_vector((self.Test[0], self.Test[1], self.Test[2])), self.Test[3])
 		self.Trial = ufl.TrialFunction(self.Space)
-		self.Trial = (ufl.as_vector((self.Trial[0],self.Trial[1],self.Trial[2])),self.Trial[3])
 		
 		# Extraction of r and Re computation
-		self.r = ufl.SpatialCoordinate(self.Nesh)[1]
-		self.Re = sponged_Reynolds(Re,self.Nesh)
-		self.Nu = 1/self.Re
-		"""with VTKFile(COMM_WORLD, self.datapath+"Re_tau=1.pvd","w") as vtk:
-			vtk.write([self.Re._cpp_object])"""
+		self.r = ufl.SpatialCoordinate(self.mesh)[1]
+		self.Re = sponged_Reynolds(Re,self.mesh)
+		self.mu = 1/self.Re
 		self.q = dfx.Function(self.Space) # Initialisation of q
 		
 	# Memoisation routine - find closest in Re and S
@@ -187,34 +183,42 @@ class yaj():
 	def BoundaryConditionsPerturbations(self) -> None:
 		# Handle homogeneous boundary conditions
 		homogeneous_boundaries_dic={'inlet':['x','r','th'],'top':['r','th']}
-		if 	     self.N ==0: homogeneous_boundaries_dic['symmetry']=['r','th']
-		elif abs(self.N)==1: homogeneous_boundaries_dic['symmetry']=['x']
+		if 	     self.m ==0: homogeneous_boundaries_dic['symmetry']=['r','th']
+		elif abs(self.m)==1: homogeneous_boundaries_dic['symmetry']=['x']
 		else:				 homogeneous_boundaries_dic['symmetry']=['x','r','th']
 		self.bcps = []; self.dofps = np.empty(0)
 		for boundary in homogeneous_boundaries_dic:
 			for direction in homogeneous_boundaries_dic[boundary]:
 				dofs, bcs=self.ConstantBC(direction,lambda x: eval(boundary+'(x)'))
 				self.bcps.append(bcs)
-				self.dofps=np.hstack((self.dofps,dofs))
+				self.dofps=np.union1d(self.dofps,dofs)
 
 	def NonlinearOperator(self) -> ufl.Form:
 		r=self.r
 		u,p=ufl.split(self.q)
-		v,w=self.Test
+		v,w=ufl.split(self.Test)
 		
 		# Mass (variational formulation)
 		F  = ufl.inner( rdiv(u,r,0), 	   w)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u,r,0)*u,   r*v)      		   # Convection
-		F += ufl.inner(rgrad(u,r,0), gradr(v,r,0))*self.Nu # Diffusion
+		F += ufl.inner(rgrad(u,r,0), gradr(v,r,0))*self.mu # Diffusion
 		F -= ufl.inner(r*p,			  divr(v,r,0)) 		   # Pressure
 		return F*ufl.dx
 
+	def MassTerm(self,m:int) -> ufl.Form:
+		r=self.r
+		u_b,p_b=ufl.split(self.q) # Baseflow
+		v,	w  =ufl.split(self.Test)
+		
+		# Mass (variational formulation)
+		return ufl.inner(rdiv(u_b,r,m), w)*ufl.dx
+
 	def JacobianOperator(self,m:int) -> ufl.Form:
 		r=self.r
-		u,	p  =self.Trial
+		u,	p  =ufl.split(self.Trial)
 		u_b,p_b=ufl.split(self.q) # Baseflow
-		v,	w  =self.Test
+		v,	w  =ufl.split(self.Test)
 		
 		# Mass (variational formulation)
 		F  = ufl.inner( rdiv(u,  r,m), 		 w)
@@ -231,10 +235,10 @@ class yaj():
 		else: 		   Ss=[self.S]
 		self.BoundaryConditions(Ss[0]) # Initialises boundary condition
 		for S_current in Ss: 	# Increase swirl
-			for nu_current in np.linspace(self.nu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
+			for nu_current in np.linspace(self.mu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
 				print("viscosity prefactor: ", nu_current)
 				print("swirl intensity: ",	    S_current)
-				self.Nu=nu_current/self.Re #recalculate viscosity with prefactor
+				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
 				self.inlet_azimuthal_velocity.S=S_current
 				if hotstart: self.HotStart(S_current) # Memoisation
 				# Compute form
@@ -269,7 +273,7 @@ class yaj():
 		self.BoundaryConditionsPerturbations()
 
 		# Complex Jacobian of NS operator
-		dform=self.JacobianOperator(self.N)
+		dform=self.JacobianOperator(self.m)
 		self.J = dfx.fem.assemble_matrix(dform)
 		self.J.assemble()
 		
@@ -285,8 +289,8 @@ class yaj():
 		self.J.eliminate_zeros()
 
 		# Forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		u,p   = self.Trial
-		v,phi = self.Test
+		u,p   = ufl.split(self.Trial)
+		v,phi = ufl.split(self.Test)
 		form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
 		self.N = dfx.fem.assemble_matrix(form)
 		self.N.assemble()
@@ -385,15 +389,6 @@ class yaj():
 			np.savetxt(self.datapath+self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.real(gains))
 
 	def Eigenvalues(self,sigma:complex,k:int) -> None:
-		"""
-			return 0
-		elif flag_mode==1:
-			print("load matlab result from file "+loadmatt)
-			from scipy.io import loadmat
-			mdic=loadmat(loadmatt)
-			vecs=mdic['V'] #if KeyError: 'V', it means the eigenvalue results are not saved into .mat
-			vals=np.diag(mdic['D'])
-		"""
 		print("Computing eigenvalues/vectors in Python!")
 		ncv = np.max([10,2*k])
 		try:
@@ -402,7 +397,6 @@ class yaj():
 			print("Solver not fully converged")
 			vals, vecs = err.eigenvalues, err.eigenvectors
 			if vals.size==0: return
-		set_trace()
 		# write eigenvalues
 		np.savetxt(self.datapath+self.eig_path+"evals"+self.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in pvd
@@ -410,22 +404,7 @@ class yaj():
 			q=dfx.Function(self.Space)
 			q.vector.array = vecs[:,i]
 			u,p = q.split()
-			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.N)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
+			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
 				vtk.write([u._cpp_object])
-			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"p/evec_p_S="+f"{self.S:00.3f}"+"_m="+str(self.N)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
+			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"p/evec_p_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
 				vtk.write([p._cpp_object])
-		"""
-		# only writing real parts of eigenvectors to file
-		ua = dfx.Function(self.Space)
-		flag_video=0 #1: export animation
-		for i in range(0,1): # export only the first two
-			ua.vector()[self.freeinds] = vecs[:,i]
-			viewer = pet.Viewer().createMPIIO(self.datapath+self.eig_path+"evec_S="+f"{self.S:00.3f}"+"_i="+str(i+1)+".dat", 'w', COMM_WORLD)
-			self.q.vector.view(viewer)
-			File(self.datapath+self.eig_path+"evec"+str(i+1)+".xml") << ua.vector()
-
-			u,p  = ua.split()
-				with VTKFile(COMM_WORLD, self.datapath+self.private_path+"print/u_S="+f"{S_current:00.3f}"+".pvd","w") as vtk:
-					vtk.write([u._cpp_object])
-			File(self.datapath+self.eig_path+"evec_u_"+str(np.round(vals[i], decimals=3))+".pvd") << u
-		"""
