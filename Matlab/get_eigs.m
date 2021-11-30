@@ -1,8 +1,17 @@
 load('AM_S=1.000_m=-1.mat')
 
-[V,D]=eigs(-A,M,15,.0+1.2j);
+vals=[];
+for re=linspace(-.05,.05,5)
+    for im=linspace(-1,1,5)
+        try
+            [V,D]=eigs(-A,M,10,re+1j*im);
+            vals=[vals diag(D)];
+        catch WarnIfIllConditioned
+            pass
+        end
+    end
+end
 
-D=diag(D);
-plot(imag(D),real(D),'*')
+plot(imag(vals),real(vals),'*')
 
 save('validation_S=1.000_m=-1.mat')
