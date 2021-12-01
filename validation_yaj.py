@@ -206,14 +206,6 @@ class yaj():
 		F -= ufl.inner(r*p,			  divr(v,r,0)) 		   # Pressure
 		return F*ufl.dx
 
-	def MassTerm(self,m:int) -> ufl.Form:
-		r=self.r
-		u_b,p_b=ufl.split(self.q) # Baseflow
-		v,	w  =ufl.split(self.Test)
-		
-		# Mass (variational formulation)
-		return ufl.inner(rdiv(u_b,r,m), w)*ufl.dx
-
 	def JacobianOperator(self,m:int) -> ufl.Form:
 		r=self.r
 		u,	p  =ufl.split(self.Trial)
@@ -269,8 +261,16 @@ class yaj():
 		# Load baseflow
 		self.HotStart(self.S)
 		
-		# Computation of boundary condition dofs (only homogenous enforced, great for perturbations)
-		self.BoundaryConditionsPerturbations()
+		"""u,p = self.q.split()
+		prt = dfx.Function(self.Space)
+		with VTKFile(COMM_WORLD, "mass.pvd","w") as vtk:
+			vtk.write([div(u,self.r,self.m)._cpp_object])
+		with VTKFile(COMM_WORLD, "convection.pvd","w") as vtk:
+			vtk.write([(grad(u,self.r,self.m)*u)._cpp_object])
+		with VTKFile(COMM_WORLD, "diffusion.pvd","w") as vtk:
+			vtk.write([(div(grad(u,self.r,self.m))/self.Re)._cpp_object])
+		with VTKFile(COMM_WORLD, "pressure_gradient.pvd","w") as vtk:
+			vtk.write([grad(p,self.r,self.m)._cpp_object])"""
 
 		# Complex Jacobian of NS operator
 		dform=self.JacobianOperator(self.m)
@@ -280,6 +280,10 @@ class yaj():
 		# Convert from PeTSc to Scipy for easy slicing
 		ai, aj, av = self.J.getValuesCSR()
 		self.J = sps.csr_matrix((av, aj, ai),dtype=np.complex64)
+		
+		# Computation of boundary condition dofs (only homogenous enforced, great for perturbations)
+		self.BoundaryConditionsPerturbations()
+
 		# Efficiently cancel out rows and columns
 		csr_zero_rows(self.J,self.dofps)
 		self.J=self.J.tocsc()

@@ -14,12 +14,10 @@ MeshPath='Mesh/validation/validation.xdmf'
 datapath='validation/' #folder for results
 
 # Eigenvalues
-yo=yaj(MeshPath,datapath,0,200,1,1)
+yo=yaj(MeshPath,datapath,-1,200,1,1)
 # For efficiency, matrix is assembled only once
 yo.ComputeAM()
 
-#yo.Resolvent(1,[4.*np.pi])
-"""
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 # Grid search
@@ -46,17 +44,14 @@ for re in np.linspace(-.1,.1,5):
 # Sum them all, regroup them
 vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
 np.savetxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",np.column_stack([vals.real, vals.imag]))
-"""
-sigma=.05+1j
-yo.Eigenvalues(sigma,10) #shift value, nb of eigenmode
-vals_real,vals_imag=np.loadtxt(datapath+yo.eig_path+"evals"+yo.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",unpack=True)
+
 # Plot them all!
 fig = plt.figure()
 ax = fig.add_subplot(111)
-plt.scatter(vals_imag,vals_real,edgecolors='k',facecolors='none')
-#plt.plot([-1e1,1e1],[0,0],'k--')
+plt.scatter(vals.imag,vals.real,edgecolors='k',facecolors='none')
+plt.plot([-1e1,1e1],[0,0],'k--')
 ax.set_aspect(1)
-#plt.axis([-3,3,-.15,.15])
+plt.axis([-3,3,-.15,.15])
 plt.xlabel(r'$\omega$')
 plt.ylabel(r'$\sigma$')
 plt.savefig(datapath+"eigenvalues"+yo.save_string+".svg")
