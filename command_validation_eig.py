@@ -4,11 +4,10 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-from validation_yaj import yaj
-import numpy as np
-from matplotlib import pyplot as plt
-from pdb import set_trace
 import os
+import numpy as np
+from validation_yaj import yaj
+from matplotlib import pyplot as plt
 
 MeshPath='Mesh/validation/validation.xdmf'
 datapath='validation/' #folder for results
@@ -17,7 +16,7 @@ datapath='validation/' #folder for results
 yo=yaj(MeshPath,datapath,-1,200,1,1)
 # For efficiency, matrix is assembled only once
 yo.ComputeAM()
-
+"""
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 # Grid search
@@ -35,23 +34,29 @@ for re in np.linspace(-.1,.1,5):
                     closest_file_name=datapath+yo.eig_path+"evals"+yo.save_string+"_sigma="+f"{np.real(sigmad):00.3f}"+f"{np.imag(sigmad):+00.3f}"+"j.dat"
                     break
             except ValueError: pass
-        else: yo.Eigenvalues(sigma,10) #Actual computation shift value, nb of eigenmode
+        else:
+            yo.Eigenvalues(sigma,10) #Actual computation shift value, nb of eigenmode
         try:
             sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
             vals_real=np.hstack((vals_real,sig_vals_real))
             vals_imag=np.hstack((vals_imag,sig_vals_imag))
-        except OSError: pass
+        except OSError: pass"""
+
 # Sum them all, regroup them
+#np.savetxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",np.column_stack([vals_real, vals_imag]))
+yo.Eigenvalues(.037+1.1j,1)
+"""vals_real, vals_imag=np.loadtxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",unpack=True)
 vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
-np.savetxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",np.column_stack([vals.real, vals.imag]))
 
 # Plot them all!
 fig = plt.figure()
 ax = fig.add_subplot(111)
-plt.scatter(vals.imag,vals.real,edgecolors='k',facecolors='none')
+msk=vals.real<0
+plt.scatter(vals.imag[msk], vals.real[msk], edgecolors='k',facecolors='none') # Stable eigenvalues
+if vals[~msk].size>0:
+    plt.scatter(vals.imag[~msk],vals.real[~msk],edgecolors='k',facecolors='k')    # Unstable eigenvalues
 plt.plot([-1e1,1e1],[0,0],'k--')
-ax.set_aspect(1)
-plt.axis([-3,3,-.15,.15])
+plt.axis([-2.5,2.5,-.12,.08])
 plt.xlabel(r'$\omega$')
 plt.ylabel(r'$\sigma$')
-plt.savefig(datapath+"eigenvalues"+yo.save_string+".svg")
+plt.savefig(datapath+"eigenvalues"+yo.save_string+".svg")"""

@@ -8,13 +8,12 @@ import os, ufl
 import numpy as np
 import dolfinx as dfx
 from pdb import set_trace
-import scipy.sparse as sps
 from scipy.io import savemat
-import scipy.sparse.linalg as la
+from petsc4py import PETSc as pet
+from slepc4py import SLEPc as slp
 #from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD
 from dolfinx.io import XDMFFile, VTKFile
-from scipy.sparse.linalg.eigen.arpack.arpack import ArpackNoConvergence
 
 rp =.99 #relaxation_parameter
 ae =1e-9 #absolute_tolerance
@@ -31,11 +30,6 @@ def outlet(	 x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],x_ma
 def top(	 x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],r_max+l,eps) # Top boundary at r=R
 
 # Gradient with x[0] is x, x[1] is r, x[2] is theta
-def grad(v,r,m):
-	return ufl.as_tensor([[v[0].dx(0), v[0].dx(1), m*1j*v[0]/r],
-				 	  	  [v[1].dx(0), v[1].dx(1), m*1j*v[1]/r-v[2]/r],
-					  	  [v[2].dx(0), v[2].dx(1), m*1j*v[2]/r+v[1]/r]])
-
 def rgrad(v,r,m):
 	return ufl.as_tensor([[r*v[0].dx(0), r*v[0].dx(1), m*1j*v[0]],
 				 	  	  [r*v[1].dx(0), r*v[1].dx(1), m*1j*v[1]-v[2]],
@@ -47,8 +41,6 @@ def gradr(v,r,m):
 					  	  [r*v[2].dx(0), v[2]+r*v[2].dx(1), m*1j*v[2]+v[1]]])
 
 # Same for divergent
-def div(v,r,m):  return   v[0].dx(0) + (r*v[1]).dx(1)/r 	  + m*1j*v[2]/r
-
 def rdiv(v,r,m): return r*v[0].dx(0) +    v[1] + r*v[1].dx(1) + m*1j*v[2]
 
 def divr(v,r,m): return r*v[0].dx(0) +  2*v[1] + r*v[1].dx(1) + m*1j*v[2]
@@ -82,13 +74,6 @@ def sponged_Reynolds(Re,mesh) -> dfx.Function:
 	Red=dfx.Function(dfx.FunctionSpace(mesh,ufl.FiniteElement("Lagrange",mesh.ufl_cell(),2)))
 	Red.interpolate(lambda x: Ref(x,Re_s,Re))
 	return Red
-
-# Helper functions for sparse matrices
-def csr_zero_rows(csr : sps.csr_matrix, rows : np.ndarray):
-	for row in rows: csr.data[csr.indptr[int(row)]:csr.indptr[int(row)+1]] = 0
-
-def csc_zero_cols(csc : sps.csc_matrix, cols : np.ndarray):
-	for col in cols: csc.data[csc.indptr[int(col)]:csc.indptr[int(col)+1]] = 0
 
 class yaj():
 	def __init__(self,meshpath:str,datapath:str,m:int,Re:float,S:float,n_S:int):
@@ -138,6 +123,7 @@ class yaj():
 			if fd<d: d,closest_file_name=fd,self.datapath+self.private_path+'dat/'+file_name
 		#self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 		self.q.x.array.real=np.load(closest_file_name,allow_pickle=True)
+		print("Loaded "+closest_file_name+" per memoisation protocol")
 		
 	# Code factorisation
 	def ConstantBC(self, direction:chr, boundary, value=0) -> tuple:
@@ -150,7 +136,7 @@ class yaj():
 		dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
 		# Actual BCs
 		bcs = dfx.DirichletBC(constant, dofs, sub_space) # u_i=value at boundary
-		return dofs[0], bcs # Only return unflattened dofs
+		return dofs[0], bcs
 
 	# Baseflow (really only need DirichletBC objects)
 	def BoundaryConditions(self,S:float) -> None:
@@ -176,8 +162,7 @@ class yaj():
 		homogeneous_boundaries_dic={'inlet':['r'],'top':['r','th'],'symmetry':['r','th']}
 		for boundary in homogeneous_boundaries_dic:
 			for direction in homogeneous_boundaries_dic[boundary]:
-				_, bcs=self.ConstantBC(direction,lambda x: eval(boundary+'(x)'))
-				self.bcs.append(bcs)
+				self.bcs.append(self.ConstantBC(direction,lambda x: eval(boundary+'(x)')))
 
 	# Perturbations (really only need dofs)
 	def BoundaryConditionsPerturbations(self) -> None:
@@ -186,14 +171,14 @@ class yaj():
 		if 	     self.m ==0: homogeneous_boundaries_dic['symmetry']=['r','th']
 		elif abs(self.m)==1: homogeneous_boundaries_dic['symmetry']=['x']
 		else:				 homogeneous_boundaries_dic['symmetry']=['x','r','th']
-		self.bcps = []; self.dofps = np.empty(0)
+		self.bcps = []; self.dofps=np.empty(0,dtype=np.int64)
 		for boundary in homogeneous_boundaries_dic:
 			for direction in homogeneous_boundaries_dic[boundary]:
-				dofs, bcs=self.ConstantBC(direction,lambda x: eval(boundary+'(x)'))
+				dofs, bcs= self.ConstantBC(direction,lambda x: eval(boundary+'(x)'))
 				self.bcps.append(bcs)
 				self.dofps=np.union1d(self.dofps,dofs)
 
-	def NonlinearOperator(self) -> ufl.Form:
+	def NavierStokes(self) -> ufl.Form:
 		r=self.r
 		u,p=ufl.split(self.q)
 		v,w=ufl.split(self.Test)
@@ -206,7 +191,7 @@ class yaj():
 		F -= ufl.inner(r*p,			  divr(v,r,0)) 		   # Pressure
 		return F*ufl.dx
 
-	def JacobianOperator(self,m:int) -> ufl.Form:
+	def LinearisedNavierStokes(self,m:int) -> ufl.Form:
 		r=self.r
 		u,	p  =ufl.split(self.Trial)
 		u_b,p_b=ufl.split(self.q) # Baseflow
@@ -234,8 +219,8 @@ class yaj():
 				self.inlet_azimuthal_velocity.S=S_current
 				if hotstart: self.HotStart(S_current) # Memoisation
 				# Compute form
-				base_form  = self.NonlinearOperator() #no azimuthal decomposition for base flow
-				dbase_form = self.JacobianOperator(0)
+				base_form  = self.NavierStokes() #no azimuthal decomposition for base flow
+				dbase_form = self.LinearisedNavierStokes(0)
 				problem = dfx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
 				solver  = dfx.NewtonSolver(COMM_WORLD, problem)
 				solver.rtol=eps
@@ -257,61 +242,26 @@ class yaj():
 		np.save(self.datapath+"last_baseflow.npy",self.q.x.array.real)
 		print("Last checkpoint written!")
 
+	# To be run in complex mode
 	def ComputeAM(self) -> None:
 		# Load baseflow
 		self.HotStart(self.S)
 		
-		"""u,p = self.q.split()
-		prt = dfx.Function(self.Space)
-		with VTKFile(COMM_WORLD, "mass.pvd","w") as vtk:
-			vtk.write([div(u,self.r,self.m)._cpp_object])
-		with VTKFile(COMM_WORLD, "convection.pvd","w") as vtk:
-			vtk.write([(grad(u,self.r,self.m)*u)._cpp_object])
-		with VTKFile(COMM_WORLD, "diffusion.pvd","w") as vtk:
-			vtk.write([(div(grad(u,self.r,self.m))/self.Re)._cpp_object])
-		with VTKFile(COMM_WORLD, "pressure_gradient.pvd","w") as vtk:
-			vtk.write([grad(p,self.r,self.m)._cpp_object])"""
-
-		# Complex Jacobian of NS operator
-		dform=self.JacobianOperator(self.m)
-		self.J = dfx.fem.assemble_matrix(dform)
-		self.J.assemble()
-		
-		# Convert from PeTSc to Scipy for easy slicing
-		ai, aj, av = self.J.getValuesCSR()
-		self.J = sps.csr_matrix((av, aj, ai),dtype=np.complex64)
-		
 		# Computation of boundary condition dofs (only homogenous enforced, great for perturbations)
 		self.BoundaryConditionsPerturbations()
 
-		# Efficiently cancel out rows and columns
-		csr_zero_rows(self.J,self.dofps)
-		self.J=self.J.tocsc()
-		csc_zero_cols(self.J,self.dofps)
-		# Introduce a -1 to force homogeneous BC
-		self.J[self.dofps,self.dofps]=-1
-		self.J.eliminate_zeros()
+		# Complex Jacobian of NS operator
+		dform=self.LinearisedNavierStokes(self.m)
+		self.J = dfx.fem.assemble_matrix(dform,bcs=self.bcps)
+		self.J.assemble()
 
 		# Forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		u,p   = ufl.split(self.Trial)
 		v,phi = ufl.split(self.Test)
 		form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
-		self.N = dfx.fem.assemble_matrix(form)
+		self.N = dfx.fem.assemble_matrix(form,bcs=self.bcps,diagonal=0)
 		self.N.assemble()
-
-		# Convert too
-		mi, mj, mv = self.N.getValuesCSR()
-		self.N = sps.csr_matrix((mv, mj, mi),dtype=np.complex64)
-		# Efficiently cancel out stuff
-		csr_zero_rows(self.N,self.dofps)
-		self.N=self.N.tocsc()
-		csc_zero_cols(self.N,self.dofps)
-		self.N.eliminate_zeros()
-		
-		# Matlab pipeline
-		mdic = {"A": self.J, "M": self.N}
-		savemat("Matlab/AM"+self.save_string+".mat", mdic)
-		print("Matrices assembled and saved to .mat file")
+		print("Matrices computed !")
 
 	def Getw0(self) -> float:
 		U,p=self.q.split()
@@ -393,22 +343,42 @@ class yaj():
 			np.savetxt(self.datapath+self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.real(gains))
 
 	def Eigenvalues(self,sigma:complex,k:int) -> None:
-		print("Computing eigenvalues/vectors in Python!")
-		ncv = np.max([10,2*k])
-		try:
-			vals, vecs = la.eigs(-self.J, k=k, M=self.N, sigma=sigma, maxiter=20, tol=1e-3, ncv=ncv)
-		except ArpackNoConvergence as err:
-			print("Solver not fully converged")
-			vals, vecs = err.eigenvalues, err.eigenvectors
-			if vals.size==0: return
+		ncv = max(10,2*k)
+		# Solver
+		E = slp.EPS(); E.create()
+		E.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
+		E.setWhichEigenpairs(E.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
+		E.setTarget(sigma)
+		E.setDimensions(k,ncv) # Find k eigenvalues only with max number of Lanczos vectors
+		E.setTolerances(eps,60) # Set absolute tolerance and number of iterations
+		E.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
+		# Spectral transform
+		ST = E.getST()
+		ST.setType(ST.Type.SINVERT)
+		# Krylov subspace
+		KSP = ST.getKSP()
+		# Preconditioner
+		PC =  KSP.getPC()
+		PC.setType(PC.Type.LU)
+		PC.setFactorShift("nonzero",ae)
+		E.setFromOptions()
+		E.solve()
+		n=E.getConverged()
+		if n==0: return
+		# Conversion back into numpy 
+		vals=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		# write eigenvalues
 		np.savetxt(self.datapath+self.eig_path+"evals"+self.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in pvd
-		for i in range(vals.size):
+		for i in range(n):
+			N= (self.Space.dofmap.index_map.size_local) * self.Space.dofmap.index_map_bs
+			v = pet.Vec().createSeq(N)
 			q=dfx.Function(self.Space)
-			q.vector.array = vecs[:,i]
+			E.getEigenvector(i,v)
+			q.x.array = v.getArray()
 			u,p = q.split()
 			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
 				vtk.write([u._cpp_object])
 			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"p/evec_p_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
 				vtk.write([p._cpp_object])
+		print("Eigenpairs written !")
