@@ -16,7 +16,6 @@ datapath='validation/' #folder for results
 yo=yaj(MeshPath,datapath,-1,200,1,1)
 # For efficiency, matrix is assembled only once
 yo.ComputeAM()
-"""
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 # Grid search
@@ -40,12 +39,12 @@ for re in np.linspace(-.1,.1,5):
             sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
             vals_real=np.hstack((vals_real,sig_vals_real))
             vals_imag=np.hstack((vals_imag,sig_vals_imag))
-        except OSError: pass"""
+        except OSError: pass
 
 # Sum them all, regroup them
-#np.savetxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",np.column_stack([vals_real, vals_imag]))
-yo.Eigenvalues(.037+1.1j,1)
-"""vals_real, vals_imag=np.loadtxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",unpack=True)
+np.savetxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",np.column_stack([vals_real, vals_imag]))
+#yo.Eigenvalues(.037+1.1j,1)
+#vals_real, vals_imag=np.loadtxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",unpack=True)
 vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
 
 # Plot them all!
@@ -59,4 +58,4 @@ plt.plot([-1e1,1e1],[0,0],'k--')
 plt.axis([-2.5,2.5,-.12,.08])
 plt.xlabel(r'$\omega$')
 plt.ylabel(r'$\sigma$')
-plt.savefig(datapath+"eigenvalues"+yo.save_string+".svg")"""
+plt.savefig(datapath+"eigenvalues"+yo.save_string+".svg")

@@ -7,13 +7,11 @@ Created on Wed Oct 13 13:50:00 2021
 import os, ufl
 import numpy as np
 import dolfinx as dfx
-from pdb import set_trace
-from scipy.io import savemat
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 #from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD
-from dolfinx.io import XDMFFile, VTKFile
+from dolfinx.io import XDMFFile
 
 rp =.99 #relaxation_parameter
 ae =1e-9 #absolute_tolerance
@@ -78,7 +76,7 @@ def sponged_Reynolds(Re,mesh) -> dfx.Function:
 class yaj():
 	def __init__(self,meshpath:str,datapath:str,m:int,Re:float,S:float,n_S:int):
 		# Newton solver
-		self.mu	 =1   # viscosity prefator
+		self.nu	 =1   # viscosity prefator
 		self.n_nu=1   # number of viscosity iterations
 		self.S   =S   # swirl amplitude relative to main flow
 		self.n_S =n_S # number of swirl iterations
@@ -114,15 +112,16 @@ class yaj():
 		
 	# Memoisation routine - find closest in Re and S
 	def HotStart(self,S) -> None:
-		closest_file_name=self.datapath+"last_baseflow.npy"
-		file_names = [f for f in os.listdir(self.datapath+self.private_path+'dat/') if f[-3:]=="npy"]
+		closest_file_name=self.datapath+"last_baseflow.dat"
+		file_names = [f for f in os.listdir(self.datapath+self.private_path+'dat/') if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
 			Sd = float(file_name[11:16]) # Take advantage of file format 
 			fd = abs(S-Sd)#+abs(Re-Red)
 			if fd<d: d,closest_file_name=fd,self.datapath+self.private_path+'dat/'+file_name
-		#self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		self.q.x.array.real=np.load(closest_file_name,allow_pickle=True)
+		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
+		self.q.vector.load(viewer)
+		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 		print("Loaded "+closest_file_name+" per memoisation protocol")
 		
 	# Code factorisation
@@ -136,7 +135,7 @@ class yaj():
 		dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
 		# Actual BCs
 		bcs = dfx.DirichletBC(constant, dofs, sub_space) # u_i=value at boundary
-		return dofs[0], bcs
+		return bcs
 
 	# Baseflow (really only need DirichletBC objects)
 	def BoundaryConditions(self,S:float) -> None:
@@ -155,7 +154,7 @@ class yaj():
 		bcs_inlet_th = dfx.DirichletBC(u_inlet_th, dofs_inlet_th, sub_space_th) # u_th=S*psi(r) at x=0
 
 		# Actual BCs
-		dofs_inlet_x, bcs_inlet_x = self.ConstantBC('x',inlet,1) # u_x =1
+		bcs_inlet_x = self.ConstantBC('x',inlet,1) # u_x =1
 		self.bcs = [bcs_inlet_x, bcs_inlet_th]									# x=X entirely handled by implicit Neumann
 		
 		# Handle homogeneous boundary conditions
@@ -171,12 +170,10 @@ class yaj():
 		if 	     self.m ==0: homogeneous_boundaries_dic['symmetry']=['r','th']
 		elif abs(self.m)==1: homogeneous_boundaries_dic['symmetry']=['x']
 		else:				 homogeneous_boundaries_dic['symmetry']=['x','r','th']
-		self.bcps = []; self.dofps=np.empty(0,dtype=np.int64)
+		self.bcps = []
 		for boundary in homogeneous_boundaries_dic:
 			for direction in homogeneous_boundaries_dic[boundary]:
-				dofs, bcs= self.ConstantBC(direction,lambda x: eval(boundary+'(x)'))
-				self.bcps.append(bcs)
-				self.dofps=np.union1d(self.dofps,dofs)
+				self.bcps.append(self.ConstantBC(direction,lambda x: eval(boundary+'(x)')))
 
 	def NavierStokes(self) -> ufl.Form:
 		r=self.r
@@ -191,6 +188,7 @@ class yaj():
 		F -= ufl.inner(r*p,			  divr(v,r,0)) 		   # Pressure
 		return F*ufl.dx
 
+	# Not automatic because of convection term
 	def LinearisedNavierStokes(self,m:int) -> ufl.Form:
 		r=self.r
 		u,	p  =ufl.split(self.Trial)
@@ -212,7 +210,7 @@ class yaj():
 		else: 		   Ss=[self.S]
 		self.BoundaryConditions(Ss[0]) # Initialises boundary condition
 		for S_current in Ss: 	# Increase swirl
-			for nu_current in np.linspace(self.mu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
+			for nu_current in np.linspace(self.nu,1,self.n_nu): # Decrease viscosity (non physical but helps CV)
 				print("viscosity prefactor: ", nu_current)
 				print("swirl intensity: ",	    S_current)
 				self.mu=nu_current/self.Re #recalculate viscosity with prefactor
@@ -221,25 +219,37 @@ class yaj():
 				# Compute form
 				base_form  = self.NavierStokes() #no azimuthal decomposition for base flow
 				dbase_form = self.LinearisedNavierStokes(0)
+				# Encapsulations
 				problem = dfx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
 				solver  = dfx.NewtonSolver(COMM_WORLD, problem)
+				# Fine tuning
 				solver.rtol=eps
 				solver.relaxation_parameter=rp # Absolutely crucial for convergence
 				solver.max_iter=30
 				solver.atol=ae
-				#self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+				ksp = solver.krylov_solver
+				opts = pet.Options()
+				option_prefix = ksp.getOptionsPrefix()
+				opts[f"{option_prefix}pc_type"] = "lu"
+				opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+				ksp.setFromOptions()
 				solver.solve(self.q)
+				self.q.x.scatter_forward()
 				if np.isclose(nu_current,1,eps):  # Memoisation
 					u,p = self.q.split()
-					with VTKFile(COMM_WORLD, self.datapath+self.private_path+"print/u_S="+f"{S_current:00.3f}"+".pvd","w") as vtk:
-						vtk.write([u._cpp_object])
-					np.save(self.datapath+self.private_path+"dat/baseflow_S="+f"{S_current:00.3f}"+".npy",self.q.x.array.real)
+					with XDMFFile(COMM_WORLD, self.datapath+self.private_path+"print/u_S="+f"{S_current:00.3f}"+".xdmf", "w") as xdmf:
+						xdmf.write_mesh(self.mesh)
+						xdmf.write_function(u)
+					viewer = pet.Viewer().createMPIIO(self.datapath+self.private_path+"dat/baseflow_S="+f"{S_current:00.3f}"+".dat", 'w', COMM_WORLD)
+					self.q.vector.view(viewer)
 					print(".pvd, .npy written!")
 				
 		#write result of current mu
-		with VTKFile( COMM_WORLD, self.datapath+"last_u.pvd","w") as vtk:
-			vtk.write([u._cpp_object])
-		np.save(self.datapath+"last_baseflow.npy",self.q.x.array.real)
+		with XDMFFile(COMM_WORLD, self.datapath+self.private_path+"print/u_S="+f"{S_current:00.3f}"+".xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(u)
+		viewer = pet.Viewer().createMPIIO(self.datapath+"last_baseflow_S.dat", 'w', COMM_WORLD)
+		self.q.vector.view(viewer)
 		print("Last checkpoint written!")
 
 	# To be run in complex mode
@@ -357,9 +367,11 @@ class yaj():
 		ST.setType(ST.Type.SINVERT)
 		# Krylov subspace
 		KSP = ST.getKSP()
+		KSP.setType('preonly')
 		# Preconditioner
 		PC =  KSP.getPC()
-		PC.setType(PC.Type.LU)
+		PC.setType('lu')
+		PC.setFactorSolverType('mumps')
 		PC.setFactorShift("nonzero",ae)
 		E.setFromOptions()
 		E.solve()
@@ -369,16 +381,16 @@ class yaj():
 		vals=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		# write eigenvalues
 		np.savetxt(self.datapath+self.eig_path+"evals"+self.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",np.column_stack([vals.real, vals.imag]))
-		# Write eigenvectors back in pvd
-		for i in range(n):
-			N= (self.Space.dofmap.index_map.size_local) * self.Space.dofmap.index_map_bs
-			v = pet.Vec().createSeq(N)
+		# Write eigenvectors back in pvd (but not too many of them)
+		for i in range(min(n,3)):
 			q=dfx.Function(self.Space)
-			E.getEigenvector(i,v)
-			q.x.array = v.getArray()
+			E.getEigenvector(i,q.vector)
+			q.x.scatter_forward()
 			u,p = q.split()
-			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
-				vtk.write([u._cpp_object])
-			with VTKFile(COMM_WORLD, self.datapath+self.eig_path+"p/evec_p_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.pvd","w") as vtk:
-				vtk.write([p._cpp_object])
+			with XDMFFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.xdmf", "w") as xdmf:
+				xdmf.write_mesh(self.mesh)
+				xdmf.write_function(u)
+			with XDMFFile(COMM_WORLD, self.datapath+self.eig_path+"p/evec_p_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.xdmf", "w") as xdmf:
+				xdmf.write_mesh(self.mesh)
+				xdmf.write_function(p)
 		print("Eigenpairs written !")
