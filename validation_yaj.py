@@ -8,9 +8,11 @@ import os, ufl
 import numpy as np
 import dolfinx as dfx
 from dolfinx.io import XDMFFile
+from scipy import sparse as sps
 from petsc4py import PETSc as pet
-from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD
+from scipy.sparse import linalg as la
+from scipy.sparse.linalg.eigen.arpack.arpack import ArpackNoConvergence
 
 rp =.99 #relaxation_parameter
 ae =1e-9 #absolute_tolerance
@@ -258,15 +260,15 @@ class yaj():
 	def AssembleMatrices(self) -> None:
 		# Load baseflow
 		self.HotStart(self.S)
-		
-		# Computation of boundary condition dofs (only homogenous enforced, great for perturbations)
-		self.BoundaryConditionsPerturbations()
 
 		# Complex Jacobian of NS operator
 		dform=self.LinearisedNavierStokes(self.m)
 		self.J = dfx.fem.assemble_matrix(dform)
 		self.J.assemble()
-		self.J.zeroRowsColumnsLocal(self.dofps) # Impose homogeneous BCs
+		
+		# Convert from PeTSc to Scipy
+		ai, aj, av = self.J.getValuesCSR()
+		self.J = sps.csr_matrix((av, aj, ai),dtype=np.complex64)
 
 		# Forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		u,p   = ufl.split(self.Trial)
@@ -274,7 +276,21 @@ class yaj():
 		form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as momentum equations
 		self.N = dfx.fem.assemble_matrix(form)
 		self.N.assemble()
-		self.N.zeroRowsColumnsLocal(self.dofps,0)
+
+		# Convert too
+		mi, mj, mv = self.N.getValuesCSR()
+		self.N = sps.csr_matrix((mv, mj, mi),dtype=np.complex64)
+		
+		# Computation of boundary condition dofs (only homogenous enforced, great for perturbations)
+		self.BoundaryConditionsPerturbations()
+		extractor=sps.identity(self.J.shape[0],dtype=np.int32,format='csr')
+		extractor[self.dofps,self.dofps]=0
+		# Multiplication
+		self.J=extractor*self.J*extractor
+		self.N=extractor*self.N*extractor
+		# Introduce a -1 to force homogeneous BC
+		self.J[self.dofps,self.dofps]=-1
+		
 		print("Matrices computed !")
 
 	def Getw0(self) -> float:
@@ -357,35 +373,21 @@ class yaj():
 			np.savetxt(self.datapath+self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.real(gains))
 
 	def Eigenvalues(self,sigma:complex,k:int) -> None:
-		ncv = max(10,2*k)
-		# Solver
-		E = slp.EPS(); E.create()
-		E.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
-		E.setWhichEigenpairs(E.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
-		E.setTarget(sigma)
-		E.setDimensions(k,ncv) # Find k eigenvalues only with max number of Lanczos vectors
-		E.setTolerances(eps,60) # Set absolute tolerance and number of iterations
-		#E.setTolerances(1e0,10)
-		E.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
-		# Spectral transform
-		ST  = E.getST();   ST.setType('sinvert')
-		# Krylov subspace
-		KSP = ST.getKSP(); KSP.setType('preonly')
-		# Preconditioner
-		PC  = KSP.getPC(); PC.setType('lu')
-		PC.setFactorSolverType('mumps')
-		E.setFromOptions()
-		E.solve()
-		n=E.getConverged()
-		if n==0: return
-		# Conversion back into numpy 
-		vals=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
+		ncv = np.max([10,2*k])
+		try:
+			vals, vecs = la.eigs(-self.J, k=k, M=self.N, sigma=sigma, maxiter=60, tol=ae, ncv=ncv)
+		except ArpackNoConvergence as err:
+			print("Solver not fully converged")
+			vals, vecs = err.eigenvalues, err.eigenvectors
+			n=vals.size
+			if n==0: return
+		else: n=k
 		# write eigenvalues
 		np.savetxt(self.datapath+self.eig_path+"evals"+self.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in pvd (but not too many of them)
 		for i in range(min(n,3)):
 			q=dfx.Function(self.Space)
-			E.getEigenvector(i,q.vector)
+			q.vector.array=vecs[:,i]
 			q.x.scatter_forward()
 			u,p = q.split()
 			with XDMFFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.xdmf", "w") as xdmf:

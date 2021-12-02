@@ -19,8 +19,8 @@ yo.AssembleMatrices()
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 # Grid search
-for re in np.linspace(0,.05,4):
-    for im in np.linspace(-1.5,1.5,4):
+for re in np.linspace(.05,.05,1):
+    for im in np.linspace(1.2,1.2,1):
         # Memoisation protocol
         sigma=re+1j*im
         closest_file_name=datapath+yo.eig_path+"evals"+yo.save_string+"_sigma="+f"{re:00.3f}"+f"{im:+00.3f}"+"j.dat"
@@ -43,7 +43,6 @@ for re in np.linspace(0,.05,4):
 
 # Sum them all, regroup them
 np.savetxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",np.column_stack([vals_real, vals_imag]))
-#yo.Eigenvalues(.037+1.1j,1)
 #vals_real, vals_imag=np.loadtxt(yo.datapath+yo.eig_path+"evals"+yo.save_string+".dat",unpack=True)
 vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
 
