@@ -15,12 +15,12 @@ datapath='validation/' #folder for results
 # Eigenvalues
 yo=yaj(MeshPath,datapath,-1,200,1,1)
 # For efficiency, matrix is assembled only once
-yo.ComputeAM()
+yo.AssembleMatrices()
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 # Grid search
-for re in np.linspace(-.1,.1,5):
-    for im in np.linspace(-2,2,5):
+for re in np.linspace(0,.05,4):
+    for im in np.linspace(-1.5,1.5,4):
         # Memoisation protocol
         sigma=re+1j*im
         closest_file_name=datapath+yo.eig_path+"evals"+yo.save_string+"_sigma="+f"{re:00.3f}"+f"{im:+00.3f}"+"j.dat"
@@ -34,7 +34,7 @@ for re in np.linspace(-.1,.1,5):
                     break
             except ValueError: pass
         else:
-            yo.Eigenvalues(sigma,10) #Actual computation shift value, nb of eigenmode
+            yo.Eigenvalues(sigma,5) #Actual computation shift value, nb of eigenmode
         try:
             sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
             vals_real=np.hstack((vals_real,sig_vals_real))

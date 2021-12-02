@@ -7,11 +7,10 @@ Created on Wed Oct 13 13:50:00 2021
 import os, ufl
 import numpy as np
 import dolfinx as dfx
+from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
-#from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD
-from dolfinx.io import XDMFFile
 
 rp =.99 #relaxation_parameter
 ae =1e-9 #absolute_tolerance
@@ -135,7 +134,7 @@ class yaj():
 		dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
 		# Actual BCs
 		bcs = dfx.DirichletBC(constant, dofs, sub_space) # u_i=value at boundary
-		return bcs
+		return dofs,bcs
 
 	# Baseflow (really only need DirichletBC objects)
 	def BoundaryConditions(self,S:float) -> None:
@@ -161,7 +160,8 @@ class yaj():
 		homogeneous_boundaries_dic={'inlet':['r'],'top':['r','th'],'symmetry':['r','th']}
 		for boundary in homogeneous_boundaries_dic:
 			for direction in homogeneous_boundaries_dic[boundary]:
-				self.bcs.append(self.ConstantBC(direction,lambda x: eval(boundary+'(x)')))
+				_,bcs=self.ConstantBC(direction,lambda x: eval(boundary+'(x)'))
+				self.bcs.append(bcs)
 
 	# Perturbations (really only need dofs)
 	def BoundaryConditionsPerturbations(self) -> None:
@@ -170,10 +170,12 @@ class yaj():
 		if 	     self.m ==0: homogeneous_boundaries_dic['symmetry']=['r','th']
 		elif abs(self.m)==1: homogeneous_boundaries_dic['symmetry']=['x']
 		else:				 homogeneous_boundaries_dic['symmetry']=['x','r','th']
-		self.bcps = []
+		self.dofps=np.empty(0,dtype=np.int32); self.bcps=[]
 		for boundary in homogeneous_boundaries_dic:
 			for direction in homogeneous_boundaries_dic[boundary]:
-				self.bcps.append(self.ConstantBC(direction,lambda x: eval(boundary+'(x)')))
+				dofs,bcs=self.ConstantBC(direction,lambda x: eval(boundary+'(x)'))
+				self.dofps=np.union1d(self.dofps,dofs)
+				self.bcps.append(bcs)
 
 	def NavierStokes(self) -> ufl.Form:
 		r=self.r
@@ -205,7 +207,7 @@ class yaj():
 		return F*ufl.dx
 
 	# To be run in real mode
-	def Newton(self,hotstart:bool) -> None:
+	def Baseflow(self,hotstart:bool) -> None:
 		if self.n_S>1: Ss= np.cos(np.pi*np.linspace(self.n_S,0,self.n_S)/2/self.n_S)*self.S # Chebychev spacing
 		else: 		   Ss=[self.S]
 		self.BoundaryConditions(Ss[0]) # Initialises boundary condition
@@ -245,15 +247,15 @@ class yaj():
 					print(".pvd, .npy written!")
 				
 		#write result of current mu
-		with XDMFFile(COMM_WORLD, self.datapath+self.private_path+"print/u_S="+f"{S_current:00.3f}"+".xdmf", "w") as xdmf:
+		with XDMFFile(COMM_WORLD, self.datapath+"last_u.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(u)
-		viewer = pet.Viewer().createMPIIO(self.datapath+"last_baseflow_S.dat", 'w', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(self.datapath+"last_baseflow.dat", 'w', COMM_WORLD)
 		self.q.vector.view(viewer)
 		print("Last checkpoint written!")
 
 	# To be run in complex mode
-	def ComputeAM(self) -> None:
+	def AssembleMatrices(self) -> None:
 		# Load baseflow
 		self.HotStart(self.S)
 		
@@ -262,15 +264,17 @@ class yaj():
 
 		# Complex Jacobian of NS operator
 		dform=self.LinearisedNavierStokes(self.m)
-		self.J = dfx.fem.assemble_matrix(dform,bcs=self.bcps)
+		self.J = dfx.fem.assemble_matrix(dform)
 		self.J.assemble()
+		self.J.zeroRowsColumnsLocal(self.dofps) # Impose homogeneous BCs
 
 		# Forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		u,p   = ufl.split(self.Trial)
 		v,phi = ufl.split(self.Test)
-		form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
-		self.N = dfx.fem.assemble_matrix(form,bcs=self.bcps,diagonal=0)
+		form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as momentum equations
+		self.N = dfx.fem.assemble_matrix(form)
 		self.N.assemble()
+		self.N.zeroRowsColumnsLocal(self.dofps,0)
 		print("Matrices computed !")
 
 	def Getw0(self) -> float:
@@ -361,18 +365,15 @@ class yaj():
 		E.setTarget(sigma)
 		E.setDimensions(k,ncv) # Find k eigenvalues only with max number of Lanczos vectors
 		E.setTolerances(eps,60) # Set absolute tolerance and number of iterations
+		#E.setTolerances(1e0,10)
 		E.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
 		# Spectral transform
-		ST = E.getST()
-		ST.setType(ST.Type.SINVERT)
+		ST  = E.getST();   ST.setType('sinvert')
 		# Krylov subspace
-		KSP = ST.getKSP()
-		KSP.setType('preonly')
+		KSP = ST.getKSP(); KSP.setType('preonly')
 		# Preconditioner
-		PC =  KSP.getPC()
-		PC.setType('lu')
+		PC  = KSP.getPC(); PC.setType('lu')
 		PC.setFactorSolverType('mumps')
-		PC.setFactorShift("nonzero",ae)
 		E.setFromOptions()
 		E.solve()
 		n=E.getConverged()
@@ -390,7 +391,4 @@ class yaj():
 			with XDMFFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
-			with XDMFFile(COMM_WORLD, self.datapath+self.eig_path+"p/evec_p_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.xdmf", "w") as xdmf:
-				xdmf.write_mesh(self.mesh)
-				xdmf.write_function(p)
 		print("Eigenpairs written !")

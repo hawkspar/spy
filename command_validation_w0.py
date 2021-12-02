@@ -22,7 +22,7 @@ for i in range(n):
     yo=yaj(MeshPath,datapath,0,200,Ss[i],1)
 
     #Newton solver
-    yo.Newton(True) # RUN IN REAL MODE ONLY !
+    yo.Baseflow(True) # RUN IN REAL MODE ONLY !
     w0s[i]=np.real(yo.Getw0())
 
 # Save velocities
