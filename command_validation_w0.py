@@ -16,13 +16,15 @@ datapath='validation/' #folder for results
 
 # w_0 graph
 n=100
+#n=1
 Ss=np.linspace(0,1.8,n)
+#Ss=[.018,0]
 w0s=np.empty(n)
 for i in range(n):
     yo=yaj(MeshPath,datapath,0,200,Ss[i],1)
 
     #Newton solver
-    yo.Baseflow(True) # RUN IN REAL MODE ONLY !
+    yo.Baseflow(i>0) # RUN IN REAL MODE ONLY !
     w0s[i]=np.real(yo.Getw0())
 
 # Save velocities
