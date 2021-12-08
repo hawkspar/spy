@@ -1,1 +1,0 @@
-{ "cffi_extra_compile_args" : ["-O2", "-march=native" ] }

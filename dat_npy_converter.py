@@ -15,7 +15,7 @@ class converter():
 	def __init__(self,meshpath:str,datapath:str):
 		# Paths
 		self.datapath = datapath
-		self.private_path  	='doing/'
+		self.private_path ='doing/'
 		
 		# Mesh from file
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
@@ -29,20 +29,20 @@ class converter():
 		self.q = dfx.Function(self.Space) # Initialisation of q
 		
 	def datToNpy(self) -> None:
-		file_names = [f for f in os.listdir(self.datapath+self.private_path+'dat/') if f[-3:]=="dat"]
+		file_names = [self.datapath+self.private_path+'dat/'+f for f in os.listdir(self.datapath+self.private_path+'dat/') if f[-3:]=="dat"]
 		file_names.append(self.datapath+"last_baseflow.dat")
 		for file_name in file_names:
 			viewer = pet.Viewer().createMPIIO(file_name, 'r', COMM_WORLD)
 			self.q.vector.load(viewer)
 			self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-			np.save(file_name[-3:]+'npy',self.q.x.array)
+			np.save(file_name[:-3]+'npy',self.q.x.array)
 	
 	def npyToDat(self) -> None:
 		file_names = [f for f in os.listdir(self.datapath+self.private_path+'dat/') if f[-3:]=="npy"]
 		file_names.append(self.datapath+"last_baseflow.npy")
 		for file_name in file_names:
 			self.q.x.array=np.load(file_name,allow_pickle=True)
-			viewer = pet.Viewer().createMPIIO(file_name[-3:]+'dat', 'r', COMM_WORLD)
+			viewer = pet.Viewer().createMPIIO(file_name[:-3]+'dat', 'r', COMM_WORLD)
 			self.q.vector.view(viewer)
 
 converter("Mesh/validation/validation.xdmf","validation/").datToNpy()
