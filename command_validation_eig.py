@@ -19,8 +19,8 @@ yo.AssembleMatrices()
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 # Grid search
-for re in np.linspace(.05,.05,1):
-    for im in np.linspace(1.2,1.2,1):
+for re in np.linspace(.05,-.1,10):
+    for im in np.linspace(-2,2,10):
         # Memoisation protocol
         sigma=re+1j*im
         closest_file_name=datapath+yo.eig_path+"evals"+yo.save_string+"_sigma="+f"{re:00.3f}"+f"{im:+00.3f}"+"j.dat"

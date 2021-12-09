@@ -1,5 +1,5 @@
 ex19: ex19.o
-      gcc -o ex19 ex19.o petsc.h
-      
+      ${CLINKER} -o ex19 ex19.o ${PETSC_LIB}
+
 include ${PETSC_DIR}/lib/petsc/conf/variables
 include ${PETSC_DIR}/lib/petsc/conf/rules
