@@ -6,7 +6,7 @@ Created on Wed Oct  13 17:07:00 2021
 """
 import os
 import numpy as np
-from validation_yaj import yaj
+from spyp import yaj
 from matplotlib import pyplot as plt
 
 MeshPath='Mesh/validation/validation.xdmf'

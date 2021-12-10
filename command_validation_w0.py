@@ -4,32 +4,27 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-from validation_yaj import yaj
 import numpy as np
-#from matplotlib import pyplot as plt
+from spyb import spyb
+from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d as inter
 from scipy.optimize import root
-from pdb import set_trace
 
 MeshPath='Mesh/validation/validation.xdmf'
 datapath='validation/' #folder for results
 
 # w_0 graph
 n=100
-#n=1
 Ss=np.linspace(0,1.8,n)
-#Ss=[.018,0]
 w0s=np.empty(n)
+spybi=spyb(MeshPath,datapath,200)
 for i in range(n):
-    yo=yaj(MeshPath,datapath,0,200,Ss[i],1)
-
     #Newton solver
-    yo.Baseflow(i>0) # RUN IN REAL MODE ONLY !
-    w0s[i]=np.real(yo.Getw0())
+    spybi.Baseflow(i>0,True,Ss[i])
+    w0s[i]=np.real(spybi.MinimumAxial())
 
 # Save velocities
 np.save(datapath+"w0s.npy",w0s)
-"""
 # Plot stopping point graph
 plt.plot(Ss,w0s)
 plt.savefig(datapath+"graph_w0.svg")
@@ -37,4 +32,3 @@ plt.close()
 # Check critical w_0
 f_S=inter(Ss,w0s,'quadratic')
 print(root(f_S,.89).x)
-"""
