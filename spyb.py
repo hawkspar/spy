@@ -22,12 +22,12 @@ class spyb(spyt):
 	# Memoisation routine - find closest in S
 	def HotStart(self,S) -> None:
 		closest_file_name=self.datapath+"last_baseflow.dat"
-		file_names = [f for f in os.listdir(self.datapath+self.private_path+'dat/') if f[-3:]=="dat"]
+		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'dat/') if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
 			Sd = float(file_name[11:16]) # Take advantage of file format 
 			fd = abs(S-Sd)#+abs(Re-Red)
-			if fd<d: d,closest_file_name=fd,self.datapath+self.private_path+'dat/'+file_name
+			if fd<d: d,closest_file_name=fd,self.datapath+self.baseflow_path+'dat/'+file_name
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
@@ -121,10 +121,10 @@ class spyb(spyt):
 
 		if save:  # Memoisation
 			u,p = self.q.split()
-			with XDMFFile(COMM_WORLD, self.datapath+self.private_path+"print/u_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
+			with XDMFFile(COMM_WORLD, self.datapath+self.baseflow_path+"print/u_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
-			viewer = pet.Viewer().createMPIIO(self.datapath+self.private_path+"dat/baseflow_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
+			viewer = pet.Viewer().createMPIIO(self.datapath+self.baseflow_path+"dat/baseflow_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
 			self.q.vector.view(viewer)
 			print(".pvd, .dat written!")
 
@@ -141,7 +141,7 @@ class spyb(spyt):
 		with XDMFFile(COMM_WORLD, self.datapath+"last_u.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(u)
-		viewer = pet.Viewer().createMPIIO(self.datapath+"last_baseflow.dat", 'w', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(self.datapath+"last_baseflow_real.dat", 'w', COMM_WORLD)
 		self.q.vector.view(viewer)
 		print("Last checkpoint written!")
 

@@ -28,9 +28,7 @@ class spyt:
 
 		# Paths
 		self.datapath = datapath
-		self.private_path  	='doing/'
-		self.resolvent_path	='resolvent/'
-		self.eig_path		='eigenvalues/'
+		self.baseflow_path ='baseflow/'
 
 		# Mesh from file
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
@@ -122,19 +120,28 @@ class spyt:
 		return F*ufl.dx
 
 	# Converters
-	def datToNpy(self) -> None:
-		file_names = [self.datapath+self.private_path+'dat_real/'+f for f in os.listdir(self.datapath+self.private_path+'dat_real/') if f[-3:]=="dat"]
-		file_names.append(self.datapath+"last_baseflow.dat")
+	def datToNpy(self,fi,fo) -> None:
+		viewer = pet.Viewer().createMPIIO(fi, 'r', COMM_WORLD)
+		self.q.vector.load(viewer)
+		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+		np.save(fo,self.q.x.array)
+
+	def datToNpyAll(self) -> None:
+		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'dat_real/') if f[-3:]=="dat"]
 		for file_name in file_names:
-			viewer = pet.Viewer().createMPIIO(file_name, 'r', COMM_WORLD)
-			self.q.vector.load(viewer)
-			self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-			np.save(file_name.replace('dat','npy'),self.q.x.array)
+			self.datToNpy(self.datapath+self.baseflow_path+'dat_real/'+file_name,
+						  self.datapath+self.baseflow_path+'npy/'+file_name[:-3]+'npy')
+		self.datToNpy(self.datapath+'last_baseflow_real.dat',self.datapath+'last_baseflow.npy')
+
+	def npyToDat(self,fi,fo) -> None:
+		self.q.x.array.real=np.load(fi,allow_pickle=True)
+		self.q.x.scatter_forward()
+		viewer = pet.Viewer().createMPIIO(fo, 'w', COMM_WORLD)
+		self.q.vector.view(viewer)
 	
-	def npyToDat(self) -> None:
-		file_names = [f for f in os.listdir(self.datapath+self.private_path+'npy/') if f[-3:]=="npy"]
-		file_names.append(self.datapath+"last_baseflow.npy")
+	def npyToDatAll(self) -> None:
+		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'npy/') if f[-3:]=="npy"]
 		for file_name in file_names:
-			self.q.x.array=np.load(self.datapath+self.private_path+'npy/'+file_name,allow_pickle=True)
-			viewer = pet.Viewer().createMPIIO(self.datapath+self.private_path+'dat_complex/'+file_name.replace('npy','dat'), 'r', COMM_WORLD)
-			self.q.vector.view(viewer)
+			self.npyToDat(self.datapath+self.baseflow_path+'npy/'+file_name,
+						  self.datapath+self.baseflow_path+'dat_complex/'+file_name[:-3]+'dat')
+		self.npyToDat(self.datapath+'last_baseflow.npy',self.datapath+'last_baseflow_complex.dat')

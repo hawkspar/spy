@@ -11,23 +11,28 @@ from spyt import spyt
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
-from mpi4py.MPI import COMM_WORLD
+from mpi4py.MPI import COMM_WORLD # Here parametric study so mre interesting to have processors doing independant stuff
 
 # Swirling Parallel Yaj Perturbations
 class spyp(spyt):
-	def __init__(self, meshpath: str, datapath: str, Re: float) -> None:
+	def __init__(self, meshpath: str, datapath: str, Re: float, S:float, m:int) -> None:
 		super().__init__(meshpath, datapath, Re)
+		self.resolvent_path	='resolvent/'
+		self.eig_path		='eigenvalues/'
+		self.S=S; self.m=m
+		self.save_string='_S='+f"{S:00.3f}"+'_m='+str(m)
 		
 	# Memoisation routine - find closest in S
 	def LoadBaseflow(self,S) -> None:
-		closest_file_name=self.datapath+"last_baseflow.npy"
-		file_names = [f for f in os.listdir(self.datapath+self.private_path+'npy/') if f[-3:]=="npy"]
+		closest_file_name=self.datapath+"last_baseflow_complex.dat"
+		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'dat_complex/') if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
 			Sd = float(file_name[11:16]) # Take advantage of file format 
 			fd = abs(S-Sd)#+abs(Re-Red)
-			if fd<d: d,closest_file_name=fd,self.datapath+self.private_path+'npy/'+file_name
-		self.q.x.array.real = np.load(closest_file_name,allow_pickle=True)
+			if fd<d: d,closest_file_name=fd,self.datapath+self.baseflow_path+'dat_complex/'+file_name
+		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
+		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 		print("Loaded "+closest_file_name+" as part of memoisation scheme")
 
@@ -46,15 +51,15 @@ class spyp(spyt):
 				self.dofps=np.union1d(self.dofps,dofs)
 
 	# To be run in complex mode
-	def AssembleMatrices(self,S,m) -> None:
+	def AssembleMatrices(self) -> None:
 		# Load baseflow
-		self.LoadBaseflow(S)
+		self.LoadBaseflow(self.S)
 		
 		# Computation of boundary condition dofs (only homogenous enforced, great for perturbations)
-		self.BoundaryConditionsPerturbations()
+		self.BoundaryConditionsPerturbations(self.m)
 
 		# Complex Jacobian of NS operator
-		dform=self.LinearisedNavierStokes(m)
+		dform=self.LinearisedNavierStokes(self.m)
 		self.J = dfx.fem.assemble_matrix(dform)
 		self.J.assemble()
 		self.J.zeroRowsColumnsLocal(self.dofps) # Impose homogeneous BCs
@@ -130,7 +135,7 @@ class spyp(spyt):
 			E.setOperators(LHS) # Solve Rx=sigma*x (cheaper than a proper SVD)
 			E.setWhichEigenpairs(E.Which.LARGEST_MAGNITUDE) # Find eigenvalues close to sigma
 			E.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
-			E.setTolerances(ae,100) # Set absolute tolerance and number of iterations
+			E.setTolerances(self.atol,100) # Set absolute tolerance and number of iterations
 			E.setProblemType(slp.EPS.ProblemType.NHEP) # Specify that A is no hermitian, but M is semi-positive
 			# Spectral transform
 			ST  = E.getST()
@@ -156,6 +161,7 @@ class spyp(spyt):
 				E.getEigenvector(i,fu.vector)
 				fu.x.scatter_forward()
 				with XDMFFile(COMM_WORLD, self.datapath+self.resolvent_path+"forcing_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
+					xdmf.parameters["flush_output"] = True
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(fu)
 
@@ -172,7 +178,7 @@ class spyp(spyt):
 
 	def Eigenvalues(self,sigma:complex,k:int) -> None:
 		# Solver
-		E = slp.EPS(); E.create()
+		E = slp.EPS(COMM_WORLD); E.create()
 		E.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
 		E.setWhichEigenpairs(E.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		E.setTarget(sigma)
