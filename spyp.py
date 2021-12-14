@@ -167,7 +167,7 @@ class spyp(spyt):
 
 				# Obtain response from forcing
 				q=dfx.Function(self.Space)
-				u,p=ufl.split(q)
+				u,p=q.split()
 				tmp=pet.Vec().createSeq(m)
 				B.mult(fu.vector,u.vector)
 				Q.mult(u.vector,tmp)

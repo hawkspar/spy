@@ -33,6 +33,15 @@ class spyt:
 		# Mesh from file
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
+		x = self.mesh.geometry.x
+		gdim = self.mesh.geometry.dim
+		x=x[:,:gdim]
+		# Force positive quadrant
+		x[:,0] -= np.minimum(x[:,0],0)
+		x[:,1] -= np.minimum(x[:,1],0)
+		# Force bounded pts
+		x[:,0] += np.minimum(self.x_max+self.l-x[:,0],0)
+		x[:,1] += np.minimum(self.r_max+self.l-x[:,1],0)
 		
 		# Taylor Hodd elements ; stable element pair
 		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
@@ -48,6 +57,11 @@ class spyt:
 		self.Re = self.sponged_Reynolds(Re)
 		self.mu = 1/self.Re
 		self.q = dfx.Function(self.Space) # Initialisation of q
+		"""
+		with XDMFFile(COMM_WORLD, self.datapath+"Re.xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(self.Re)
+		"""
 
 	# Jet geometry
 	def inlet(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,	  			self.atol) # Left border
@@ -76,9 +90,9 @@ class spyt:
 	def Ref(self,x,Re_s,Re):
 		Rem=np.ones(x[0].size)*Re
 		x_ext=x[0]>self.x_max
-		Rem[x_ext]=Re		 +(Re_s-Re) 	   *self.csi(np.minimum(x[0][x_ext],self.x_max+self.l),self.x_max) # min necessary to prevent spurious jumps because of mesh conversion
+		Rem[x_ext]=Re		 +(Re_s-Re) 	   *self.csi(x[0][x_ext],self.x_max) # min necessary to prevent spurious jumps because of mesh conversion
 		r_ext=x[1]>self.r_max
-		Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*self.csi(np.minimum(x[1][r_ext],self.r_max+self.l),self.r_max)
+		Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*self.csi(x[1][r_ext],self.r_max)
 		return Rem
 
 	# Sponged Reynolds number
@@ -134,10 +148,10 @@ class spyt:
 		self.datToNpy(self.datapath+'last_baseflow_real.dat',self.datapath+'last_baseflow.npy')
 
 	def npyToDat(self,fi,fo) -> None:
-		self.q.x.array.real=np.load(fi,allow_pickle=True)
-		self.q.x.scatter_forward()
+		self.q.vector.array.real=np.load(fi,allow_pickle=True)
+		self.q.vector.scatter_forward()
 		viewer = pet.Viewer().createMPIIO(fo, 'w', COMM_WORLD)
-		self.q.vector.view(viewer)
+		self.q.x.view(viewer)
 	
 	def npyToDatAll(self) -> None:
 		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'npy/') if f[-3:]=="npy"]

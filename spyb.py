@@ -16,7 +16,6 @@ from mpi4py.MPI import COMM_WORLD
 class spyb(spyt):
 	def __init__(self, meshpath: str, datapath: str, Re: float) -> None:
 		super().__init__(meshpath, datapath, Re)
-		# Newton solver
 		self.BoundaryConditions(0)
 		
 	# Memoisation routine - find closest in S
@@ -31,7 +30,6 @@ class spyb(spyt):
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		#self.q.x.array.real = np.load(closest_file_name,allow_pickle=True)
 		print("Loaded "+closest_file_name+" as part of memoisation scheme")
 
 	# Baseflow (really only need DirichletBC objects)
@@ -134,10 +132,10 @@ class spyb(spyt):
 			for nu in nus: # Decrease viscosity (non physical but helps CV)
 				print("viscosity prefactor: ", nu)
 				print("swirl intensity: ",	    S)
-				self.Baseflow(True,np.isclose(nu,1,rtol=self.rtol),S,nu)
+				self.Baseflow(S>Ss[0],nu==nus[-1],S,nu)
 				
 		#write result of current mu
-		u,p=ufl.split(self.q)
+		u,p=self.q.split()
 		with XDMFFile(COMM_WORLD, self.datapath+"last_u.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(u)
@@ -146,6 +144,6 @@ class spyb(spyt):
 		print("Last checkpoint written!")
 
 	def MinimumAxial(self) -> float:
-		U,p=self.q.split()
-		u,v,w=U.split()
-		return np.min(u.compute_point_values())
+		u,p=self.q.split()
+		u=u.compute_point_values()
+		return np.min(u[:,self.direction_map['x']])
