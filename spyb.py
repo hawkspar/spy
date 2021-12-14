@@ -11,6 +11,7 @@ from spyt import spyt
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD
+from dolfinx.geometry import BoundingBoxTree, compute_collisions_point
 
 # Swirling Parallel Yaj Baseflow
 class spyb(spyt):
@@ -145,5 +146,16 @@ class spyb(spyt):
 
 	def MinimumAxial(self) -> float:
 		u,p=self.q.split()
-		u=u.compute_point_values()
-		return np.min(u[:,self.direction_map['x']])
+		Nr=1000; Nx=3*Nr//2
+		rs=(1-np.cos(np.pi*np.linspace(Nr,0,Nr)/2/Nr))*self.r_max # Chebychev spacing
+		xs=(1-np.cos(np.pi*np.linspace(Nx,0,Nx)/2/Nx))*self.x_max
+		w0=np.infty
+		for i in range(Nx):
+			for j in range(Nr):
+				p=[xs[i],rs[j],0]
+				bb_tree = dfx.cpp.geometry.BoundingBoxTree(self.mesh, 2)
+				cell_candidates = dfx.cpp.geometry.compute_collisions_point(bb_tree, p)
+				cell = dfx.cpp.geometry.select_colliding_cells(self.mesh, cell_candidates, p, 1)
+				w=u.eval(p, cell)[self.direction_map['x']]
+				if w<w0: w0=w
+		return w0
