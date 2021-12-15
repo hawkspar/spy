@@ -8,6 +8,9 @@ import os
 import numpy as np
 from spyp import spyp
 from matplotlib import pyplot as plt
+from mpi4py.MPI import COMM_WORLD
+
+p0=COMM_WORLD.rank==0
 
 MeshPath='Mesh/validation/validation.xdmf'
 datapath='validation/' #folder for results
@@ -34,26 +37,27 @@ for re in np.linspace(.05,-.1,10):
                     break
             except ValueError: pass
         else:
-            spypi.Eigenvalues(sigma,5) #Actual computation shift value, nb of eigenmode
+            spypi.Eigenvalues(sigma,5) # Actual computation shift value, nb of eigenmode
         try:
-            sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
-            vals_real=np.hstack((vals_real,sig_vals_real))
-            vals_imag=np.hstack((vals_imag,sig_vals_imag))
-        except OSError: pass
+            if p0:
+                sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
+                vals_real=np.hstack((vals_real,sig_vals_real))
+                vals_imag=np.hstack((vals_imag,sig_vals_imag))
+        except OSError: pass # File not found = no eigenvalues
+if p0:
+    # Sum them all, regroup them
+    np.savetxt(spypi.datapath+spypi.eig_path+"evals"+spypi.save_string+".dat",np.column_stack([vals_real, vals_imag]))
+    vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
 
-# Sum them all, regroup them
-np.savetxt(spypi.datapath+spypi.eig_path+"evals"+spypi.save_string+".dat",np.column_stack([vals_real, vals_imag]))
-vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
-
-# Plot them all!
-fig = plt.figure()
-ax = fig.add_subplot(111)
-msk=vals.real<0
-plt.scatter(vals.imag[msk], vals.real[msk], edgecolors='k',facecolors='none') # Stable eigenvalues
-if vals[~msk].size>0:
-    plt.scatter(vals.imag[~msk],vals.real[~msk],edgecolors='k',facecolors='k')    # Unstable eigenvalues
-plt.plot([-1e1,1e1],[0,0],'k--')
-plt.axis([-2.5,2.5,-.12,.08])
-plt.xlabel(r'$\omega$')
-plt.ylabel(r'$\sigma$')
-plt.savefig(datapath+"eigenvalues"+spypi.save_string+".svg")
+    # Plot them all!
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    msk=vals.real<0
+    plt.scatter(vals.imag[msk], vals.real[msk], edgecolors='k',facecolors='none') # Stable eigenvalues
+    if vals[~msk].size>0:
+        plt.scatter(vals.imag[~msk],vals.real[~msk],edgecolors='k',facecolors='k')    # Unstable eigenvalues
+    plt.plot([-1e1,1e1],[0,0],'k--')
+    plt.axis([-2.5,2.5,-.12,.08])
+    plt.xlabel(r'$\omega$')
+    plt.ylabel(r'$\sigma$')
+    plt.savefig(datapath+"eigenvalues"+spypi.save_string+".svg")

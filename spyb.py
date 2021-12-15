@@ -6,12 +6,14 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import os, ufl
 import numpy as np
+from ufl.finiteelement.enrichedelement import NodalEnrichedElement
 import dolfinx as dfx
 from spyt import spyt
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
-from mpi4py.MPI import COMM_WORLD
-from dolfinx.geometry import BoundingBoxTree, compute_collisions_point
+from mpi4py.MPI import COMM_WORLD, MIN
+
+p0=COMM_WORLD.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class spyb(spyt):
@@ -125,14 +127,15 @@ class spyb(spyt):
 				xdmf.write_function(u)
 			viewer = pet.Viewer().createMPIIO(self.datapath+self.baseflow_path+"dat_real/baseflow_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
 			self.q.vector.view(viewer)
-			print(".pvd, .dat written!")
+			if COMM_WORLD.rank==0: print(".pvd, .dat written!")
 
 	# To be run in real mode
 	def BaseflowRange(self,Ss,nus=[1]) -> None:
 		for S in Ss: 	# Increase swirl
 			for nu in nus: # Decrease viscosity (non physical but helps CV)
-				print("viscosity prefactor: ", nu)
-				print("swirl intensity: ",	    S)
+				if COMM_WORLD.rank==0:
+					print("viscosity prefactor: ", nu)
+					print("swirl intensity: ",	    S)
 				self.Baseflow(S>Ss[0],nu==nus[-1],S,nu)
 				
 		#write result of current mu
@@ -146,16 +149,7 @@ class spyb(spyt):
 
 	def MinimumAxial(self) -> float:
 		u,p=self.q.split()
-		Nr=1000; Nx=3*Nr//2
-		rs=(1-np.cos(np.pi*np.linspace(Nr,0,Nr)/2/Nr))*self.r_max # Chebychev spacing
-		xs=(1-np.cos(np.pi*np.linspace(Nx,0,Nx)/2/Nx))*self.x_max
-		w0=np.infty
-		for i in range(Nx):
-			for j in range(Nr):
-				p=[xs[i],rs[j],0]
-				bb_tree = dfx.cpp.geometry.BoundingBoxTree(self.mesh, 2)
-				cell_candidates = dfx.cpp.geometry.compute_collisions_point(bb_tree, p)
-				cell = dfx.cpp.geometry.select_colliding_cells(self.mesh, cell_candidates, p, 1)
-				w=u.eval(p, cell)[self.direction_map['x']]
-				if w<w0: w0=w
-		return w0
+		u=u.compute_point_values()[:,self.direction_map['x']]
+		mu=np.min(u)
+		mu=COMM_WORLD.reduce(mu,op=MIN) # minimum across processors
+		return mu

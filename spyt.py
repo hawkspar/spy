@@ -22,8 +22,8 @@ class spyt:
 
 		# Solver parameters
 		self.rp  =.99 #relaxation_parameter
-		self.atol=1e-9 #absolute_tolerance
-		self.rtol=1e-14 #DOLFIN_EPS does not work well
+		self.atol=1e-6 #absolute_tolerance
+		self.rtol=1e-9 #DOLFIN_EPS does not work well
 		self.max_iter=60
 
 		# Paths
