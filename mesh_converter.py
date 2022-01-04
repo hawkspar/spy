@@ -6,7 +6,7 @@ def create_mesh(mesh, cell_type):
     out_mesh = meshio.Mesh(points=mesh.points[:, :2], cells={cell_type: cells}, cell_data={"name_to_read": [cell_data]})
     return out_mesh
 
-msh = meshio.read("Mesh/validation/validation.msh")
+msh = meshio.read("Mesh/nozzle/nozzle.msh")
 # Create and save one file for the mesh, and one file for the facets 
-triangle_mesh = create_mesh(msh, "triangle")
-meshio.write("Mesh/validation/validation.xdmf", triangle_mesh)
+out_mesh = create_mesh(msh, "triangle")
+meshio.write("Mesh/nozzle/nozzle.xdmf", out_mesh)

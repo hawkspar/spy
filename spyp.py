@@ -6,17 +6,17 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import os, ufl
 import numpy as np
+from spy import spy
 import dolfinx as dfx
-from spyt import spyt
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
-from mpi4py.MPI import COMM_WORLD # Here parametric study so mre interesting to have processors doing independant stuff
+from mpi4py.MPI import COMM_WORLD
 
 # Swirling Parallel Yaj Perturbations
-class spyp(spyt):
-	def __init__(self, meshpath: str, datapath: str, Re: float, S:float, m:int) -> None:
-		super().__init__(meshpath, datapath, Re)
+class spyp(spy):
+	def __init__(self, meshpath: str, datapath: str, Re: float, dM: float, S:float, m:int) -> None:
+		super().__init__(meshpath, datapath, Re, dM)
 		self.resolvent_path	='resolvent/'
 		self.eig_path		='eigenvalues/'
 		self.S=S; self.m=m

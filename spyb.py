@@ -6,9 +6,8 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import os, ufl
 import numpy as np
-from ufl.finiteelement.enrichedelement import NodalEnrichedElement
+from spy import spy
 import dolfinx as dfx
-from spyt import spyt
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD, MIN
@@ -16,9 +15,9 @@ from mpi4py.MPI import COMM_WORLD, MIN
 p0=COMM_WORLD.rank==0
 
 # Swirling Parallel Yaj Baseflow
-class spyb(spyt):
-	def __init__(self, meshpath: str, datapath: str, Re: float) -> None:
-		super().__init__(meshpath, datapath, Re)
+class spyb(spy):
+	def __init__(self, meshpath: str, datapath: str, Re: float, dM:float) -> None:
+		super().__init__(meshpath, datapath, Re, dM)
 		self.BoundaryConditions(0)
 		
 	# Memoisation routine - find closest in S
@@ -37,58 +36,73 @@ class spyb(spyt):
 
 	# Baseflow (really only need DirichletBC objects)
 	def BoundaryConditions(self,S:float) -> None:
-		# Compute DoFs
+		# ----------------------------------------------------------------
+		# Inlet azimuthal velocity
+		# ----------------------------------------------------------------
+		
+		# Relevant spaces
 		sub_space_th=self.Space.sub(0).sub(2)
 		sub_space_th_collapsed=sub_space_th.collapse()
 
-		# Grabovski-Berger vortex with final slope
-		def grabovski_berger(r) -> np.ndarray:
-			psi=(self.r_max+self.l-r)/self.l/self.r_max
-			mr=r<1
-			psi[mr]=r[mr]*(2-r[mr]**2)
-			ir=np.logical_and(r>=1,r<self.r_max)
-			psi[ir]=1/r[ir]
-			return psi
-
 		class InletAzimuthalVelocity():
-			def __init__(self, S): self.S = S
-			def __call__(self, x): return self.S*grabovski_berger(x[1]).astype(pet.ScalarType)
+			def __init__(self, S, r_max): self.S, self.r_max = S, r_max
+			def __call__(self, x): return self.S*(x[1]*(x[1]<1)+(x[1]>1)*(np.exp(2*self.r_max-x[1])-1)/(np.exp(2*self.r_max-1)-1)).astype(pet.ScalarType)
 
-		# Modified vortex that goes to zero at top boundary
+		# Create a adjustable dolfinx Function
 		self.u_inlet_th=dfx.Function(sub_space_th_collapsed)
-		self.inlet_azimuthal_velocity=InletAzimuthalVelocity(S) # Required to smoothly increase S
+		self.inlet_azimuthal_velocity=InletAzimuthalVelocity(S,self.r_max) # Required to smoothly increase S
 		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
 		self.u_inlet_th.x.scatter_forward()
 		
-		# Degrees of freedom
+		# Degrees of freedom & BC
 		dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), self.inlet)
-		bcs_inlet_th = dfx.DirichletBC(self.u_inlet_th, dofs_inlet_th, sub_space_th) # u_th=S*psi(r) at x=0
+		bcs_inlet_th = dfx.DirichletBC(self.u_inlet_th, dofs_inlet_th, sub_space_th) # u_th=S*r at x=0 (inside nozzle, e^-r outside)
+		
+		# ----------------------------------------------------------------
+		# Nozzle azimuthal velocity
+		# ----------------------------------------------------------------
+
+		class NozzleAzimuthalVelocity():
+			def __init__(self, S): self.S = S
+			def __call__(self, x): return self.S*np.ones(x.shape[1]).astype(pet.ScalarType)
+
+		# Create a adjustable dolfinx Function
+		self.u_nozzle_th=dfx.Function(sub_space_th_collapsed)
+		self.nozzle_azimuthal_velocity=NozzleAzimuthalVelocity(S) # Required to smoothly increase S
+		self.u_nozzle_th.interpolate(self.nozzle_azimuthal_velocity)
+		self.u_nozzle_th.x.scatter_forward()
+		
+		# Degrees of freedom & BC
+		dofs_nozzle_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), self.nozzle)
+		bcs_nozzle_th = dfx.DirichletBC(self.u_nozzle_th, dofs_nozzle_th, sub_space_th) # u_th=S at nozzle
+		
+		# ----------------------------------------------------------------
+		# Inlet axial velocity
+		# ----------------------------------------------------------------
+
+		# Compute spaces
+		sub_space_x=self.Space.sub(0).sub(0)
+		sub_space_x_collapsed=sub_space_x.collapse()
+
+		# Modified vortex that goes to zero at top boundary
+		self.u_inlet_x=dfx.Function(sub_space_x_collapsed)
+		self.u_inlet_x.interpolate(lambda x: (x[1]<1)*np.tanh(5*(1-x[1]))) # For now no co-flow
+		self.u_inlet_x.x.scatter_forward()
+		
+		# Degrees of freedom
+		dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), self.inlet)
+		bcs_inlet_x = dfx.DirichletBC(self.u_inlet_x, dofs_inlet_x, sub_space_x) # u_x=th(r) at x=0 (inside nozzle, 0 outside)
 
 		# Actual BCs
-		_, bcs_inlet_x = self.ConstantBC('x',self.inlet,1) # u_x =1
-		self.bcs = [bcs_inlet_x, bcs_inlet_th]			   # x=X entirely handled by implicit Neumann
+		self.bcs = [bcs_inlet_x, bcs_inlet_th, bcs_nozzle_th] # x=X entirely handled by implicit Neumann
 		
 		# Handle homogeneous boundary conditions
-		homogeneous_boundaries=[(self.inlet,['r']),(self.top,['r','th']),(self.symmetry,['r','th'])]
+		homogeneous_boundaries=[(self.inlet,['r']),(self.top,['r','th']),(self.symmetry,['r','th']),(self.nozzle,['x','r'])]
 		for tup in homogeneous_boundaries:
 			marker,directions=tup
 			for direction in directions:
 				_, bcs=self.ConstantBC(direction,marker)
 				self.bcs.append(bcs)
-
-	def NavierStokes(self) -> ufl.Form:
-		r,mu=self.r,self.mu
-		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
-		u,p=ufl.split(self.q)
-		v,w=ufl.split(self.Test)
-		
-		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u,0), 	   	 w)
-		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(u,0)*u,   r*v)      		   # Convection
-		F += ufl.inner(rgrad(u,0), gradr(v,0))*mu # Diffusion
-		F -= ufl.inner(r*p,		 	divr(v,0)) 		   # Pressure
-		return F*ufl.dx
 	
 	def Baseflow(self,hot_start:bool,save:bool,S:float,nu=1):
 		self.mu=nu/self.Re #recalculate viscosity with prefactor
@@ -96,6 +110,9 @@ class spyb(spyt):
 		self.inlet_azimuthal_velocity.S=S
 		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
 		self.u_inlet_th.x.scatter_forward()
+		self.nozzle_azimuthal_velocity.S=S
+		self.u_nozzle_th.interpolate(self.nozzle_azimuthal_velocity)
+		self.u_nozzle_th.x.scatter_forward()
 		# Memoisation
 		if hot_start: self.HotStart(S)
 		# Compute form
