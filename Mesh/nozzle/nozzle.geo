@@ -1,6 +1,6 @@
 // Gmsh project created on Fri May 15 17:21:02 2020
 Mesh.MshFileVersion = 2.0;
-r1 = 1/20;
+r1 = 1/200;
 r4 = 2/5;
 r3=(r1+r4)/2;
 r2=(r1+r3)/2;

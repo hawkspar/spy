@@ -18,7 +18,8 @@ class spy:
 		self.direction_map={'x':0,'r':1,'th':2}
 
 		# Geometry parameters
-		self.x_max=10; self.r_max=5
+		self.x_max=20; self.r_max=10
+		self.x_phy=10; self.r_phy=5
 
 		# Solver parameters
 		self.rp  =.99 #relaxation_parameter
@@ -80,10 +81,10 @@ class spy:
 	def df(self,x,dM):
 		dm=np.zeros(x[0].size)
 		x_ext=x[0]>self.x_max/2
-		dm[x_ext]= 	   		 dM			  *self.csi(np.minimum(x[0][x_ext],self.x_max),self.x_max/2, self.x_max/2) # min necessary to prevent spurious jumps because of mesh conversion
+		dm[x_ext]= 	   		 dM			  *self.csi(np.minimum(x[0][x_ext],self.x_max),self.x_phy, self.x_max-self.x_phy) # min necessary to prevent spurious jumps because of mesh conversion
 		r_ext=x[1]>self.r_max/2
-		dm[r_ext]=dm[r_ext]+(dM-dm[r_ext])*self.csi(np.minimum(x[1][r_ext],self.r_max),self.r_max/2, self.r_max/2)
-		return dm
+		dm[r_ext]=dm[r_ext]+(dM-dm[r_ext])*self.csi(np.minimum(x[1][r_ext],self.r_max),self.r_phy, self.r_max-self.r_phy)
+		return np.minimum(dm,0)
 
 	# Sponged Reynolds number
 	def dampingFactor(self,dM) -> dfx.Function:

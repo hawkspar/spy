@@ -5,9 +5,11 @@ Created on Fri Dec 10 12:00:00 2021
 @author: hawkspar
 """
 import os, ufl
+import warnings
 import numpy as np
 from spy import spy
 import dolfinx as dfx
+from dolfinx.log import set_log_level, LogLevel
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD, MIN
@@ -43,10 +45,12 @@ class spyb(spy):
 		# Relevant spaces
 		sub_space_th=self.Space.sub(0).sub(2)
 		sub_space_th_collapsed=sub_space_th.collapse()
-
 		class InletAzimuthalVelocity():
 			def __init__(self, S, r_max): self.S, self.r_max = S, r_max
-			def __call__(self, x): return self.S*(x[1]*(x[1]<1)+(x[1]>1)*(np.exp(2*self.r_max-x[1])-1)/(np.exp(2*self.r_max-1)-1)).astype(pet.ScalarType)
+			def __call__(self, x): 
+				with warnings.catch_warnings():
+					warnings.simplefilter("ignore")
+					return self.S*(x[1]*(x[1]<1)+(1/x[1]-1/self.r_max)/(1-1/self.r_max)*(x[1]>1)).astype(pet.ScalarType)
 
 		# Create a adjustable dolfinx Function
 		self.u_inlet_th=dfx.Function(sub_space_th_collapsed)
@@ -64,7 +68,7 @@ class spyb(spy):
 
 		class NozzleAzimuthalVelocity():
 			def __init__(self, S): self.S = S
-			def __call__(self, x): return self.S*np.ones(x.shape[1]).astype(pet.ScalarType)
+			def __call__(self, x): return self.S*np.ones(x.shape[1]).astype(pet.ScalarType) # Simple constant function
 
 		# Create a adjustable dolfinx Function
 		self.u_nozzle_th=dfx.Function(sub_space_th_collapsed)
@@ -84,7 +88,7 @@ class spyb(spy):
 		sub_space_x=self.Space.sub(0).sub(0)
 		sub_space_x_collapsed=sub_space_x.collapse()
 
-		# Modified vortex that goes to zero at top boundary
+		# Simple tanh flow in nozzle only
 		self.u_inlet_x=dfx.Function(sub_space_x_collapsed)
 		self.u_inlet_x.interpolate(lambda x: (x[1]<1)*np.tanh(5*(1-x[1]))) # For now no co-flow
 		self.u_inlet_x.x.scatter_forward()
@@ -123,26 +127,30 @@ class spyb(spy):
 		problem = dfx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
 		solver  = dfx.NewtonSolver(COMM_WORLD, problem)
 		# Fine tuning
+		solver.convergence_criterion = "incremental"
 		solver.relaxation_parameter=self.rp # Absolutely crucial for convergence
 		solver.max_iter=self.max_iter
 		solver.rtol=self.rtol
 		solver.atol=self.atol
+		solver.report = True
 		ksp = solver.krylov_solver
 		opts = pet.Options()
 		option_prefix = ksp.getOptionsPrefix()
 		opts[f"{option_prefix}pc_type"] = "lu"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+		#set_log_level(LogLevel.INFO)
 		ksp.setFromOptions()
 		# Actual heavyweight
-		solver.solve(self.q)
+		try: solver.solve(self.q)
+		except RuntimeError: pass
 		self.q.x.scatter_forward()
 
 		if save:  # Memoisation
 			u,p = self.q.split()
-			with XDMFFile(COMM_WORLD, self.datapath+self.baseflow_path+"print/u_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
+			with XDMFFile(COMM_WORLD, self.datapath+self.baseflow_path+"print/u_Re="+f"{self.Re:04.0f}"+"_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
-			viewer = pet.Viewer().createMPIIO(self.datapath+self.baseflow_path+"dat_real/baseflow_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
+			viewer = pet.Viewer().createMPIIO(self.datapath+self.baseflow_path+"dat_real/baseflow_Re="+f"{self.Re:04.0f}"+"_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
 			self.q.vector.view(viewer)
 			if COMM_WORLD.rank==0: print(".pvd, .dat written!")
 
