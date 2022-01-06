@@ -1,6 +1,7 @@
 jet_incompressible/**
 swirling_jet_incompressible/**
 validation/**
+nozzle/**
 __pycache__/**
 jitfailure*/**
 **.mat
