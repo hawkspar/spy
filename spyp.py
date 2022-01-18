@@ -4,7 +4,7 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl
+import os, ufl, shutil
 import numpy as np
 from spy import spy
 import dolfinx as dfx
@@ -17,24 +17,24 @@ from mpi4py.MPI import COMM_WORLD
 class spyp(spy):
 	def __init__(self, meshpath: str, datapath: str, Re: float, dM: float, S:float, m:int) -> None:
 		super().__init__(meshpath, datapath, Re, dM)
-		self.resolvent_path	='resolvent/'
-		self.eig_path		='eigenvalues/'
 		self.S=S; self.m=m
 		self.save_string='_S='+f"{S:00.3f}"+'_m='+str(m)
 		
 	# Memoisation routine - find closest in S
 	def LoadBaseflow(self,S) -> None:
 		closest_file_name=self.datapath+"last_baseflow_complex.dat"
-		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'dat_complex/') if f[-3:]=="dat"]
+		if os.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
+		file_names = [f for f in os.listdir(self.dat_complex_path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
 			Sd = float(file_name[11:16]) # Take advantage of file format 
 			fd = abs(S-Sd)#+abs(Re-Red)
-			if fd<d: d,closest_file_name=fd,self.datapath+self.baseflow_path+'dat_complex/'+file_name
+			if fd<d: d,closest_file_name=fd,self.dat_complex_path+file_name
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		print("Loaded "+closest_file_name+" as part of memoisation scheme")
+		if COMM_WORLD.rank==0:
+			print("Loaded "+closest_file_name+" as part of memoisation scheme")
 
 	# Perturbations (really only need dofs)
 	def BoundaryConditionsPerturbations(self,m) -> None:
@@ -71,14 +71,13 @@ class spyp(spy):
 		self.N = dfx.fem.assemble_matrix(form)
 		self.N.assemble()
 		self.N.zeroRowsColumnsLocal(self.dofps,0)
-
-		print("Matrices computed !")
+		if COMM_WORLD.rank==0: print("Matrices computed !")
 	
 	def Resolvent(self,k:int,freq_list):
 		U,p=self.q.split()
 		u,v,w=U.split()
 		u=u.compute_point_values()
-		print("check base flow max and min in u:",np.max(u),",",np.min(u))
+		if COMM_WORLD.rank==0: print("check base flow max and min in u:",np.max(u),",",np.min(u))
 
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
 		u,p = ufl.split(self.Trial)
@@ -152,7 +151,8 @@ class spyp(spy):
 			gains=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 			
 			#write gains
-			np.savetxt(self.datapath+self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.abs(gains))
+			if not os.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
+			np.savetxt(self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.abs(gains))
 			# Write eigenvectors back in pvd (but not too many of them)
 			for i in range(min(n,3)):
 				# Obtain forcings as eigenvectors
@@ -160,7 +160,7 @@ class spyp(spy):
 				fu,fp = f.split()
 				E.getEigenvector(i,fu.vector)
 				fu.x.scatter_forward()
-				with XDMFFile(COMM_WORLD, self.datapath+self.resolvent_path+"forcing_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
+				with XDMFFile(COMM_WORLD, self.resolvent_path+"forcing_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.parameters["flush_output"] = True
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(fu)
@@ -172,9 +172,11 @@ class spyp(spy):
 				B.mult(fu.vector,u.vector)
 				Q.mult(u.vector,tmp)
 				L.solve(tmp,u.vector)
-				with XDMFFile(COMM_WORLD, self.datapath+self.resolvent_path+"response_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
+				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(u)
+			if COMM_WORLD.rank==0:
+				print("Frequency",freq,"handled !")
 
 	def Eigenvalues(self,sigma:complex,k:int) -> None:
 		# Solver
@@ -199,15 +201,17 @@ class spyp(spy):
 		if n==0: return
 		# Conversion back into numpy 
 		vals=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
+		if not os.isdir(self.eig_path): os.mkdir(self.eig_path)
 		# write eigenvalues
-		np.savetxt(self.datapath+self.eig_path+"evals"+self.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+"evals"+self.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=dfx.Function(self.Space)
 			E.getEigenvector(i,q.vector)
 			q.x.scatter_forward()
 			u,p = q.split()
-			with XDMFFile(COMM_WORLD, self.datapath+self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.xdmf", "w") as xdmf:
+			with XDMFFile(COMM_WORLD, self.eig_path+"u/evec_u_S="+f"{self.S:00.3f}"+"_m="+str(self.m)+"_lam="+f"{vals[i].real:00.3f}"+f"{vals[i].imag:+00.3f}"+"j.xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
-		print("Eigenpairs written !")
+		if COMM_WORLD.rank==0:
+			print("Eigenpairs written !")

@@ -4,9 +4,9 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl
 import numpy as np
 import dolfinx as dfx
+import os, ufl, shutil
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD
@@ -28,8 +28,12 @@ class spy:
 		self.max_iter=100
 
 		# Paths
-		self.datapath = datapath
-		self.baseflow_path ='baseflow/'
+		if not os.path.isdir(datapath): os.mkdir(datapath)
+		self.dat_real_path	 =datapath+'baseflow/dat_real/'
+		self.dat_complex_path=datapath+'baseflow/dat_complex/'
+		self.npy_path		 =datapath+'baseflow/npy/'
+		self.resolvent_path	 =datapath+'/resolvent/'
+		self.eig_path		 =datapath+'/eigenvalues/'
 
 		# Mesh from file
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
@@ -149,10 +153,12 @@ class spy:
 		np.save(fo,self.q.x.array)
 
 	def datToNpyAll(self) -> None:
-		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'dat_real/') if f[-3:]=="dat"]
+		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3]=="dat"]
+		if not os.path.isdir(self.npy_path): os.mkdir(self.npy_path)
 		for file_name in file_names:
-			self.datToNpy(self.datapath+self.baseflow_path+'dat_real/'+file_name,
-						  self.datapath+self.baseflow_path+'npy/'+file_name[:-3]+'npy')
+			self.datToNpy(self.dat_real_path+file_name,
+						  self.npy_path+file_name[:-3]+'npy')
+		shutil.rmtree(self.dat_real_path)
 		self.datToNpy(self.datapath+'last_baseflow_real.dat',self.datapath+'last_baseflow.npy')
 
 	def npyToDat(self,fi,fo) -> None:
@@ -162,8 +168,10 @@ class spy:
 		self.q.x.view(viewer)
 	
 	def npyToDatAll(self) -> None:
-		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'npy/') if f[-3:]=="npy"]
+		file_names = [f for f in os.listdir(self.npy_path)]
+		if not os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
 		for file_name in file_names:
-			self.npyToDat(self.datapath+self.baseflow_path+'npy/'+file_name,
-						  self.datapath+self.baseflow_path+'dat_complex/'+file_name[:-3]+'dat')
+			self.npyToDat(self.npy_path+file_name,
+						  self.dat_complex_path+file_name[:-3]+'dat')
+		shutil.rmtree(self.npy_path)
 		self.npyToDat(self.datapath+'last_baseflow.npy',self.datapath+'last_baseflow_complex.dat')

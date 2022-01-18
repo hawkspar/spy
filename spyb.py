@@ -4,12 +4,11 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl
-import warnings
+import os, shutil, warnings
 import numpy as np
 from spy import spy
 import dolfinx as dfx
-from dolfinx.log import set_log_level, LogLevel
+#from dolfinx.log import set_log_level, LogLevel
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD, MIN
@@ -25,17 +24,19 @@ class spyb(spy):
 	# Memoisation routine - find closest in S
 	def HotStart(self,Re, S) -> None:
 		closest_file_name=self.datapath+"last_baseflow_real.dat"
-		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'dat_real/') if f[-3:]=="dat"]
+		if not os.path.isdir(self.dat_real_path): os.mkdir(self.dat_real_path)
+		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
 			Ref = float(file_name[12:16]) # Take advantage of file format
 			Sf = float(file_name[19:24]) # Take advantage of file format
 			fd = abs(S-Sf)+abs(Re-Ref)
-			if fd<d: d,closest_file_name=fd,self.datapath+self.baseflow_path+'dat_real/'+file_name
+			if fd<d: d,closest_file_name=fd,self.dat_real_path+file_name
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		print("Loaded "+closest_file_name+" as part of memoisation scheme")
+		if COMM_WORLD.rank==0:
+			print("Loaded "+closest_file_name+" as part of memoisation scheme")
 
 	# Baseflow (really only need DirichletBC objects)
 	def BoundaryConditions(self,S:float) -> None:
@@ -147,15 +148,17 @@ class spyb(spy):
 
 		if save:  # Memoisation
 			u,p = self.q.split()
-			with XDMFFile(COMM_WORLD, self.datapath+self.baseflow_path+"print/u_Re="+f"{Re:04.0f}"+"_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
+			if not os.isdir(self.dat_real_path): os.mkdir(self.dat_real_path)
+			with XDMFFile(COMM_WORLD, self.dat_real_path+"print/u_Re="+f"{Re:04.0f}"+"_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
-			viewer = pet.Viewer().createMPIIO(self.datapath+self.baseflow_path+"dat_real/baseflow_Re="+f"{Re:04.0f}"+"_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
+			viewer = pet.Viewer().createMPIIO(self.dat_real_path+"dat_real/baseflow_Re="+f"{Re:04.0f}"+"_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
 			self.q.vector.view(viewer)
 			if COMM_WORLD.rank==0: print(".xmdf, .dat written!")
 
 	# To be run in real mode
 	def BaseflowRange(self,Res,Ss) -> None:
+		shutil.rmtree(self.dat_real_path)
 		for Re in Res:		   # Loop on Reynolds number first
 			for S in Ss: 	   # Then on swirl intensity
 				if COMM_WORLD.rank==0:
@@ -172,7 +175,7 @@ class spyb(spy):
 			xdmf.write_function(u)
 		viewer = pet.Viewer().createMPIIO(self.datapath+"last_baseflow_real.dat", 'w', COMM_WORLD)
 		self.q.vector.view(viewer)
-		print("Last checkpoint written!")
+		if COMM_WORLD.rank==0: print("Last checkpoint written!")
 
 	def MinimumAxial(self) -> float:
 		u,p=self.q.split()
