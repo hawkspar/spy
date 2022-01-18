@@ -28,14 +28,16 @@ class spy:
 		self.max_iter=100
 
 		# Paths
-		if not os.path.isdir(datapath): os.mkdir(datapath)
-		self.dat_real_path	 =datapath+'baseflow/dat_real/'
-		self.dat_complex_path=datapath+'baseflow/dat_complex/'
-		self.npy_path		 =datapath+'baseflow/npy/'
-		self.resolvent_path	 =datapath+'/resolvent/'
-		self.eig_path		 =datapath+'/eigenvalues/'
+		if not os.path.isdir('../cases/'): 			os.mkdir('../cases/')
+		if not os.path.isdir('../cases/'+datapath): os.mkdir('../cases/'+datapath)
+		self.dat_real_path	 ='../cases/'+datapath+'baseflow/dat_real/'
+		self.dat_complex_path='../cases/'+datapath+'baseflow/dat_complex/'
+		self.npy_path		 ='../cases/'+datapath+'baseflow/npy/'
+		self.resolvent_path	 ='../cases/'+datapath+'/resolvent/'
+		self.eig_path		 ='../cases/'+datapath+'/eigenvalues/'
 
 		# Mesh from file
+		if meshpath=="": meshpath="../Mesh/"+datapath+"/"+datapath+".xdmf"
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		
