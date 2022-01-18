@@ -8,3 +8,4 @@ jitfailure*/**
 **.code-workspace
 matplotlib/**
 .devcontainer/**
+.gitignore
