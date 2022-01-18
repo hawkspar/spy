@@ -18,18 +18,19 @@ p0=COMM_WORLD.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class spyb(spy):
-	def __init__(self, meshpath: str, datapath: str, Re: float, dM:float) -> None:
-		super().__init__(meshpath, datapath, Re, dM)
+	def __init__(self, meshpath: str, datapath: str, dM:float) -> None:
+		super().__init__(meshpath, datapath, dM)
 		self.BoundaryConditions(0)
 		
 	# Memoisation routine - find closest in S
-	def HotStart(self,S) -> None:
+	def HotStart(self,Re, S) -> None:
 		closest_file_name=self.datapath+"last_baseflow_real.dat"
 		file_names = [f for f in os.listdir(self.datapath+self.baseflow_path+'dat_real/') if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
-			Sd = float(file_name[11:16]) # Take advantage of file format 
-			fd = abs(S-Sd)#+abs(Re-Red)
+			Ref = float(file_name[12:16]) # Take advantage of file format
+			Sf = float(file_name[19:24]) # Take advantage of file format
+			fd = abs(S-Sf)+abs(Re-Ref)
 			if fd<d: d,closest_file_name=fd,self.datapath+self.baseflow_path+'dat_real/'+file_name
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
 		self.q.vector.load(viewer)
@@ -108,8 +109,7 @@ class spyb(spy):
 				_, bcs=self.ConstantBC(direction,marker)
 				self.bcs.append(bcs)
 	
-	def Baseflow(self,hot_start:bool,save:bool,S:float,nu=1):
-		self.mu=nu/self.Re #recalculate viscosity with prefactor
+	def Baseflow(self,hot_start:bool,save:bool,Re:float,S:float):
 		# Apply new BC
 		self.inlet_azimuthal_velocity.S=S
 		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
@@ -118,10 +118,10 @@ class spyb(spy):
 		self.u_nozzle_th.interpolate(self.nozzle_azimuthal_velocity)
 		self.u_nozzle_th.x.scatter_forward()
 		# Memoisation
-		if hot_start: self.HotStart(S)
+		if hot_start: self.HotStart(Re,S)
 		# Compute form
-		base_form  = self.NavierStokes() #no azimuthal decomposition for base flow
-		dbase_form = self.LinearisedNavierStokes(0) # m=0
+		base_form  = self.NavierStokes(Re) #no azimuthal decomposition for base flow
+		dbase_form = self.LinearisedNavierStokes(Re,0) # m=0
 
 		# Encapsulations
 		problem = dfx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
@@ -147,21 +147,23 @@ class spyb(spy):
 
 		if save:  # Memoisation
 			u,p = self.q.split()
-			with XDMFFile(COMM_WORLD, self.datapath+self.baseflow_path+"print/u_Re="+f"{self.Re:04.0f}"+"_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
+			with XDMFFile(COMM_WORLD, self.datapath+self.baseflow_path+"print/u_Re="+f"{Re:04.0f}"+"_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
-			viewer = pet.Viewer().createMPIIO(self.datapath+self.baseflow_path+"dat_real/baseflow_Re="+f"{self.Re:04.0f}"+"_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
+			viewer = pet.Viewer().createMPIIO(self.datapath+self.baseflow_path+"dat_real/baseflow_Re="+f"{Re:04.0f}"+"_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
 			self.q.vector.view(viewer)
-			if COMM_WORLD.rank==0: print(".pvd, .dat written!")
+			if COMM_WORLD.rank==0: print(".xmdf, .dat written!")
 
 	# To be run in real mode
-	def BaseflowRange(self,Ss,nus=[1]) -> None:
-		for S in Ss: 	# Increase swirl
-			for nu in nus: # Decrease viscosity (non physical but helps CV)
+	def BaseflowRange(self,Res,Ss) -> None:
+		for Re in Res:		   # Loop on Reynolds number first
+			for S in Ss: 	   # Then on swirl intensity
 				if COMM_WORLD.rank==0:
-					print("viscosity prefactor: ", nu)
-					print("swirl intensity: ",	    S)
-				self.Baseflow(S>Ss[0],nu==nus[-1],S,nu)
+					print("##########################")
+					print("Reynolds number: ",	    Re)
+					print("Swirl intensity: ",	    S)
+				self.Baseflow(True,True,Re,S)
+				#self.Baseflow(Re>Res[0] or S>Ss[0],True,Re,S)
 				
 		#write result of current mu
 		u,p=self.q.split()

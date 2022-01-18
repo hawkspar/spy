@@ -13,13 +13,13 @@ from mpi4py.MPI import COMM_WORLD
 
 # Swirling Parallel Yaj
 class spy:
-	def __init__(self,meshpath:str,datapath:str,Re:float,dM:float) -> None:
+	def __init__(self,meshpath:str,datapath:str,dM:float) -> None:
 		# TBI : problem dependent
 		self.direction_map={'x':0,'r':1,'th':2}
 
 		# Geometry parameters
-		self.x_max=20; self.r_max=10
-		self.x_phy=10; self.r_phy=5
+		self.x_max=30; self.r_max=10
+		self.x_phy=20; self.r_phy=5
 
 		# Solver parameters
 		self.rp  =.99 #relaxation_parameter
@@ -50,7 +50,6 @@ class spy:
 		with XDMFFile(COMM_WORLD, self.datapath+"d.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(self.d)
-		self.Re=Re
 		self.q = dfx.Function(self.Space) # Initialisation of q
 
 	# Jet geometry
@@ -80,11 +79,11 @@ class spy:
 
 	def df(self,x,dM):
 		dm=np.zeros(x[0].size)
-		x_ext=x[0]>self.x_max/2
+		x_ext=x[0]>self.x_phy
 		dm[x_ext]= 	   		 dM			  *self.csi(np.minimum(x[0][x_ext],self.x_max),self.x_phy, self.x_max-self.x_phy) # min necessary to prevent spurious jumps because of mesh conversion
-		r_ext=x[1]>self.r_max/2
+		r_ext=x[1]>self.r_phy
 		dm[r_ext]=dm[r_ext]+(dM-dm[r_ext])*self.csi(np.minimum(x[1][r_ext],self.r_max),self.r_phy, self.r_max-self.r_phy)
-		return np.minimum(dm,0)
+		return np.maximum(dm,0)
 
 	# Sponged Reynolds number
 	def dampingFactor(self,dM) -> dfx.Function:
@@ -105,9 +104,9 @@ class spy:
 		bcs = dfx.DirichletBC(constant, dofs, sub_space) # u_i=value at boundary
 		return dofs[0], bcs # Only return unflattened dofs
 
-	def NavierStokes(self) -> ufl.Form:
+	def NavierStokes(self,Re:float) -> ufl.Form:
 		# Shortforms
-		r,Re,d=self.r,self.Re,self.d
+		r,d=self.r,self.d
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
 		u,p=ufl.split(self.q)
 		v,w=ufl.split(self.Test)
@@ -123,9 +122,9 @@ class spy:
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
-	def LinearisedNavierStokes(self,m:int) -> ufl.Form:
+	def LinearisedNavierStokes(self,Re:float,m:int) -> ufl.Form:
 		# Shortforms
-		r,Re,d=self.r,self.Re,self.d
+		r,d=self.r,self.d
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
 		u,	p=ufl.split(self.Trial)
 		u_b,_=ufl.split(self.q) # Baseflow

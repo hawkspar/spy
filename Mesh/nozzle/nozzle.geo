@@ -1,15 +1,15 @@
 // Gmsh project created on Fri May 15 17:21:02 2020
 Mesh.MshFileVersion = 2.0;
-r1 = 1/200;
-r4 = 2/5;
+r1 = 1/20;
+r4 = 1;
 r3=(r1+r4)/2;
 r2=(r1+r3)/2;
 Point(1) = {0, 0, 0, r1};
 Point(2) = {10, 0, 0, r1};
 Point(3) = {10, 5, 0, r2};
 Point(4) = {0, 5, 0, r2};
-Point(5) = {20, 0, 0, r3};
-Point(6) = {20, 10, 0, r4};
+Point(5) = {30, 0, 0, r3};
+Point(6) = {30, 10, 0, r4};
 Point(7) = {0, 10, 0, r3};
 Point(8) = {0, 1, 0, r1};
 Point(9) = {1, 1, 0, r1};

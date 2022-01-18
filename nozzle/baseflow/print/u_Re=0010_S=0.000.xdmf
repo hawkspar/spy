@@ -3,11 +3,11 @@
 <Xdmf Version="3.0" xmlns:xi="http://www.w3.org/2001/XInclude">
   <Domain>
     <Grid Name="Grid" GridType="Uniform">
-      <Topology TopologyType="Triangle" NumberOfElements="28863" NodesPerElement="3">
-        <DataItem Dimensions="28863 3" NumberType="Int" Format="HDF">u_Re=0010_S=0.000.h5:/Mesh/Grid/topology</DataItem>
+      <Topology TopologyType="Triangle" NumberOfElements="13953" NodesPerElement="3">
+        <DataItem Dimensions="13953 3" NumberType="Int" Format="HDF">u_Re=0010_S=0.000.h5:/Mesh/Grid/topology</DataItem>
       </Topology>
       <Geometry GeometryType="XY">
-        <DataItem Dimensions="14673 2" Format="HDF">u_Re=0010_S=0.000.h5:/Mesh/Grid/geometry</DataItem>
+        <DataItem Dimensions="7186 2" Format="HDF">u_Re=0010_S=0.000.h5:/Mesh/Grid/geometry</DataItem>
       </Geometry>
     </Grid>
     <Grid Name="f_4-0" GridType="Collection" CollectionType="Temporal">
@@ -15,7 +15,7 @@
         <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
         <Time Value="0" />
         <Attribute Name="f_4-0" AttributeType="Vector" Center="Node">
-          <DataItem Dimensions="14673 3" Format="HDF">u_Re=0010_S=0.000.h5:/Function/f_4-0/0</DataItem>
+          <DataItem Dimensions="7186 3" Format="HDF">u_Re=0010_S=0.000.h5:/Function/f_4-0/0</DataItem>
         </Attribute>
       </Grid>
     </Grid>
