@@ -15,15 +15,15 @@ from mpi4py.MPI import COMM_WORLD
 
 # Swirling Parallel Yaj Perturbations
 class spyp(spy):
-	def __init__(self, meshpath: str, datapath: str, Re: float, dM: float, S:float, m:int) -> None:
-		super().__init__(meshpath, datapath, Re, dM)
+	def __init__(self, datapath: str, Re: float, dM: float, S:float, m:int,meshpath: str="") -> None:
+		super().__init__(datapath,Re,dM,meshpath)
 		self.S=S; self.m=m
 		self.save_string='_S='+f"{S:00.3f}"+'_m='+str(m)
 		
 	# Memoisation routine - find closest in S
 	def LoadBaseflow(self,S) -> None:
 		closest_file_name=self.datapath+"last_baseflow_complex.dat"
-		if os.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
+		if os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
 		file_names = [f for f in os.listdir(self.dat_complex_path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
@@ -67,8 +67,8 @@ class spyp(spy):
 		# Forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		u,p = ufl.split(self.Trial)
 		v,w = ufl.split(self.Test)
-		form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as momentum equations
-		self.N = dfx.fem.assemble_matrix(form)
+		norm_form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as momentum equations
+		self.N = dfx.fem.assemble_matrix(norm_form)
 		self.N.assemble()
 		self.N.zeroRowsColumnsLocal(self.dofps,0)
 		if COMM_WORLD.rank==0: print("Matrices computed !")
@@ -151,7 +151,7 @@ class spyp(spy):
 			gains=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 			
 			#write gains
-			if not os.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
+			if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
 			np.savetxt(self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.abs(gains))
 			# Write eigenvectors back in pvd (but not too many of them)
 			for i in range(min(n,3)):
@@ -201,7 +201,7 @@ class spyp(spy):
 		if n==0: return
 		# Conversion back into numpy 
 		vals=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
-		if not os.isdir(self.eig_path): os.mkdir(self.eig_path)
+		if not os.path.isdir(self.eig_path): os.mkdir(self.eig_path)
 		# write eigenvalues
 		np.savetxt(self.eig_path+"evals"+self.save_string+"_sigma="+f"{np.real(sigma):00.3f}"+f"{np.imag(sigma):+00.3f}"+"j.dat",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)

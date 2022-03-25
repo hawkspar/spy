@@ -13,13 +13,13 @@ from mpi4py.MPI import COMM_WORLD
 
 # Swirling Parallel Yaj
 class spy:
-	def __init__(self,meshpath:str,datapath:str,dM:float) -> None:
+	def __init__(self,datapath:str,Re:float,dM:float,meshpath:str="") -> None:
 		# TBI : problem dependent
 		self.direction_map={'x':0,'r':1,'th':2}
 
 		# Geometry parameters
-		self.x_max=30; self.r_max=10
-		self.x_phy=20; self.r_phy=5
+		self.x_max=120; self.r_max=60
+		self.x_phy=70; self.r_phy=10
 
 		# Solver parameters
 		self.rp  =.99 #relaxation_parameter
@@ -30,14 +30,16 @@ class spy:
 		# Paths
 		if not os.path.isdir('../cases/'): 			os.mkdir('../cases/')
 		if not os.path.isdir('../cases/'+datapath): os.mkdir('../cases/'+datapath)
-		self.dat_real_path	 ='../cases/'+datapath+'baseflow/dat_real/'
-		self.dat_complex_path='../cases/'+datapath+'baseflow/dat_complex/'
-		self.npy_path		 ='../cases/'+datapath+'baseflow/npy/'
-		self.resolvent_path	 ='../cases/'+datapath+'/resolvent/'
-		self.eig_path		 ='../cases/'+datapath+'/eigenvalues/'
+		self.case_path		 ='../cases/'+datapath
+		self.dat_real_path	 =self.case_path+'baseflow/dat_real/'
+		self.dat_complex_path=self.case_path+'baseflow/dat_complex/'
+		self.print_path		 =self.case_path+'baseflow/print/'
+		self.npy_path		 =self.case_path+'baseflow/npy/'
+		self.resolvent_path	 =self.case_path+'resolvent/'
+		self.eig_path		 =self.case_path+'eigenvalues/'
 
 		# Mesh from file
-		if meshpath=="": meshpath="../Mesh/"+datapath+"/"+datapath+".xdmf"
+		if meshpath=="": meshpath="../../Mesh/"+datapath+datapath[:-1]+".xdmf"
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		
@@ -53,9 +55,13 @@ class spy:
 		# Extraction of r and Re computation
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
 		self.d = self.dampingFactor(dM)
-		with XDMFFile(COMM_WORLD, self.datapath+"d.xdmf", "w") as xdmf:
+		with XDMFFile(COMM_WORLD, '../cases/'+datapath+"d.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(self.d)
+		self.Re = self.sponged_Reynolds(Re)
+		with XDMFFile(COMM_WORLD, '../cases/'+datapath+"Re.xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(self.Re)
 		self.q = dfx.Function(self.Space) # Initialisation of q
 
 	# Jet geometry
@@ -96,6 +102,21 @@ class spy:
 		d=dfx.Function(dfx.FunctionSpace(self.mesh,ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),2)))
 		d.interpolate(lambda x: self.df(x,dM))
 		return d
+
+	def Ref(self,x,Re_s,Re):
+		Rem=np.ones(x[0].size)*Re
+		x_ext=x[0]>self.x_phy
+		Rem[x_ext]=Re		 +(Re_s-Re) 	   *self.csi(np.minimum(x[0][x_ext],self.x_max),self.x_phy, self.x_max-self.x_phy) # min necessary to prevent spurious jumps because of mesh conversion
+		r_ext=x[1]>self.r_phy
+		Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*self.csi(np.minimum(x[1][r_ext],self.r_max),self.r_phy, self.r_max-self.r_phy)
+		return Rem
+
+	# Sponged Reynolds number
+	def sponged_Reynolds(self,Re) -> dfx.Function:
+		Re_s=.1
+		Red=dfx.Function(dfx.FunctionSpace(self.mesh,ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),2)))
+		Red.interpolate(lambda x: self.Ref(x,Re_s,Re))
+		return Red
 		
 	# Code factorisation
 	def ConstantBC(self, direction:chr, boundary, value=0) -> tuple:
@@ -110,7 +131,7 @@ class spy:
 		bcs = dfx.DirichletBC(constant, dofs, sub_space) # u_i=value at boundary
 		return dofs[0], bcs # Only return unflattened dofs
 
-	def NavierStokes(self,Re:float) -> ufl.Form:
+	def NavierStokes(self) -> ufl.Form:
 		# Shortforms
 		r,d=self.r,self.d
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
@@ -121,14 +142,14 @@ class spy:
 		F  = ufl.inner( rdiv(u,0), 	   	 w)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u,0)*u,   r*v)       # Convection
-		F += ufl.inner(rgrad(u,0), gradr(v,0))/Re # Diffusion
+		F += ufl.inner(rgrad(u,0), gradr(v,0))/self.Re # Diffusion
 		F -= ufl.inner(r*p,		 	divr(v,0)) 	  # Pressure
 		# Numerical damping
-		F -= ufl.inner(r*u,r*v)*d
+		#F -= ufl.inner(r*u,r*v)*d
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
-	def LinearisedNavierStokes(self,Re:float,m:int) -> ufl.Form:
+	def LinearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
 		r,d=self.r,self.d
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
@@ -141,10 +162,10 @@ class spy:
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u_b,0)*u,   r*v)    	# Convection
 		F += ufl.inner(rgrad(u,  m)*u_b, r*v)
-		F += ufl.inner(rgrad(u,  m), gradr(v,m))/Re # Diffusion
+		F += ufl.inner(rgrad(u,  m), gradr(v,m))/self.Re # Diffusion
 		F -= ufl.inner(r*p,			  divr(v,m)) 	# Pressure
 		# Numerical damping
-		F -= ufl.inner(r*u,r*v)*d
+		#F -= ufl.inner(r*u,r*v)*d
 		return F*ufl.dx
 
 	# Converters
