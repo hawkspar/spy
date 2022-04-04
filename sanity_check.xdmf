@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!DOCTYPE Xdmf SYSTEM "Xdmf.dtd" []>
+<Xdmf Version="3.0" xmlns:xi="http://www.w3.org/2001/XInclude">
+  <Domain>
+    <Grid Name="Grid" GridType="Uniform">
+      <Topology TopologyType="Quadrilateral" NumberOfElements="47524" NodesPerElement="4">
+        <DataItem Dimensions="47524 4" NumberType="Int" Format="HDF">sanity_check.h5:/Mesh/Grid/topology</DataItem>
+      </Topology>
+      <Geometry GeometryType="XY">
+        <DataItem Dimensions="48765 2" Format="HDF">sanity_check.h5:/Mesh/Grid/geometry</DataItem>
+      </Geometry>
+    </Grid>
+    <Grid Name="f_5" GridType="Collection" CollectionType="Temporal">
+      <Grid Name="f_5" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0" />
+        <Attribute Name="real_f_5" AttributeType="Vector" Center="Node">
+          <DataItem Dimensions="48765 3" Format="HDF">sanity_check.h5:/Function/real_f_5/0</DataItem>
+        </Attribute>
+        <Attribute Name="imag_f_5" AttributeType="Vector" Center="Node">
+          <DataItem Dimensions="48765 3" Format="HDF">sanity_check.h5:/Function/imag_f_5/0</DataItem>
+        </Attribute>
+      </Grid>
+    </Grid>
+  </Domain>
+</Xdmf>

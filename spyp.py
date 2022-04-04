@@ -4,7 +4,7 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl, shutil
+import os, ufl
 import numpy as np
 from spy import spy
 import dolfinx as dfx
@@ -22,8 +22,8 @@ class spyp(spy):
 		
 	# Memoisation routine - find closest in S
 	def LoadBaseflow(self,S) -> None:
-		closest_file_name=self.datapath+"last_baseflow_complex.dat"
-		if os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
+		closest_file_name=self.baseflow_path+"last_baseflow_complex.dat"
+		if not os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
 		file_names = [f for f in os.listdir(self.dat_complex_path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
@@ -77,12 +77,12 @@ class spyp(spy):
 		U,p=self.q.split()
 		u,v,w=U.split()
 		u=u.compute_point_values()
-		if COMM_WORLD.rank==0: print("check base flow max and min in u:",np.max(u),",",np.min(u))
+		if COMM_WORLD.rank==0: print("check base flow max and min in u:",np.max(u.real),",",np.min(u.real))
 
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
 		u,p = ufl.split(self.Trial)
 		v,w = ufl.split(self.Test)
-		Q_form=ufl.dot(u,v)*self.r**2*ufl.dx+ufl.inner(p,w)*self.r*ufl.dx
+		Q_form=ufl.inner(u,v)*self.r**2*ufl.dx+ufl.inner(p,w)*self.r*ufl.dx
 		Q = dfx.fem.assemble_matrix(Q_form)
 		Q.assemble()
 
@@ -90,10 +90,14 @@ class spyp(spy):
 		#It can also restrict the flow regions of forcing, to be implemented later. 
 		#A note for very rare case: if one wants to damp but not entirely eliminate the forcing in some regions (not the case here), one can put values between 0 and 1. In that case, the matrix I in the following is not the same as P. 
 		
-		row_indices=self.Space.sub(0).dofmap().dofs() #get all index related to u
+		# Get indexes related to u
+		sub_space=self.Space.sub(0)
+		sub_space_collapsed=sub_space.collapse()
+		# Compute DoFs
+		row_indices=dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), lambda x: np.ones(x.shape[1]))[0]
 		row_indices.sort()
-		m=len(self.Space.dofmap().dofs())
-		n=len(row_indices)
+		m=self.Space.dofmap.index_map.size_global * self.Space.dofmap.index_map_bs
+		n=row_indices.size
 		B=pet.Mat().createAIJ([m, n]) # AIJ represents sparse matrix
 		B.setUp()
 		B.assemble()
@@ -147,14 +151,15 @@ class spyp(spy):
 			E.solve()
 			n=E.getConverged()
 			if n==0: continue
+
 			# Conversion back into numpy 
 			gains=np.array([E.getEigenvalue(i) for i in range(n)],dtype=np.complex)
-			
 			#write gains
 			if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
 			np.savetxt(self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.abs(gains))
-			# Write eigenvectors back in pvd (but not too many of them)
-			for i in range(min(n,3)):
+
+			# Write eigenvectors
+			for i in range(min(n,k)):
 				# Obtain forcings as eigenvectors
 				f=dfx.Function(self.Space)
 				fu,fp = f.split()

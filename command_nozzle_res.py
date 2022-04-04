@@ -1,0 +1,23 @@
+# coding: utf-8
+"""
+Created on Wed Oct  13 17:07:00 2021
+
+@author: hawkspar
+"""
+import os
+import numpy as np
+from spyp import spyp
+from mpi4py.MPI import COMM_WORLD
+
+p0=COMM_WORLD.rank==0
+
+MeshPath='../cases/nozzle/nozzle.xdmf'
+datapath='nozzle/' #folder for results
+
+# Eigenvalues
+spypi=spyp(datapath,1e6,0,0,-1,MeshPath)
+# For efficiency, matrix is assembled only once
+spypi.AssembleMatrices()
+# Modal analysis
+vals_real,vals_imag=np.empty(0),np.empty(0)
+spypi.Resolvent(10,[2])

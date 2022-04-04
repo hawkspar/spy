@@ -31,10 +31,11 @@ class spy:
 		if not os.path.isdir('../cases/'): 			os.mkdir('../cases/')
 		if not os.path.isdir('../cases/'+datapath): os.mkdir('../cases/'+datapath)
 		self.case_path		 ='../cases/'+datapath
-		self.dat_real_path	 =self.case_path+'baseflow/dat_real/'
-		self.dat_complex_path=self.case_path+'baseflow/dat_complex/'
-		self.print_path		 =self.case_path+'baseflow/print/'
-		self.npy_path		 =self.case_path+'baseflow/npy/'
+		self.baseflow_path   =self.case_path+'baseflow/'
+		self.dat_real_path	 =self.baseflow_path+'dat_real/'
+		self.dat_complex_path=self.baseflow_path+'dat_complex/'
+		self.print_path		 =self.baseflow_path+'print/'
+		self.npy_path		 =self.baseflow_path+'npy/'
 		self.resolvent_path	 =self.case_path+'resolvent/'
 		self.eig_path		 =self.case_path+'eigenvalues/'
 
@@ -141,9 +142,9 @@ class spy:
 		# Mass (variational formulation)
 		F  = ufl.inner( rdiv(u,0), 	   	 w)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(u,0)*u,   r*v)       # Convection
+		F += ufl.inner(rgrad(u,0)*u,   r*v)       	   # Convection
 		F += ufl.inner(rgrad(u,0), gradr(v,0))/self.Re # Diffusion
-		F -= ufl.inner(r*p,		 	divr(v,0)) 	  # Pressure
+		F -= ufl.inner(r*p,		 	divr(v,0)) 	  	   # Pressure
 		# Numerical damping
 		#F -= ufl.inner(r*u,r*v)*d
 		return F*ufl.dx
@@ -160,10 +161,10 @@ class spy:
 		# Mass (variational formulation)
 		F  = ufl.inner( rdiv(u,  m), 	   w)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(u_b,0)*u,   r*v)    	# Convection
+		F += ufl.inner(rgrad(u_b,0)*u,   r*v)    		 # Convection
 		F += ufl.inner(rgrad(u,  m)*u_b, r*v)
 		F += ufl.inner(rgrad(u,  m), gradr(v,m))/self.Re # Diffusion
-		F -= ufl.inner(r*p,			  divr(v,m)) 	# Pressure
+		F -= ufl.inner(r*p,			  divr(v,m)) 		 # Pressure
 		# Numerical damping
 		#F -= ufl.inner(r*u,r*v)*d
 		return F*ufl.dx
