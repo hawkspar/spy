@@ -11,13 +11,13 @@ from mpi4py.MPI import COMM_WORLD
 
 p0=COMM_WORLD.rank==0
 
-MeshPath='../cases/nozzle/nozzle.xdmf'
+MeshPath='../cases/nozzle/nozzle_fine.xdmf'
 datapath='nozzle/' #folder for results
 
 # Eigenvalues
-spypi=spyp(datapath,1e6,0,0,-1,MeshPath)
+spypi=spyp(datapath,1e4,0,0,-1,MeshPath)
 # For efficiency, matrix is assembled only once
 spypi.AssembleMatrices()
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
-spypi.Resolvent(10,[2])
+spypi.Resolvent(10,[.2])

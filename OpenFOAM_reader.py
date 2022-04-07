@@ -7,7 +7,7 @@ from petsc4py import PETSc as pet
 from scipy.interpolate import interp2d
 
 # Read mesh and point data
-openfoam_mesh = meshio.read("../cases/nozzle/front3.xmf")
+openfoam_mesh = meshio.read("../cases/nozzle/front.xmf")
 # Write it out again
 cells = openfoam_mesh.get_cells_type("quad") 
 dolfinx_fine_mesh = meshio.Mesh(points=openfoam_mesh.points[:,:2], cells={"quad": cells})
@@ -60,10 +60,12 @@ for i in range(3):
 p_o.vector = interp2d(x_f,y_f,p.vector)(x_c,y_c)
 """
 # Write result as mixed
-Space  =dfx.FunctionSpace(dolfinx_fine_mesh,FE_vector_2*FE_scalar)
+Space = dfx.FunctionSpace(dolfinx_fine_mesh,FE_vector_2*FE_scalar)
 q = dfx.Function(Space)
-U_b,p_b = ufl.split(q)
-U_b,p_b=U_2,p
+_, map_U = Space.sub(0).collapse(collapsed_dofs=True)
+_, map_p = Space.sub(1).collapse(collapsed_dofs=True)
+q.vector[map_U]=U_2.vector
+q.vector[map_p]=p.vector
 viewer = pet.Viewer().createMPIIO("../cases/nozzle/baseflow/dat_complex/baseflow_S=0.000.dat", 'w', COMM_WORLD)
 q.vector.view(viewer)
 with XDMFFile(COMM_WORLD, "sanity_check.xdmf", "w") as xdmf:

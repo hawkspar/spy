@@ -12,6 +12,7 @@ from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD
+from pdb import set_trace
 
 # Swirling Parallel Yaj Perturbations
 class spyp(spy):
@@ -74,11 +75,6 @@ class spyp(spy):
 		if COMM_WORLD.rank==0: print("Matrices computed !")
 	
 	def Resolvent(self,k:int,freq_list):
-		U,p=self.q.split()
-		u,v,w=U.split()
-		u=u.compute_point_values()
-		if COMM_WORLD.rank==0: print("check base flow max and min in u:",np.max(u.real),",",np.min(u.real))
-
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
 		u,p = ufl.split(self.Trial)
 		v,w = ufl.split(self.Test)
@@ -88,21 +84,25 @@ class spyp(spy):
 
 		#matrix B (m*n) reshapes forcing vector (n*1) to (m*1). In principal, it contains only 0 and 1 elements. It's essentially an extensor.
 		#It can also restrict the flow regions of forcing, to be implemented later. 
-		#A note for very rare case: if one wants to damp but not entirely eliminate the forcing in some regions (not the case here), one can put values between 0 and 1. In that case, the matrix I in the following is not the same as P. 
+		#A note for very rare case: if one wants to damp but not entirely eliminate the forcing in some regions (not the case here), one can put values between 0 and 1. In that case, the matrix I in the following is not the same as P.
 		
 		# Get indexes related to u
 		sub_space=self.Space.sub(0)
 		sub_space_collapsed=sub_space.collapse()
 		# Compute DoFs
-		row_indices=dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), lambda x: np.ones(x.shape[1]))[0]
-		row_indices.sort()
+		dofs=dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), lambda x: np.ones(x.shape[1]))[0]
+		n=dofs.size
 		m=self.Space.dofmap.index_map.size_global * self.Space.dofmap.index_map_bs
-		n=row_indices.size
-		B=pet.Mat().createAIJ([m, n]) # AIJ represents sparse matrix
+		rows=np.zeros(m+1,dtype='int32')
+		for i in dofs: rows[i+1:]+=1 # Probably inefficient
+		cols=np.arange(n,dtype='int32')
+		vals=np.ones(n,dtype='int32')
+		B=pet.Mat().createAIJ([m, n],csr=[rows,cols,vals]) # AIJ represents sparse matrix
 		B.setUp()
 		B.assemble()
-		for i in range(n): B.setValue(row_indices[i],i,1)
-
+		if COMM_WORLD.rank==0:
+			print("Static matrices setup")
+		
 		# Necessary for matrix-free routine
 		class LHS_class:
 			def __init__(self,N,L,Q,B):
@@ -125,6 +125,7 @@ class spyp(spy):
 		E = slp.EPS(); E.create()
 		for freq in freq_list:
 			L=self.J-2j*np.pi*freq*self.N # Equations
+			L.assemble()
 
 			# Matrix free operator
 			LHS=pet.Mat()
@@ -139,7 +140,7 @@ class spyp(spy):
 			E.setWhichEigenpairs(E.Which.LARGEST_MAGNITUDE) # Find eigenvalues close to sigma
 			E.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 			E.setTolerances(self.atol,100) # Set absolute tolerance and number of iterations
-			E.setProblemType(slp.EPS.ProblemType.NHEP) # Specify that A is no hermitian, but M is semi-positive
+			E.setProblemType(slp.EPS.ProblemType.HEP) # Specify that A is hermitian (by construction), but M is semi-positive
 			# Spectral transform
 			ST  = E.getST()
 			# Krylov subspace
@@ -148,6 +149,8 @@ class spyp(spy):
 			PC  = KSP.getPC();  PC.setType('lu')
 			PC.setFactorSolverType('mumps')
 			E.setFromOptions()
+			if COMM_WORLD.rank==0:
+				print("Solver ready")
 			E.solve()
 			n=E.getConverged()
 			if n==0: continue
