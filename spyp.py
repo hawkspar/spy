@@ -13,6 +13,7 @@ from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD
 from pdb import set_trace
+from scipy.sparse import csr_matrix
 
 # Swirling Parallel Yaj Perturbations
 class spyp(spy):
@@ -87,52 +88,60 @@ class spyp(spy):
 		#A note for very rare case: if one wants to damp but not entirely eliminate the forcing in some regions (not the case here), one can put values between 0 and 1. In that case, the matrix I in the following is not the same as P.
 		
 		# Get indexes related to u
-		sub_space=self.Space.sub(0)
-		sub_space_collapsed=sub_space.collapse()
+		u_space, dofs = self.Space.sub(0).collapse(collapsed_dofs=True)
 		# Compute DoFs
-		dofs=dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), lambda x: np.ones(x.shape[1]))[0]
-		n=dofs.size
+		n_local=len(dofs)
+		# Efficient creation of the B matrix
+		Istart, Iend = Q.getOwnershipRange()
+		m_local = Iend - Istart
+		print(n_local,',',3*m_local//4)
+		# Notice rows is local
+		rows=csr_matrix((np.ones(n_local, dtype=bool), (dofs, np.arange(n_local))), shape=(m_local,n_local))
+
+		# Going back to global stuff
 		m=self.Space.dofmap.index_map.size_global * self.Space.dofmap.index_map_bs
-		rows=np.zeros(m+1,dtype='int32')
-		for i in dofs: rows[i+1:]+=1 # Probably inefficient
-		cols=np.arange(n,dtype='int32')
-		vals=np.ones(n,dtype='int32')
-		B=pet.Mat().createAIJ([m, n],csr=[rows,cols,vals]) # AIJ represents sparse matrix
+		n=   u_space.dofmap.index_map.size_global *    u_space.dofmap.index_map_bs
+        
+		B = pet.Mat().createAIJ([[m_local,m],[n_local,n]], csr=(rows.indptr, rows.indices,rows.data), comm=COMM_WORLD)
 		B.setUp()
 		B.assemble()
-		if COMM_WORLD.rank==0:
-			print("Static matrices setup")
+		if COMM_WORLD.rank==0: print("Static matrices setup")
 		
 		# Necessary for matrix-free routine
 		class LHS_class:
-			def __init__(self,N,L,Q,B):
+			def __init__(self,N,KSP,Q,B):
 				self.N=N
-				self.L=L
 				self.Q=Q
 				self.B=B
+				self.KSP=KSP
 			
 			def mult(self,A,x,y):
-				tmp=pet.Vec().createSeq(m)
-				self.B.mult(x,y)
-				self.Q.mult(y,tmp)
-				self.L.solve(tmp,y)
-				self.N.mult(y,tmp)
-				self.L.solveTranspose(tmp,y)
-				self.Q.multTranspose(y,tmp)
-				self.B.multTranspose(tmp,y)
+				w=pet.Vec().createMPI(m,comm=COMM_WORLD)
+				z=pet.Vec().createMPI(m,comm=COMM_WORLD)
+				y=pet.Vec().createMPI([n_local,n],comm=COMM_WORLD)
+				self.B.mult(x,w)
+				self.Q.mult(w,z)
+				self.KSP.solve(z,w)
+				self.N.mult(w,z)
+				self.KSP.solveTranspose(z,w)
+				self.Q.multTranspose(w,z)
+				self.B.multTranspose(z,y)
 
 		# Solver
 		E = slp.EPS(); E.create()
 		for freq in freq_list:
 			L=self.J-2j*np.pi*freq*self.N # Equations
-			L.assemble()
+			# Useful solver
+			KSP = pet.KSP().create()
+			KSP.setOperators(L)
+			KSP.setFromOptions()
 
 			# Matrix free operator
 			LHS=pet.Mat()
 			LHS.create(comm=COMM_WORLD)
-			LHS.setSizes([n,n])
-			LHS.setPythonContext(pet.Mat.Type.PYTHON)
-			LHS.setPythonContext(LHS_class(self.N,L,Q,B))
+			LHS.setSizes([[n_local,n],[n_local,n]])
+			LHS.setType(pet.Mat.Type.PYTHON)
+			LHS.setPythonContext(LHS_class(self.N,KSP,Q,B))
 			LHS.setUp()
 
 			# Eigensolver
@@ -141,16 +150,8 @@ class spyp(spy):
 			E.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 			E.setTolerances(self.atol,100) # Set absolute tolerance and number of iterations
 			E.setProblemType(slp.EPS.ProblemType.HEP) # Specify that A is hermitian (by construction), but M is semi-positive
-			# Spectral transform
-			ST  = E.getST()
-			# Krylov subspace
-			KSP = ST.getKSP(); KSP.setType('preonly')
-			# Preconditioner
-			PC  = KSP.getPC();  PC.setType('lu')
-			PC.setFactorSolverType('mumps')
 			E.setFromOptions()
-			if COMM_WORLD.rank==0:
-				print("Solver ready")
+			if COMM_WORLD.rank==0: print("Solver ready")
 			E.solve()
 			n=E.getConverged()
 			if n==0: continue
@@ -164,23 +165,21 @@ class spyp(spy):
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				# Obtain forcings as eigenvectors
-				f=dfx.Function(self.Space)
-				fu,fp = f.split()
+				fu=dfx.Function(self.Space.sub(0).collapse(collapsed_dofs=True)[0])
 				E.getEigenvector(i,fu.vector)
 				fu.x.scatter_forward()
-				with XDMFFile(COMM_WORLD, self.resolvent_path+"forcing_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
-					xdmf.parameters["flush_output"] = True
+				with XDMFFile(COMM_WORLD, self.resolvent_path+"forcing_u" +self.save_string+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(fu)
 
 				# Obtain response from forcing
 				q=dfx.Function(self.Space)
+				tmp=pet.Vec().createMPI(m,comm=COMM_WORLD)
+				B.mult(fu.vector,q.vector)
+				Q.mult(q.vector,tmp)
+				KSP.solve(tmp,q.vector)
 				u,p=q.split()
-				tmp=pet.Vec().createSeq(m)
-				B.mult(fu.vector,u.vector)
-				Q.mult(u.vector,tmp)
-				L.solve(tmp,u.vector)
-				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u" +self.save_string+"f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
+				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u" +self.save_string+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(u)
 			if COMM_WORLD.rank==0:
