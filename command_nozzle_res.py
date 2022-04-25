@@ -15,7 +15,7 @@ MeshPath='../cases/nozzle/nozzle_fine.xdmf'
 datapath='nozzle/' #folder for results
 
 # Eigenvalues
-spypi=spyp(datapath,1e4,0,0,-1,MeshPath)
+spypi=spyp(datapath,1e4,0,0,0,MeshPath)
 # For efficiency, matrix is assembled only once
 spypi.AssembleMatrices()
 # Modal analysis
