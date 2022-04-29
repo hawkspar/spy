@@ -20,4 +20,4 @@ spypi=spyp(datapath,1e4,0,0,0,MeshPath)
 spypi.AssembleMatrices()
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
-spypi.Resolvent(10,[.2])
+spypi.Resolvent(1,[.2])

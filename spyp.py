@@ -23,23 +23,34 @@ class spyp(spy):
 		self.save_string='_S='+f"{S:00.3f}"+'_m='+str(m)
 		
 	# Memoisation routine - find closest in S
-	def LoadBaseflow(self,S) -> None:
-		closest_file_name=self.baseflow_path+"last_baseflow_complex.dat"
-		if not os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
-		file_names = [f for f in os.listdir(self.dat_complex_path) if f[-3:]=="dat"]
+	def LoadStuff(self,S,last_name,path,offset,vector) -> None:
+		closest_file_name=path+last_name
+		if not os.path.isdir(path): os.mkdir(path)
+		file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
-			Sd = float(file_name[11:16]) # Take advantage of file format 
+			Sd = float(file_name[offset:offset+5]) # Take advantage of file format 
 			fd = abs(S-Sd)#+abs(Re-Red)
-			if fd<d: d,closest_file_name=fd,self.dat_complex_path+file_name
+			if fd<d: d,closest_file_name=fd,path+file_name
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
-		self.q.vector.load(viewer)
-		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+		vector.load(viewer)
+		vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+		# Loading eddy viscosity too
+		if COMM_WORLD.rank==0:
+			print("Loaded "+closest_file_name+" as part of memoisation scheme")
+
+	def LoadBaseflow(self,S) -> None:
+		self.LoadStuff(S,"last_baseflow_complex.dat",self.dat_complex_path,11,self.q.vector)
+		u,p=self.q.split()
+		with XDMFFile(COMM_WORLD, "sanity_check2.xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(u)
+		"""
 		if S==0:
 			with self.q.sub(0).sub(2).vector.localForm() as zero_loc:
 				zero_loc.set(0)
-		if COMM_WORLD.rank==0:
-			print("Loaded "+closest_file_name+" as part of memoisation scheme")
+		"""
+		self.LoadStuff(S,"last_nut.dat",			 self.nut_path,			6,self.nut.vector)
 
 	# Perturbations (really only need dofs)
 	def BoundaryConditionsPerturbations(self,m) -> None:
@@ -78,7 +89,7 @@ class spyp(spy):
 		self.N.zeroRowsColumnsLocal(self.dofps,0)
 		if COMM_WORLD.rank==0: print("Jacobian & Norm matrices computed !")
 	
-	def Resolvent(self,k:int,freq_list):
+	def Resolvent(self,k:int,St_list):
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
 		u,p = ufl.split(self.Trial)
 		v,w = ufl.split(self.Test)
@@ -97,6 +108,7 @@ class spyp(spy):
 		n_local  = dofs.size
 		# Data is trivial
 		data=np.ones(n_local,dtype='bool')
+		# Parallel columns are non-trivial
 		"""n_locals = COMM_WORLD.gather( n_local,  root=0)
 		if COMM_WORLD.rank == 0:
 			n_locals=np.array([0]+n_locals,dtype='int32')
@@ -150,8 +162,8 @@ class spyp(spy):
 
 		# Solver
 		S = slp.EPS(); S.create()
-		for freq in freq_list:
-			L=self.J-2j*np.pi*freq*self.N # Equations
+		for St in St_list:
+			L=self.J-1j*np.pi*St*self.N # Equations
 			# Useful solver
 			KSP = pet.KSP().create()
 			KSP.setOperators(L)
@@ -173,7 +185,6 @@ class spyp(spy):
 			S.setProblemType(slp.EPS.ProblemType.HEP) # Specify that A is hermitian (by construction), but M is semi-positive
 			S.setFromOptions()
 			if COMM_WORLD.rank==0: print("Solver launch...")
-			#raise ValueError()
 			S.solve()
 			n=S.getConverged()
 			if n==0: continue
@@ -182,7 +193,7 @@ class spyp(spy):
 			gains=np.array([S.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 			#write gains
 			if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
-			np.savetxt(self.resolvent_path+"gains"+self.save_string+"f="+f"{freq:00.3f}"+".dat",np.abs(gains))
+			np.savetxt(self.resolvent_path+"gains"+self.save_string+"f="+f"{St/2:00.3f}"+".dat",np.abs(gains))
 
 			# Write eigenvectors
 			for i in range(min(n,k)):
@@ -190,7 +201,7 @@ class spyp(spy):
 				fu=dfx.Function(self.Space.sub(0).collapse(collapsed_dofs=True)[0])
 				S.getEigenvector(i,fu.vector)
 				fu.x.scatter_forward()
-				with XDMFFile(COMM_WORLD, self.resolvent_path+"forcing_u" +self.save_string+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
+				with XDMFFile(COMM_WORLD, self.resolvent_path+"forcing_u" +self.save_string+"_f="+f"{St/2:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(fu)
 
@@ -201,11 +212,10 @@ class spyp(spy):
 				Q.mult(q.vector,tmp)
 				KSP.solve(tmp,q.vector)
 				u,p=q.split()
-				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u" +self.save_string+"_f="+f"{freq:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
+				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u" +self.save_string+"_f="+f"{St/2:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(u)
-			if COMM_WORLD.rank==0:
-				print("Frequency",freq,"handled !")
+			if COMM_WORLD.rank==0: print("Frequency",St/2,"handled !")
 
 	def Eigenvalues(self,sigma:complex,k:int) -> None:
 		# Solver
@@ -214,7 +224,7 @@ class spyp(spy):
 		S.setWhichEigenpairs(S.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		S.setTarget(sigma)
 		S.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
-		#E.setTolerances(eps,60) # Set absolute tolerance and number of iterations
+		#S.setTolerances(eps,60) # Set absolute tolerance and number of iterations
 		S.setTolerances(1e-2,10)
 		S.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
 		# Spectral transform

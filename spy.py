@@ -32,6 +32,7 @@ class spy:
 		if not os.path.isdir('../cases/'+datapath): os.mkdir('../cases/'+datapath)
 		self.case_path		 ='../cases/'+datapath
 		self.baseflow_path   =self.case_path+'baseflow/'
+		self.nut_path		 =self.baseflow_path+'nut/'
 		self.dat_real_path	 =self.baseflow_path+'dat_real/'
 		self.dat_complex_path=self.baseflow_path+'dat_complex/'
 		self.print_path		 =self.baseflow_path+'print/'
@@ -48,6 +49,7 @@ class spy:
 		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
 		FE_scalar=ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
 		self.Space=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar)	# full vector function space
+		nut_space = dfx.FunctionSpace(self.mesh,FE_scalar)
 		
 		# Test & trial functions
 		self.Test  = ufl.TestFunction(self.Space)
@@ -55,6 +57,7 @@ class spy:
 		
 		# Extraction of r and Re computation
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
+		"""
 		self.d = self.dampingFactor(dM)
 		with XDMFFile(COMM_WORLD, '../cases/'+datapath+"d.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
@@ -63,7 +66,10 @@ class spy:
 		with XDMFFile(COMM_WORLD, '../cases/'+datapath+"Re.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(self.Re)
+		"""
+		self.Re = Re
 		self.q = dfx.Function(self.Space) # Initialisation of q
+		self.nut = dfx.Function(nut_space)
 
 	# Jet geometry
 	def inlet(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,	  	 self.atol) # Left border
@@ -134,7 +140,8 @@ class spy:
 
 	def NavierStokes(self) -> ufl.Form:
 		# Shortforms
-		r,d=self.r,self.d
+		#r,d=self.r,self.d
+		r=self.r
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
 		u,p=ufl.split(self.q)
 		v,w=ufl.split(self.Test)
@@ -143,7 +150,7 @@ class spy:
 		F  = ufl.inner( rdiv(u,0), 	   	 w)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u,0)*u,   r*v)       	   # Convection
-		F += ufl.inner(rgrad(u,0), gradr(v,0))/self.Re # Diffusion
+		F += ufl.inner(rgrad(u,0), gradr(v,0))*(1/self.Re+self.nut) # Diffusion
 		F -= ufl.inner(r*p,		 	divr(v,0)) 	  	   # Pressure
 		# Numerical damping
 		#F -= ufl.inner(r*u,r*v)*d
@@ -152,7 +159,8 @@ class spy:
 	# Not automatic because of convection term
 	def LinearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
-		r,d=self.r,self.d
+		#r,d=self.r,self.d
+		r=self.r
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
 		u,	p=ufl.split(self.Trial)
 		u_b,_=ufl.split(self.q) # Baseflow
@@ -163,7 +171,7 @@ class spy:
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u_b,0)*u,   r*v)    		 # Convection
 		F += ufl.inner(rgrad(u,  m)*u_b, r*v)
-		F += ufl.inner(rgrad(u,  m), gradr(v,m))/self.Re # Diffusion
+		F += ufl.inner(rgrad(u,  m), gradr(v,m))*(1/self.Re+self.nut) # Diffusion
 		F -= ufl.inner(r*p,			  divr(v,m)) 		 # Pressure
 		# Numerical damping
 		#F -= ufl.inner(r*u,r*v)*d
