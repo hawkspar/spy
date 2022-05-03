@@ -4,7 +4,7 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl
+import os, ufl #source /usr/local/bin/dolfinx-complex-mode
 import numpy as np
 from spy import spy
 import dolfinx as dfx
@@ -13,7 +13,6 @@ from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD
 from pdb import set_trace
-from scipy.sparse import csr_matrix
 
 # Swirling Parallel Yaj Perturbations
 class spyp(spy):
@@ -41,16 +40,22 @@ class spyp(spy):
 
 	def LoadBaseflow(self,S) -> None:
 		self.LoadStuff(S,"last_baseflow_complex.dat",self.dat_complex_path,11,self.q.vector)
-		u,p=self.q.split()
-		with XDMFFile(COMM_WORLD, "sanity_check2.xdmf", "w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(u)
 		"""
 		if S==0:
 			with self.q.sub(0).sub(2).vector.localForm() as zero_loc:
 				zero_loc.set(0)
 		"""
 		self.LoadStuff(S,"last_nut.dat",			 self.nut_path,			6,self.nut.vector)
+		"""		
+		u,p=self.q.split()
+		with XDMFFile(COMM_WORLD, "sanity_check2.xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(u)
+		u,p=self.q.split()
+		with XDMFFile(COMM_WORLD, "sanity_check_nut2.xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(self.nut)
+		"""
 
 	# Perturbations (really only need dofs)
 	def BoundaryConditionsPerturbations(self,m) -> None:
@@ -80,10 +85,10 @@ class spyp(spy):
 		self.J.assemble()
 		self.J.zeroRowsColumnsLocal(self.dofps) # Impose homogeneous BCs
 
-		# Forcing norm M (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		u,p = ufl.split(self.Trial)
-		v,w = ufl.split(self.Test)
-		norm_form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as momentum equations
+		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
+		u,_ = ufl.split(self.Trial)
+		v,_ = ufl.split(self.Test)
+		norm_form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
 		self.N = dfx.fem.assemble_matrix(norm_form)
 		self.N.assemble()
 		self.N.zeroRowsColumnsLocal(self.dofps,0)
@@ -93,23 +98,24 @@ class spyp(spy):
 		#quadrature Q (m*m): it is required to compensate the quadrature in resolvent operator R, because R=(A-i*omegaB)^(-1)
 		u,p = ufl.split(self.Trial)
 		v,w = ufl.split(self.Test)
-		Q_form=ufl.inner(u,v)*self.r**2*ufl.dx+ufl.inner(p,w)*self.r**2*ufl.dx
+		Q_form=ufl.inner(u,v)*self.r**2*ufl.dx+ufl.inner(p,w)*self.r*ufl.dx # Quadrature corresponds to Linearised NS degree
 		Q = dfx.fem.assemble_matrix(Q_form)
 		Q.assemble()
 
-		#matrix B (m*n) reshapes forcing vector (n*1) to (m*1). In principal, it contains only 0 and 1 elements. It's essentially an extensor.
+		#matrix E (m*n) reshapes forcing vector (n*1) to (m*1). In principal, it contains only 0 and 1 elements. It's essentially an extensor.
 		#It can also restrict the flow regions of forcing, to be implemented later. 
 		#A note for very rare case: if one wants to damp but not entirely eliminate the forcing in some regions (not the case here), one can put values between 0 and 1. In that case, the matrix I in the following is not the same as P.
 		
 		# Get indexes related to u
 		u_space, dofs = self.Space.sub(0).collapse(collapsed_dofs=True)
 		# Reformat DoFs to compute cols
-		dofs=np.array(dofs,dtype='int32')
-		n_local  = dofs.size
+		dofs = np.array(dofs,dtype='int32')
+		n_local = dofs.size
 		# Data is trivial
-		data=np.ones(n_local,dtype='bool')
+		data = np.ones(n_local,dtype='bool')
 		# Parallel columns are non-trivial
-		"""n_locals = COMM_WORLD.gather( n_local,  root=0)
+		"""
+		n_locals = COMM_WORLD.gather( n_local,  root=0)
 		if COMM_WORLD.rank == 0:
 			n_locals=np.array([0]+n_locals,dtype='int32')
 			np.cumsum(n_locals, out=n_locals)
@@ -138,48 +144,91 @@ class spyp(spy):
 								comm=COMM_WORLD)
 		E.setUp()
 		E.assemble()
+		# Regrouping the two
+		QE=Q.matMult(E)
+		Q.destroy()
+		E.destroy()
+		QE.assemble()
 		if COMM_WORLD.rank==0: print("Quadrature & Extractor matrices computed !")
+
+		#mass Mq (m*m): it is required to have a proper maximisation problem in a cylindrical geometry 
+		u,p = ufl.split(self.Trial)
+		v,w = ufl.split(self.Test)
+		M_form=ufl.inner(u,v)*self.r*ufl.dx+ufl.inner(p,w)*self.r*ufl.dx # Quadrature corresponds to L2 integration
+		Mq = dfx.fem.assemble_matrix(M_form)
+		Mq.assemble()
+
+		#mass Mf (n*n): it is required to have a proper maximisation problem in a cylindrical geometry
+		u_space, _ = self.Space.sub(0).collapse(collapsed_dofs=True)
+		u = ufl.TrialFunction(u_space)
+		v = ufl.TestFunction(u_space)
+		M_form=ufl.inner(u,v)*self.r*ufl.dx # Quadrature corresponds to L2 integration
+		Mf = dfx.fem.assemble_matrix(M_form)
+		Mf.assemble()
+		if COMM_WORLD.rank==0: print("Mass matrices computed !")
 		
 		# Necessary for matrix-free routine
 		class LHS_class:
-			def __init__(self,N,KSP,Q,E):
-				self.N=N
-				self.Q=Q
-				self.E=E
+			def __init__(self,KSP,Mq,QE):
+				self.Mq=Mq
+				self.QE=QE
 				self.KSP=KSP
 			
 			def mult(self,A,x,y):
 				w=pet.Vec().createMPI([m_local,m],comm=COMM_WORLD)
 				z=pet.Vec().createMPI([m_local,m],comm=COMM_WORLD)
-				y=pet.Vec().createMPI([n_local,n],comm=COMM_WORLD)
-				self.E.mult(x,w)
-				self.Q.mult(w,z)
-				self.KSP.solve(z,w)
-				self.N.mult(w,z)
-				self.KSP.solveTranspose(z,w)
-				self.Q.multTranspose(w,z)
-				self.E.multTranspose(z,y)
+				self.QE.mult(x,w)
+				self.KSP.solve(w,z)
+				self.Mq.mult(z,w)
+				self.KSP.solveHermitianTranspose(w,z)
+				self.QE.multTranspose(z,y)
 
 		# Solver
 		S = slp.EPS(); S.create()
 		for St in St_list:
 			L=self.J-1j*np.pi*St*self.N # Equations
-			# Useful solver
+
+			# Useful solvers (here to put options for computing a smart R)
 			KSP = pet.KSP().create()
 			KSP.setOperators(L)
 			KSP.setFromOptions()
+
+			# Tests
+			x=self.mesh.geometry.x
+			FE_vector_1=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),1,3)
+			FE_vector_2=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
+			V1 = dfx.FunctionSpace(self.mesh,FE_vector_1)
+			v1 = dfx.Function(V1)
+			v1.vector[:]=np.repeat(10*np.exp(-.5*(x[:,0]**2+x[:,1]**2)/.2**2),3)
+			V2 = dfx.FunctionSpace(self.mesh,FE_vector_2)
+			v2 = dfx.Function(V2)
+			v2.interpolate(v1)
+			with XDMFFile(COMM_WORLD, "gaussian_input.xdmf","w") as xdmf:
+				xdmf.write_mesh(self.mesh)
+				xdmf.write_function(v2)
+			ft = dfx.Function(self.Space)
+			ft.vector.zeroEntries()
+			_, map_U = self.Space.sub(0).collapse(collapsed_dofs=True)
+			ft.vector[map_U]=v2.vector
+			ft.vector.assemble()
+			qt = dfx.Function(self.Space)
+			KSP.solve(ft.vector,qt.vector)
+			ut,pt=qt.split()
+			with XDMFFile(COMM_WORLD, "gaussian_test.xdmf","w") as xdmf:
+				xdmf.write_mesh(self.mesh)
+				xdmf.write_function(ut)
 
 			# Matrix free operator
 			LHS=pet.Mat()
 			LHS.create(comm=COMM_WORLD)
 			LHS.setSizes([[n_local,n],[n_local,n]])
 			LHS.setType(pet.Mat.Type.PYTHON)
-			LHS.setPythonContext(LHS_class(self.N,KSP,Q,E))
+			LHS.setPythonContext(LHS_class(KSP,Mq,QE))
 			LHS.setUp()
 
 			# Eigensolver
-			S.setOperators(LHS) # Solve Rx=sigma*x (cheaper than a proper SVD)
-			S.setWhichEigenpairs(S.Which.LARGEST_MAGNITUDE) # Find eigenvalues close to sigma
+			S.setOperators(LHS,Mf) # Solve Rx=sigma*x (cheaper than a proper SVD)
+			S.setWhichEigenpairs(S.Which.LARGEST_MAGNITUDE) # Find largest eigenvalues
 			S.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 			S.setTolerances(self.atol,100) # Set absolute tolerance and number of iterations
 			S.setProblemType(slp.EPS.ProblemType.HEP) # Specify that A is hermitian (by construction), but M is semi-positive
@@ -190,10 +239,10 @@ class spyp(spy):
 			if n==0: continue
 
 			# Conversion back into numpy 
-			gains=np.array([S.getEigenvalue(i) for i in range(n)],dtype=np.complex)
+			gains=np.sqrt(np.array([S.getEigenvalue(i) for i in range(n)],dtype=np.complex))
 			#write gains
 			if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
-			np.savetxt(self.resolvent_path+"gains"+self.save_string+"f="+f"{St/2:00.3f}"+".dat",np.abs(gains))
+			np.savetxt(self.resolvent_path+"gains"+self.save_string+"_f="+f"{St/2:00.3f}"+".dat",np.abs(gains))
 
 			# Write eigenvectors
 			for i in range(min(n,k)):

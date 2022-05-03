@@ -35,7 +35,7 @@ vec_idcs[1::3]+=1
 vec_idcs[2::3]+=2
 # Map OpenFOAM data directy onto dolfinx vectors
 U_1.vector[vec_idcs] = openfoam_mesh.point_data['U'].flatten()/U_M
-p.vector[idcs] = openfoam_mesh.point_data['p']/U_M**2
+p.vector[idcs] = openfoam_mesh.point_data['p']*2/U_M**2
 nut.vector[idcs] = openfoam_mesh.point_data['nut']/U_M/R
 # Fix orientation
 e=np.pi/360
@@ -86,9 +86,11 @@ q.vector[map_U]=U_2.vector
 q.vector[map_p]=p.vector
 viewer = pet.Viewer().createMPIIO("../cases/nozzle/baseflow/dat_complex/baseflow_S=0.000.dat", 'w', COMM_WORLD)
 q.vector.view(viewer)
+"""
 with XDMFFile(COMM_WORLD, "sanity_check.xdmf", "w") as xdmf:
     xdmf.write_mesh(dolfinx_fine_mesh)
     xdmf.write_function(U_2)
 with XDMFFile(COMM_WORLD, "sanity_check_nut.xdmf", "w") as xdmf:
     xdmf.write_mesh(dolfinx_fine_mesh)
     xdmf.write_function(nut)
+"""

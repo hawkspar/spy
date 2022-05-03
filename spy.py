@@ -150,7 +150,8 @@ class spy:
 		F  = ufl.inner( rdiv(u,0), 	   	 w)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u,0)*u,   r*v)       	   # Convection
-		F += ufl.inner(rgrad(u,0), gradr(v,0))*(1/self.Re+self.nut) # Diffusion
+		F += ufl.inner(rgrad(u,0)+rgrad(u,0).T,
+					   gradr(v,0))*(1/self.Re+self.nut) # Diffusion
 		F -= ufl.inner(r*p,		 	divr(v,0)) 	  	   # Pressure
 		# Numerical damping
 		#F -= ufl.inner(r*u,r*v)*d
@@ -171,7 +172,8 @@ class spy:
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u_b,0)*u,   r*v)    		 # Convection
 		F += ufl.inner(rgrad(u,  m)*u_b, r*v)
-		F += ufl.inner(rgrad(u,  m), gradr(v,m))*(1/self.Re+self.nut) # Diffusion
+		F += ufl.inner(rgrad(u,  m)+rgrad(u,m).T,
+					   gradr(v,  m))*(1/self.Re+self.nut) # Diffusion
 		F -= ufl.inner(r*p,			  divr(v,m)) 		 # Pressure
 		# Numerical damping
 		#F -= ufl.inner(r*u,r*v)*d
