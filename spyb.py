@@ -17,8 +17,8 @@ p0=COMM_WORLD.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class spyb(spy):
-	def __init__(self,datapath:str,Re:float,dM:float,meshpath:str="") -> None:
-		super().__init__(datapath,Re,dM,meshpath)
+	def __init__(self,datapath:str,Re:float,meshpath:str="") -> None:
+		super().__init__(datapath,Re,meshpath)
 		self.BoundaryConditions(0)
 		
 	# Memoisation routine - find closest in S
@@ -132,7 +132,6 @@ class spyb(spy):
 				print("##########################")
 				print("Swirl intensity: ",	    S)
 			self.Baseflow(True,True,S)
-			#self.Baseflow(Re>Res[0] or S>Ss[0],True,Re,S)
 				
 		#write result of current mu
 		u,p=self.q.split()

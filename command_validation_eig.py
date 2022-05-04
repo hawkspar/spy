@@ -12,11 +12,11 @@ from mpi4py.MPI import COMM_WORLD
 
 p0=COMM_WORLD.rank==0
 
-MeshPath='Mesh/validation/validation.xdmf'
+Meshpath='../cases/validation/validation.xdmf'
 datapath='validation/' #folder for results
 
 # Eigenvalues
-spypi=spyp(MeshPath,datapath,200,1,-1)
+spypi=spyp(datapath,200,1,-1,Meshpath)
 # For efficiency, matrix is assembled only once
 spypi.AssembleMatrices()
 # Modal analysis
@@ -26,14 +26,14 @@ for re in np.linspace(.05,-.1,10):
     for im in np.linspace(-2,2,10):
         # Memoisation protocol
         sigma=re+1j*im
-        closest_file_name=datapath+spypi.eig_path+"evals"+spypi.save_string+"_sigma="+f"{re:00.3f}"+f"{im:+00.3f}"+"j.dat"
-        file_names = [f for f in os.listdir(datapath+spypi.eig_path) if f[-3:]=="dat"]
+        closest_file_name=spypi.eig_path+"evals"+spypi.save_string+"_sigma="+f"{re:00.3f}"+f"{im:+00.3f}"+"j.dat"
+        file_names = [f for f in os.listdir(spypi.eig_path) if f[-3:]=="dat"]
         for file_name in file_names:
             try:
                 sigmad = complex(file_name[-12:-4]) # Take advantage of file format 
                 fd = abs(sigma-sigmad)#+abs(Re-Red)
                 if fd<1e-3:
-                    closest_file_name=datapath+spypi.eig_path+"evals"+spypi.save_string+"_sigma="+f"{np.real(sigmad):00.3f}"+f"{np.imag(sigmad):+00.3f}"+"j.dat"
+                    closest_file_name=spypi.eig_path+"evals"+spypi.save_string+"_sigma="+f"{np.real(sigmad):00.3f}"+f"{np.imag(sigmad):+00.3f}"+"j.dat"
                     break
             except ValueError: pass
         else:
@@ -46,7 +46,7 @@ for re in np.linspace(.05,-.1,10):
         except OSError: pass # File not found = no eigenvalues
 if p0:
     # Sum them all, regroup them
-    np.savetxt(spypi.datapath+spypi.eig_path+"evals"+spypi.save_string+".dat",np.column_stack([vals_real, vals_imag]))
+    np.savetxt(spypi.eig_path+"evals"+spypi.save_string+".dat",np.column_stack([vals_real, vals_imag]))
     vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
 
     # Plot them all!
@@ -60,4 +60,4 @@ if p0:
     plt.axis([-2.5,2.5,-.12,.08])
     plt.xlabel(r'$\omega$')
     plt.ylabel(r'$\sigma$')
-    plt.savefig(datapath+"eigenvalues"+spypi.save_string+".svg")
+    plt.savefig("../cases/"+datapath+"eigenvalues"+spypi.save_string+".png")

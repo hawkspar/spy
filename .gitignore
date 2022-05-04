@@ -9,3 +9,4 @@ jitfailure*/**
 matplotlib/**
 .devcontainer/**
 .gitignore
+sanity_check*

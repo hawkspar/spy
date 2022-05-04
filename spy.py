@@ -13,15 +13,15 @@ from mpi4py.MPI import COMM_WORLD
 
 # Swirling Parallel Yaj
 class spy:
-	def __init__(self,datapath:str,Re:float,dM:float,meshpath:str="") -> None:
+	def __init__(self,datapath:str,Re:float,meshpath:str="") -> None:
 		# TBI : problem dependent
 		self.direction_map={'x':0,'r':1,'th':2}
 
-		# Geometry parameters
+		# Geometry parameters (validation legacy)
 		self.x_max=120; self.r_max=60
-		self.x_phy=70; self.r_phy=10
+		self.x_phy=70;  self.r_phy=10
 
-		# Solver parameters
+		# Solver parameters (Newton mostly, but also eig)
 		self.rp  =.99 #relaxation_parameter
 		self.atol=1e-6 #absolute_tolerance
 		self.rtol=1e-9 #DOLFIN_EPS does not work well
@@ -57,11 +57,7 @@ class spy:
 		
 		# Extraction of r and Re computation
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
-		"""
-		self.d = self.dampingFactor(dM)
-		with XDMFFile(COMM_WORLD, '../cases/'+datapath+"d.xdmf", "w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(self.d)
+		"""# Validation legacy
 		self.Re = self.sponged_Reynolds(Re)
 		with XDMFFile(COMM_WORLD, '../cases/'+datapath+"Re.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
@@ -96,20 +92,6 @@ class spy:
 
 	def csi(self,a,b,l): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
 
-	def df(self,x,dM):
-		dm=np.zeros(x[0].size)
-		x_ext=x[0]>self.x_phy
-		dm[x_ext]= 	   		 dM			  *self.csi(np.minimum(x[0][x_ext],self.x_max),self.x_phy, self.x_max-self.x_phy) # min necessary to prevent spurious jumps because of mesh conversion
-		r_ext=x[1]>self.r_phy
-		dm[r_ext]=dm[r_ext]+(dM-dm[r_ext])*self.csi(np.minimum(x[1][r_ext],self.r_max),self.r_phy, self.r_max-self.r_phy)
-		return np.maximum(dm,0)
-
-	# Sponged Reynolds number
-	def dampingFactor(self,dM) -> dfx.Function:
-		d=dfx.Function(dfx.FunctionSpace(self.mesh,ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),2)))
-		d.interpolate(lambda x: self.df(x,dM))
-		return d
-
 	def Ref(self,x,Re_s,Re):
 		Rem=np.ones(x[0].size)*Re
 		x_ext=x[0]>self.x_phy
@@ -118,7 +100,7 @@ class spy:
 		Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*self.csi(np.minimum(x[1][r_ext],self.r_max),self.r_phy, self.r_max-self.r_phy)
 		return Rem
 
-	# Sponged Reynolds number
+	# Sponged Reynolds number (validation legacy)
 	def sponged_Reynolds(self,Re) -> dfx.Function:
 		Re_s=.1
 		Red=dfx.Function(dfx.FunctionSpace(self.mesh,ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),2)))
@@ -140,43 +122,39 @@ class spy:
 
 	def NavierStokes(self) -> ufl.Form:
 		# Shortforms
-		#r,d=self.r,self.d
 		r=self.r
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
 		u,p=ufl.split(self.q)
-		v,w=ufl.split(self.Test)
+		v,s=ufl.split(self.Test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u,0), 	   	 w)
+		F  = ufl.inner( rdiv(u,0), 	   	 s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u,0)*u,   r*v)       	   # Convection
 		F += ufl.inner(rgrad(u,0)+rgrad(u,0).T,
-					   gradr(v,0))*(1/self.Re+self.nut) # Diffusion
+			 		    gradr(v,0))*(1/self.Re+self.nut) # Diffusion
+		#F += ufl.inner(rgrad(u,0), gradr(v,0))/self.Re # Diffusion
 		F -= ufl.inner(r*p,		 	divr(v,0)) 	  	   # Pressure
-		# Numerical damping
-		#F -= ufl.inner(r*u,r*v)*d
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
 	def LinearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
-		#r,d=self.r,self.d
 		r=self.r
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
-		u,	p=ufl.split(self.Trial)
-		u_b,_=ufl.split(self.q) # Baseflow
-		v,	w=ufl.split(self.Test)
+		u, p=ufl.split(self.Trial)
+		ub,_=ufl.split(self.q) # Baseflow
+		v, s=ufl.split(self.Test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u,  m), 	   w)
+		F  = ufl.inner( rdiv(u, m), 	 s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(u_b,0)*u,   r*v)    		 # Convection
-		F += ufl.inner(rgrad(u,  m)*u_b, r*v)
-		F += ufl.inner(rgrad(u,  m)+rgrad(u,m).T,
-					   gradr(v,  m))*(1/self.Re+self.nut) # Diffusion
-		F -= ufl.inner(r*p,			  divr(v,m)) 		 # Pressure
-		# Numerical damping
-		#F -= ufl.inner(r*u,r*v)*d
+		F += ufl.inner(rgrad(ub,0)*u,  r*v)    		 # Convection
+		F += ufl.inner(rgrad(u, m)*ub, r*v)
+		F += ufl.inner(rgrad(u, m)+rgrad(u,m).T,
+					    gradr(v, m))*(1/self.Re+self.nut) # Diffusion
+		#F += ufl.inner(rgrad(u, m), gradr(v,m))/self.Re # Diffusion
+		F -= ufl.inner(r*p,			 divr(v,m)) 		 # Pressure
 		return F*ufl.dx
 
 	# Converters
@@ -187,19 +165,19 @@ class spy:
 		np.save(fo,self.q.x.array)
 
 	def datToNpyAll(self) -> None:
-		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3]=="dat"]
+		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
 		if not os.path.isdir(self.npy_path): os.mkdir(self.npy_path)
 		for file_name in file_names:
 			self.datToNpy(self.dat_real_path+file_name,
 						  self.npy_path+file_name[:-3]+'npy')
 		shutil.rmtree(self.dat_real_path)
-		self.datToNpy(self.datapath+'last_baseflow_real.dat',self.datapath+'last_baseflow.npy')
+		self.datToNpy(self.case_path+'last_baseflow_real.dat',self.case_path+'last_baseflow.npy')
 
 	def npyToDat(self,fi,fo) -> None:
 		self.q.vector.array.real=np.load(fi,allow_pickle=True)
-		self.q.vector.scatter_forward()
+		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 		viewer = pet.Viewer().createMPIIO(fo, 'w', COMM_WORLD)
-		self.q.x.view(viewer)
+		self.q.vector.view(viewer)
 	
 	def npyToDatAll(self) -> None:
 		file_names = [f for f in os.listdir(self.npy_path)]
@@ -208,4 +186,4 @@ class spy:
 			self.npyToDat(self.npy_path+file_name,
 						  self.dat_complex_path+file_name[:-3]+'dat')
 		shutil.rmtree(self.npy_path)
-		self.npyToDat(self.datapath+'last_baseflow.npy',self.datapath+'last_baseflow_complex.dat')
+		self.npyToDat(self.case_path+'last_baseflow.npy',self.case_path+'last_baseflow_complex.dat')

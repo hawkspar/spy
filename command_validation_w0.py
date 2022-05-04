@@ -17,7 +17,7 @@ datapath='validation/' #folder for results
 n=100
 Ss=np.linspace(0,1.8,n)
 w0s=np.empty(n)
-spybi=spyb(datapath,200,0)
+spybi=spyb(datapath,200,"../cases/validation/validation.xdmf")
 for i in range(n):
     # Load existing file
     spybi.Baseflow(i>0,True,Ss[i])
@@ -28,8 +28,7 @@ if COMM_WORLD.rank==0:
     np.save("../cases/"+datapath+"w0s.npy",w0s)
     # Plot stopping point graph
     plt.plot(Ss,w0s)
-    plt.savefig(datapath+"graph_w0.svg")
-    plt.close()
+    plt.savefig("../cases/"+datapath+"graph_w0.png")
     # Check critical w_0
     f_S=inter(Ss,w0s,'quadratic')
     print(root(f_S,.89).x)
