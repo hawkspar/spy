@@ -1,9 +1,0 @@
-__pycache__/**
-jitfailure*/**
-**.mat
-**.code-workspace
-matplotlib/**
-.devcontainer/**
-.gitignore
-sanity_check*
-MWE*
