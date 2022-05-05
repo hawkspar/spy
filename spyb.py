@@ -8,7 +8,6 @@ import os, shutil
 import numpy as np
 from spy import spy
 import dolfinx as dfx
-#from dolfinx.log import set_log_level, LogLevel
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD, MIN
@@ -37,7 +36,16 @@ class spyb(spy):
 		if COMM_WORLD.rank==0:
 			print("Loaded "+closest_file_name+" as part of memoisation scheme")
 
-	# Baseflow (really only need DirichletBC objects)
+	# Baseflow (really only need DirichletBC objects) enforces :
+	# u_x=1, u_r=0 & u_th=gb at inlet (velocity control)
+	# u_r=0, u_th=0 for symmetry axis (derived from mass csv as r->0)
+	# Nothing at outlet
+	# u_r=0, u_th=0 at top (Meliga paper, no slip)
+	# However there are hidden BCs in the weak form !
+	# Because of the IPP, we have nu grad u.n=p n everywhere. This gives :
+	# d_ru_x=0 for symmetry axis (momentum csv r as r->0)
+	# d_xu_x/Re=p, d_xu_r=0, d_xu_th=0 at outlet (free flow)
+	# d_ru_x=0 at top (Meliga paper, no slip)
 	def BoundaryConditions(self,S:float) -> None:
 		# Compute DoFs
 		sub_space_th=self.Space.sub(0).sub(2)
@@ -124,6 +132,7 @@ class spyb(spy):
 			if COMM_WORLD.rank==0: print(".xmdf, .dat written!")
 
 	# To be run in real mode
+	# DESTRUCTIVE !
 	def BaseflowRange(self,Ss) -> None:
 		shutil.rmtree(self.dat_real_path)
 		shutil.rmtree(self.print_path)

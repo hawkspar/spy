@@ -21,6 +21,10 @@ class spy:
 		self.x_max=120; self.r_max=60
 		self.x_phy=70;  self.r_phy=10
 
+		# Geometry parameters (nozzle)
+		self.R=1;  self.L=100
+		self.h=15; self.H=20
+
 		# Solver parameters (Newton mostly, but also eig)
 		self.rp  =.99 #relaxation_parameter
 		self.atol=1e-6 #absolute_tolerance
@@ -41,7 +45,7 @@ class spy:
 		self.eig_path		 =self.case_path+'eigenvalues/'
 
 		# Mesh from file
-		if meshpath=="": meshpath="../../Mesh/"+datapath+datapath[:-1]+".xdmf"
+		if meshpath=="": meshpath=self.case_path+datapath[:-1]+".xdmf"
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		
@@ -67,6 +71,14 @@ class spy:
 		self.q = dfx.Function(self.Space) # Initialisation of q
 		self.nut = dfx.Function(nut_space)
 
+	# Jet geometry
+	def inlet(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,	  	 self.atol) # Left border
+	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,	  	 self.atol) # Axis of symmetry at r=0
+	#def outlet(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],self.x_max,self.atol) # Right border
+	def outlet(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],self.L,	 self.atol) # Right border
+	#def top(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],self.r_max,self.atol) # Top boundary at r=R
+	def top(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],self.h+(self.H-self.h)/self.L,self.atol) # Top boundary at r=R
+	def nozzle(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.logical_and(x[0]<1,np.isclose(x[1],1,self.atol)) # Nozzle
 	# Jet geometry
 	def inlet(	 self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,	  	 self.atol) # Left border
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,	  	 self.atol) # Axis of symmetry at r=0
@@ -128,13 +140,11 @@ class spy:
 		v,s=ufl.split(self.Test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u,0), 	   	 s)
+		F  = ufl.inner( rdiv(u,0),		s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(u,0)*u,   r*v)       	   # Convection
-		F += ufl.inner(rgrad(u,0)+rgrad(u,0).T,
-			 		    gradr(v,0))*(1/self.Re+self.nut) # Diffusion
-		#F += ufl.inner(rgrad(u,0), gradr(v,0))/self.Re # Diffusion
-		F -= ufl.inner(r*p,		 	divr(v,0)) 	  	   # Pressure
+		F += ufl.inner(rgrad(u,0)*u,  r*v)       	   # Convection
+		F += ufl.inner(rgrad(u,0),gradr(v,0))*(1/self.Re+self.nut) # Diffusion
+		F -= ufl.inner(r*p,		   divr(v,0)) 	  	   # Pressure
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
@@ -151,9 +161,7 @@ class spy:
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(ub,0)*u,  r*v)    		 # Convection
 		F += ufl.inner(rgrad(u, m)*ub, r*v)
-		F += ufl.inner(rgrad(u, m)+rgrad(u,m).T,
-					    gradr(v, m))*(1/self.Re+self.nut) # Diffusion
-		#F += ufl.inner(rgrad(u, m), gradr(v,m))/self.Re # Diffusion
+		F += ufl.inner(rgrad(u, m),gradr(v, m))*(1/self.Re+self.nut) # Diffusion
 		F -= ufl.inner(r*p,			 divr(v,m)) 		 # Pressure
 		return F*ufl.dx
 

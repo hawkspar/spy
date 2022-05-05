@@ -12,7 +12,6 @@ from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD
-from pdb import set_trace
 
 # Swirling Parallel Yaj Perturbations
 class spyp(spy):
@@ -29,7 +28,7 @@ class spyp(spy):
 		d=np.infty
 		for file_name in file_names:
 			Sd = float(file_name[offset:offset+5]) # Take advantage of file format 
-			fd = abs(S-Sd)#+abs(Re-Red)
+			fd = abs(S-Sd)
 			if fd<d: d,closest_file_name=fd,path+file_name
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
 		vector.load(viewer)
@@ -57,7 +56,15 @@ class spyp(spy):
 			xdmf.write_function(self.nut)
 		"""
 
-	# Perturbations (really only need dofs)
+	# Baseflow (really only need DirichletBC objects) enforces :
+	# u=0 at inlet (linearise as baseflow)
+	# u_r, u_th=0 for symmetry axis if m=0, u_x=0 if |m|=1, u=0 else (derived from momentum csv r th as r->0)
+	# u_r=0, u_th=0 at top (Meliga paper, no slip)
+	# However there are hidden BCs in the weak form !
+	# Because of the IPP, we have nu grad u.n=p n everywhere. This gives :
+	# d_ru_x=0 for symmetry axis (if not overwritten by above)
+	# d_xu_x/Re=p, d_xu_r=0, d_xu_th=0 at outflow (free flow)
+	# d_ru_x=0 at top (Meliga paper, no slip)
 	def BoundaryConditionsPerturbations(self,m) -> None:
 		# Handle homogeneous boundary conditions
 		homogeneous_boundaries=[(self.inlet,['x','r','th']),(self.top,['r','th'])]
@@ -114,27 +121,25 @@ class spyp(spy):
 		QE.assemble()
 		Mq.assemble()
 		Mf.assemble()
-		if COMM_WORLD.rank==0: print("Quadrature, Extractor & Mass matrices computed !")
 
 		# Global sizes
 		m=self.Space.dofmap.index_map.size_global * self.Space.dofmap.index_map_bs
 		n=   u_space.dofmap.index_map.size_global *    u_space.dofmap.index_map_bs
+		# Local size
+		m_local = Mq.local_size[0]
+		n_local = Mf.local_size[0]
+		if COMM_WORLD.rank==0: print("Quadrature, Extractor & Mass matrices computed !")
 		
 		# Necessary for matrix-free routine
-		class LHS_class:
-			def __init__(self,KSPs,Mq,QE):
-				self.Mq=Mq
-				self.QE=QE
-				self.KSPs=KSPs
-			
+		class LHS_class:			
 			def mult(self,A,x,y):
-				w=pet.Vec().createMPI(m,comm=COMM_WORLD)
-				z=pet.Vec().createMPI(m,comm=COMM_WORLD)
-				self.QE.mult(x,w)
-				self.KSPs[0].solve(w,z)
-				self.Mq.mult(z,w)
-				self.KSPs[1].solve(w,z)
-				self.QE.multTranspose(z,y)
+				w=pet.Vec().createMPI([m_local,m],comm=COMM_WORLD)
+				z=pet.Vec().createMPI([m_local,m],comm=COMM_WORLD)
+				QE.mult(x,w)
+				KSPs[0].solve(w,z)
+				Mq.mult(z,w)
+				KSPs[1].solve(w,z)
+				QE.multTranspose(z,y)
 
 		# Solver
 		EPS = slp.EPS(); EPS.create()
@@ -143,12 +148,22 @@ class spyp(spy):
 
 			KSPs = []
 			# Useful solvers (here to put options for computing a smart R)
-			for Mat in [L,L.createHermitianTranspose()]:
+			for Mat in [L,L.hermitianTranspose()]:
 				KSP = pet.KSP().create()
-				KSP.setOperators(L)
+				KSP.setOperators(Mat)
 				KSP.setFromOptions()
 				KSPs.append(KSP)
+			"""
+			viewerQE = pet.Viewer().createMPIIO("QE.dat", 'w', COMM_WORLD)
+			QE.view(viewerQE)
+			viewerL = pet.Viewer().createMPIIO("L.dat", 'w', COMM_WORLD)
+			L.view(viewerL)
+			viewerMq = pet.Viewer().createMPIIO("Mq.dat", 'w', COMM_WORLD)
+			Mq.view(viewerMq)
+			viewerMf = pet.Viewer().createMPIIO("Mf.dat", 'w', COMM_WORLD)
+			Mf.view(viewerMf)
 
+			"""
 			# Tests
 			x=self.mesh.geometry.x
 			FE_vector_1=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),1,3)
@@ -177,17 +192,22 @@ class spyp(spy):
 			# Matrix free operator
 			LHS=pet.Mat()
 			LHS.create(comm=COMM_WORLD)
-			LHS.setSizes([n,n])
+			LHS.setSizes([[n_local,n],[n_local,n]])
 			LHS.setType(pet.Mat.Type.PYTHON)
-			LHS.setPythonContext(LHS_class(KSPs,Mq,QE))
+			LHS.setPythonContext(LHS_class())
 			LHS.setUp()
 
+			x, y = LHS.createVecs()
+			x.set(1)
+			LHS.mult(x,y)
+			print(y.norm())
+
 			# Eigensolver
-			EPS.setOperators(LHS,Mf) # Solve Rx=sigma*x (cheaper than a proper SVD)
-			EPS.setWhichEigenpairs(EPS.Which.LARGEST_MAGNITUDE) # Find largest eigenvalues
-			EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
-			EPS.setTolerances(self.atol,100) # Set absolute tolerance and number of iterations
+			EPS.setOperators(LHS,Mf) # Solve E^T*Q^T*L^-1H*Mq*L^-1*Q*E*f=sigma^2*Mf*f (cheaper than a proper SVD)
 			EPS.setProblemType(slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), but M is semi-positive
+			EPS.setWhichEigenpairs(EPS.Which.LARGEST_MAGNITUDE) # Find largest eigenvalues
+			#EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
+			#EPS.setTolerances(self.atol,100) # Set absolute tolerance and number of iterations
 			EPS.setFromOptions()
 			if COMM_WORLD.rank==0: print("Solver launch...")
 			EPS.solve()
@@ -212,8 +232,8 @@ class spyp(spy):
 
 				# Obtain response from forcing
 				q=dfx.Function(self.Space)
-				tmp=pet.Vec().createMPI(m,comm=COMM_WORLD)
-				QE.mult(q.vector,tmp)
+				tmp=pet.Vec().createMPI([m_local,m],comm=COMM_WORLD)
+				QE.mult(fu.vector,tmp)
 				KSP.solve(tmp,q.vector)
 				u,p=q.split()
 				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u"+self.save_string+"_f="+f"{St/2:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
@@ -225,12 +245,12 @@ class spyp(spy):
 		# Solver
 		EPS = slp.EPS(COMM_WORLD); EPS.create()
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
+		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		EPS.setTarget(sigma)
 		EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 		#EPS.setTolerances(eps,60) # Set absolute tolerance and number of iterations
 		EPS.setTolerances(1e-2,10)
-		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
 		# Spectral transform
 		ST  = EPS.getST();  ST.setType('sinvert')
 		# Krylov subspace
