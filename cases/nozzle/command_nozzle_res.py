@@ -7,8 +7,10 @@ Created on Wed Oct  13 17:07:00 2021
 from nozzle_setup import *
 from spyp import SPYP # Must be after setup
 
-spyp=SPYP(params,datapath,Ref,nutf,boundaryConditionsPerturbations,0,0)
+m=0
+spyp=SPYP(params,datapath,Ref,nutf,direction_map,0,m)
+boundaryConditionsPerturbations(spyp,m)
 # For efficiency, matrix is assembled only once
 spyp.assembleMatrices()
 # Resolvent analysis
-spyp.resolvent(1,[.2])
+spyp.resolvent(1,[.6])

@@ -13,9 +13,9 @@ from mpi4py.MPI import COMM_WORLD
 
 # Swirling Parallel Yaj
 class SPY:
-	def __init__(self, params:dict, datapath:str, Ref, nutf) -> None:
-		# TBI : problem dependent
-		self.direction_map={'x':0,'r':1,'th':2}
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict) -> None:
+		# Direction dependant
+		self.direction_map=direction_map
 
 		# Solver parameters (Newton mostly, but also eig)
 		self.params=params
@@ -35,6 +35,8 @@ class SPY:
 		meshpath=self.case_path+datapath[:-1]+".xdmf"
 		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
+		# Extraction of r
+		self.r = ufl.SpatialCoordinate(self.mesh)[1]
 		
 		# Taylor Hodd elements ; stable element pair
 		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
@@ -46,33 +48,35 @@ class SPY:
 		self.test  = ufl.TestFunction(self.TH)
 		self.trial = ufl.TrialFunction(self.TH)
 		
-		# Extraction of r and Re computation
-		self.r = ufl.SpatialCoordinate(self.mesh)[1]
-		self.Re=dfx.Function(V)
-		self.Re.interpolate(Ref)
+		# Re computation
+		self.Re = Ref(self)
 		self.q = dfx.Function(self.TH) # Initialisation of q
 		self.nut = dfx.Function(V)
 		self.nutf = lambda S: nutf(self,S)
 
+		# BCs essentials
+		self.dofs = np.empty(0,dtype=np.int32)
+		self.bcs=[]
+
 	# Jet geometry
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray:
-		return np.isclose(x[1],0,self.params['atol']) # Axis of symmetry at r=0
+		return np.isclose(x[self.direction_map['r']],0,self.params['atol']) # Axis of symmetry at r=0
 
 	# Gradient with x[0] is x, x[1] is r, x[2] is theta
 	def rgrad(self,v,m):
-		return ufl.as_tensor([[self.r*v[0].dx(0), self.r*v[0].dx(1), m*1j*v[0]],
-							  [self.r*v[1].dx(0), self.r*v[1].dx(1), m*1j*v[1]-v[2]],
-							  [self.r*v[2].dx(0), self.r*v[2].dx(1), m*1j*v[2]+v[1]]])
+		return ufl.as_tensor([[self.r*v[0].dx(self.direction_map['x']), self.r*v[0].dx(self.direction_map['r']), m*1j*v[0]],
+							  [self.r*v[1].dx(self.direction_map['x']), self.r*v[1].dx(self.direction_map['r']), m*1j*v[1]-v[2]],
+							  [self.r*v[2].dx(self.direction_map['x']), self.r*v[2].dx(self.direction_map['r']), m*1j*v[2]+v[1]]])
 
 	def gradr(self,v,m):
-		return ufl.as_tensor([[self.r*v[0].dx(0), v[0]+self.r*v[0].dx(1), m*1j*v[0]],
-					  		  [self.r*v[1].dx(0), v[1]+self.r*v[1].dx(1), m*1j*v[1]-v[2]],
-							  [self.r*v[2].dx(0), v[2]+self.r*v[2].dx(1), m*1j*v[2]+v[1]]])
+		return ufl.as_tensor([[self.r*v[0].dx(self.direction_map['x']), v[0]+self.r*v[0].dx(self.direction_map['r']), m*1j*v[0]],
+					  		  [self.r*v[1].dx(self.direction_map['x']), v[1]+self.r*v[1].dx(self.direction_map['r']), m*1j*v[1]-v[2]],
+							  [self.r*v[2].dx(self.direction_map['x']), v[2]+self.r*v[2].dx(self.direction_map['r']), m*1j*v[2]+v[1]]])
 
 	# Same for divergent
-	def rdiv(self,v,m): return self.r*v[0].dx(0) +   v[1] + self.r*v[1].dx(1) + m*1j*v[2]
+	def rdiv(self,v,m): return self.r*v[0].dx(self.direction_map['x']) +   v[1] + self.r*v[1].dx(self.direction_map['r']) + m*1j*v[2]
 
-	def divr(self,v,m): return self.r*v[0].dx(0) + 2*v[1] + self.r*v[1].dx(1) + m*1j*v[2]
+	def divr(self,v,m): return self.r*v[0].dx(self.direction_map['x']) + 2*v[1] + self.r*v[1].dx(self.direction_map['r']) + m*1j*v[2]
 
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -83,7 +87,7 @@ class SPY:
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u,0),		s)
+		F  = ufl.inner( rdiv(u,0),	  r*s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(u,0)*u,  r*v)       	   # Convection
 		F += ufl.inner(rgrad(u,0),gradr(v,0))*(1/self.Re+self.nut) # Diffusion
@@ -100,12 +104,12 @@ class SPY:
 		v, s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u, m), 	 s)
+		F  = ufl.inner( rdiv(u, m),	   r*s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(rgrad(ub,0)*u,  r*v)    		 # Convection
 		F += ufl.inner(rgrad(u, m)*ub, r*v)
-		F += ufl.inner(rgrad(u, m),gradr(v, m))*(1/self.Re+self.nut) # Diffusion
-		F -= ufl.inner(r*p,			 divr(v,m)) 		 # Pressure
+		F += ufl.inner(rgrad(u, m),gradr(v,m))*(1/self.Re+self.nut) # Diffusion
+		F -= ufl.inner(r*p,			divr(v,m)) 		 # Pressure
 		return F*ufl.dx
 		
 	# Code factorisation
@@ -120,6 +124,17 @@ class SPY:
 		# Actual BCs
 		bcs = dfx.DirichletBC(constant, dofs, sub_space) # u_i=value at boundary
 		return dofs[0], bcs # Only return unflattened dofs
+
+	# Encapsulation	
+	def applyBCs(self, dofs:np.array, bcs:list):
+		self.dofs=np.union1d(self.dofs,dofs)
+		self.bcs.extend(bcs)
+
+	def applyHomogeneousBCs(self, tup:list):
+		for marker,directions in tup:
+			for direction in directions:
+				dofs, bcs=self.constantBC(direction,marker)
+				self.applyBCs(dofs, [bcs])
 	
 	# Memoisation routine - find closest in S
 	def loadStuff(self,S,last_name,path,offset,vector) -> None:
@@ -152,7 +167,6 @@ class SPY:
 			self.datToNpy(self.dat_real_path+file_name,
 						  self.npy_path+file_name[:-3]+'npy')
 		shutil.rmtree(self.dat_real_path)
-		self.datToNpy(self.case_path+'last_baseflow_real.dat',self.case_path+'last_baseflow.npy')
 
 	def npyToDat(self,fi,fo) -> None:
 		self.q.vector.array.real=np.load(fi,allow_pickle=True)
@@ -167,4 +181,3 @@ class SPY:
 			self.npyToDat(self.npy_path+file_name,
 						  self.dat_complex_path+file_name[:-3]+'dat')
 		shutil.rmtree(self.npy_path)
-		self.npyToDat(self.case_path+'last_baseflow.npy',self.case_path+'last_baseflow_complex.dat')

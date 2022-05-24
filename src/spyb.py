@@ -16,27 +16,19 @@ p0=COMM_WORLD.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf,
-				 boundaryConditions) -> None:
-		super().__init__(params, datapath, Ref, nutf)
-		self.boundaryConditions=lambda S: boundaryConditions(self,S)
-		self.boundaryConditions(0)
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, InletAzimuthalVelocity) -> None:
+		super().__init__(params, datapath, Ref, nutf, direction_map)
+		# Compute DoFs
+		sub_space_th=self.TH.sub(0).sub(2)
+		sub_space_th_collapsed=sub_space_th.collapse()
+
+		# Modified vortex that goes to zero at top boundary
+		self.u_inlet_th=dfx.Function(sub_space_th_collapsed)
+		self.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
 		
 	# Memoisation routine - find closest in S
 	def hotStart(self, S) -> None:
-		closest_file_name=self.case_path+"last_baseflow_real.dat"
-		if not os.path.isdir(self.dat_real_path): os.mkdir(self.dat_real_path)
-		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
-		d=np.infty
-		for file_name in file_names:
-			Sf = float(file_name[11:16])
-			fd = abs(S-Sf)#+abs(Re-Ref)
-			if fd<d: d,closest_file_name=fd,self.dat_real_path+file_name
-		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
-		self.q.vector.load(viewer)
-		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		if COMM_WORLD.rank==0:
-			print("Loaded "+closest_file_name+" as part of memoisation scheme")
+		self.loadStuff(S,"last_baseflow.dat",self.dat_real_path,11,self.q.vector)
 	
 	def baseflow(self,hot_start:bool,save:bool,S:float):
 		# Apply new BC
@@ -89,19 +81,19 @@ class SPYB(SPY):
 		shutil.rmtree(self.dat_real_path)
 		shutil.rmtree(self.print_path)
 		for S in Ss: 	   # Then on swirl intensity
-			if COMM_WORLD.rank==0:
+			if p0:
 				print("##########################")
-				print("Swirl intensity: ",	    S)
-			self.baseflow(True,True,S)
-				
+				print("Swirl intensity: ", S)
+			self.baseflow(S!=Ss[0],True,S)
+		
 		#write result of current mu
 		u,p=self.q.split()
-		with XDMFFile(COMM_WORLD, self.case_path+"last_u.xdmf", "w") as xdmf:
+		with XDMFFile(COMM_WORLD, self.print_path+"last_u.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(u)
-		viewer = pet.Viewer().createMPIIO(self.case_path+"last_baseflow_real.dat", 'w', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(self.dat_real_path+"last_baseflow.dat", 'w', COMM_WORLD)
 		self.q.vector.view(viewer)
-		if COMM_WORLD.rank==0: print("Last checkpoint written!")
+		if p0: print("Last checkpoint written!")
 
 	def minimumAxial(self) -> float:
 		u,p=self.q.split()

@@ -4,15 +4,19 @@ import dolfinx as dfx
 from dolfinx.io import XDMFFile
 from mpi4py.MPI import COMM_WORLD
 from petsc4py import PETSc as pet
-from scipy.interpolate import interp2d
+#from scipy.interpolate import interp2d
 
 # Dimensionalised stuff
 R,U_M=.1,10
+o=np.pi/360
+s,c=np.sin(o),np.cos(o)
 # Read mesh and point data
 openfoam_mesh = meshio.read("front.xmf")
 # Write it out again
-cells = openfoam_mesh.get_cells_type("quad")
-dolfinx_fine_mesh = meshio.Mesh(points=openfoam_mesh.points[:,:2]/R, cells={"quad": cells}) # Note the adimensioning
+pts=openfoam_mesh.points[:,:2]/R
+pts[:,1]/=c
+ces = openfoam_mesh.get_cells_type("quad")
+dolfinx_fine_mesh = meshio.Mesh(points=pts, cells={"quad": ces}) # Note the adimensioning
 meshio.write("nozzle.xdmf", dolfinx_fine_mesh)
 # Read it again in dolfinx
 with XDMFFile(COMM_WORLD, "nozzle.xdmf", "r") as file:
@@ -35,11 +39,9 @@ vec_idcs[1::3]+=1
 vec_idcs[2::3]+=2
 # Map OpenFOAM data directy onto dolfinx vectors
 U_1.vector[vec_idcs] = openfoam_mesh.point_data['U'].flatten()/U_M
-p.vector[idcs] = openfoam_mesh.point_data['p']*2/U_M**2
+p.vector[idcs] = openfoam_mesh.point_data['p']/U_M**2
 nut.vector[idcs] = openfoam_mesh.point_data['nut']/U_M/R
 # Fix orientation
-e=np.pi/360
-s,c=np.sin(e),np.cos(e)
 Uy,Uz=U_1.vector[1::3],U_1.vector[2::3]
 Uy,Uz=c*Uy+s*Uz,-s*Uy+c*Uz
 U_1.vector[1::3],U_1.vector[2::3]=Uy,Uz
@@ -86,11 +88,3 @@ q.vector[map_U]=U_2.vector
 q.vector[map_p]=p.vector
 viewer = pet.Viewer().createMPIIO("./baseflow/dat_complex/baseflow_S=0.000.dat", 'w', COMM_WORLD)
 q.vector.view(viewer)
-"""
-with XDMFFile(COMM_WORLD, "sanity_check.xdmf", "w") as xdmf:
-    xdmf.write_mesh(dolfinx_fine_mesh)
-    xdmf.write_function(U_2)
-with XDMFFile(COMM_WORLD, "sanity_check_nut.xdmf", "w") as xdmf:
-    xdmf.write_mesh(dolfinx_fine_mesh)
-    xdmf.write_function(nut)
-"""

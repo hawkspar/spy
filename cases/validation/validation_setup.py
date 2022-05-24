@@ -12,6 +12,7 @@ import petsc4py as pet
 sys.path.append('/home/shared/src')
 
 from spy import SPY
+from spyb import SPYB
 
 # Geometry parameters (validation legacy)
 x_max=120; r_max=60
@@ -27,25 +28,45 @@ params = {"rp":.99,    #relaxation_parameter
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":100}
 datapath='validation/' #folder for results
+direction_map={'x':0,'r':1,'th':2}
 
 # Geometry
 def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,	params['atol']) # Left border
 def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],x_max,params['atol']) # Right border
 def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],r_max,params['atol']) # Top boundary at r=R
 
-# Damped Reynolds number
-def csi(a,b,l): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
 
-def Ref(x):
-	Rem=np.ones(x[0].size)*Re
-	x_ext=x[0]>x_phy
-	Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max),x_phy, x_max-x_phy) # min necessary to prevent spurious jumps because of mesh conversion
-	r_ext=x[1]>r_phy
-	Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_max),r_phy, r_max-r_phy)
-	return Rem
+# Sponged Reynolds number
+def Ref(spy:SPY) -> dfx.Function:
+	# Damped Reynolds number
+	def csi(a,b,l): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
+	def sponged_Reynolds(x):
+		Rem=np.ones(x[0].size)*Re
+		x_ext=x[0]>x_phy
+		Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max),x_phy, x_max-x_phy) # min necessary to prevent spurious jumps because of mesh conversion
+		r_ext=x[1]>r_phy
+		Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_max),r_phy, r_max-r_phy)
+		return Rem
+	Red=dfx.Function(dfx.FunctionSpace(spy.mesh,ufl.FiniteElement("Lagrange",spy.mesh.ufl_cell(),2)))
+	Red.interpolate(lambda x: sponged_Reynolds(x))
+	return Red
 
 # No turbulent visosity for this case
 def nutf(spy:SPY,S:float): spy.nut=0
+
+
+# Grabovski-Berger vortex with final slope
+def grabovski_berger(r) -> np.ndarray:
+	psi=(r_max-r)/(r_max-r_phy)/r_phy
+	mr=r<1
+	psi[mr]=r[mr]*(2-r[mr]**2)
+	ir=np.logical_and(r>=1,r<r_phy)
+	psi[ir]=1/r[ir]
+	return psi
+
+class InletAzimuthalVelocity():
+	def __init__(self, S): self.S = S
+	def __call__(self, x): return self.S*grabovski_berger(x[1])
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u_x=1, u_r=0 & u_th=gb at inlet (velocity control)
@@ -57,45 +78,22 @@ def nutf(spy:SPY,S:float): spy.nut=0
 # d_ru_x=0 for symmetry axis (momentum csv r as r->0)
 # d_xu_x/Re=p, d_xu_r=0, d_xu_th=0 at outlet (free flow)
 # d_ru_x=0 at top (Meliga paper, no slip)
-def boundaryConditionsBaseflow(spy:SPY,S:float) -> None:
+def boundaryConditionsBaseflow(spyb:SPYB) -> None:	
 	# Compute DoFs
-	sub_space_th=spy.TH.sub(0).sub(2)
+	sub_space_th=spyb.TH.sub(0).sub(2)
 	sub_space_th_collapsed=sub_space_th.collapse()
-
-	# Grabovski-Berger vortex with final slope
-	def grabovski_berger(r) -> np.ndarray:
-		psi=(r_max-r)/(r_max-r_phy)/r_phy
-		mr=r<1
-		psi[mr]=r[mr]*(2-r[mr]**2)
-		ir=np.logical_and(r>=1,r<r_phy)
-		psi[ir]=1/r[ir]
-		return psi
-
-	class InletAzimuthalVelocity():
-		def __init__(self, S): self.S = S
-		def __call__(self, x): return self.S*grabovski_berger(x[1]).astype(pet.ScalarType)
-
-	# Modified vortex that goes to zero at top boundary
-	u_inlet_th=dfx.Function(sub_space_th_collapsed)
-	inlet_azimuthal_velocity=InletAzimuthalVelocity(S) # Required to smoothly increase S
-	u_inlet_th.interpolate(inlet_azimuthal_velocity)
-	u_inlet_th.x.scatter_forward()
 	
 	# Degrees of freedom
 	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
-	bcs_inlet_th = dfx.DirichletBC(u_inlet_th, dofs_inlet_th, sub_space_th) # u_th=S*psi(r) at x=0
+	bcs_inlet_th = dfx.DirichletBC(spyb.u_inlet_th, dofs_inlet_th, sub_space_th) # u_th=S*psi(r) at x=0
 
 	# Actual BCs
-	_, bcs_inlet_x = spy.constantBC('x',inlet,1) # u_x =1
-	bcs = [bcs_inlet_x, bcs_inlet_th]			   # x=X entirely handled by implicit Neumann
+	_, bcs_inlet_x = spyb.constantBC('x',inlet,1) # u_x =1
+
+	spyb.applyBCs(np.empty(0),[bcs_inlet_x, bcs_inlet_th]) # x=X entirely handled by implicit Neumann
 	
 	# Handle homogeneous boundary conditions
-	homogeneous_boundaries=[(inlet,['r']),(top,['r','th']),(spy.symmetry,['r','th'])]
-	for tup in homogeneous_boundaries:
-		marker,directions=tup
-		for direction in directions:
-			_, bcs=spy.constantBC(direction,marker)
-			spy.bcs.append(bcs)
+	spyb.applyHomogeneousBCs([(inlet,['r']),(top,['r','th']),(spyb.symmetry,['r','th'])])
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet (linearise as baseflow)
@@ -112,9 +110,4 @@ def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
 	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
-	spy.dofps = np.empty(0,dtype=np.int32)
-	for tup in homogeneous_boundaries:
-		marker,directions=tup
-		for direction in directions:
-			dofs, _=spy.constantBC(direction,marker)
-			spy.dofps=np.union1d(spy.dofps,dofs)
+	spy.applyHomogeneousBCs(homogeneous_boundaries)
