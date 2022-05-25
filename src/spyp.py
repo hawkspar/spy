@@ -4,7 +4,6 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-from multiprocessing.sharedctypes import Value
 import os, ufl #source /usr/local/bin/dolfinx-complex-mode
 import numpy as np
 from spy import SPY
@@ -24,7 +23,7 @@ class SPYP(SPY):
 		self.save_string='_S='+f"{S:00.3f}"+'_m='+str(m)
 
 	# To be run in complex mode
-	def assembleMatrices(self) -> None:
+	def assembleJNMatrices(self) -> None:
 		# Load baseflow
 		self.loadStuff(self.S,"last_baseflow.dat",self.dat_complex_path,11,self.q.vector)
 		self.nutf(self.S)
@@ -33,7 +32,7 @@ class SPYP(SPY):
 		dform=self.linearisedNavierStokes(self.m)
 		self.J = dfx.fem.assemble_matrix(dform)
 		self.J.assemble()
-		self.J.zeroRowsLocal(self.dofs) # Impose homogeneous BCs
+		self.J.zeroRows(self.dofs) # Impose homogeneous BCs (1 on diag)
 
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		u,_ = ufl.split(self.trial)
@@ -41,115 +40,85 @@ class SPYP(SPY):
 		norm_form=ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
 		self.N = dfx.fem.assemble_matrix(norm_form)
 		self.N.assemble()
-		#self.N.zeroRowsLocal(self.dofs,0)
+		self.N.zeroRows(self.dofs,0) # Impose homogeneous BCs (0 on diag)
 		if p0: print("Jacobian & Norm matrices computed !")
 
-		v=dfx.Function(self.TH)
-		v.vector.zeroEntries()
-		v.vector[self.dofs]=np.ones(self.dofs.size)
-		u,_=v.split()
-		with XDMFFile(COMM_WORLD, "sanity_check_bcs.xdmf","w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(u)
-
-	def resolvent(self,k:int,St_list):
-		# Get u subspace
-		u_space, _ = self.TH.sub(0).collapse(collapsed_dofs=True)
+	def assembleMRMatrices(self):
+		# Fonctions des petits et grands espaces
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
-		w = ufl.TrialFunction(u_space)
-		z = ufl.TestFunction(u_space)
-		# Quadrature-extensor QE (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the quadrature in R.
-		QE_form=ufl.inner(w,v)*self.r**2*ufl.dx
-		# Mass Mq (m*m): required to have a proper maximisation problem in a cylindrical geometry 
-		Mq_form=ufl.inner(u,v)*self.r*ufl.dx#+ufl.inner(p,s)*self.r*ufl.dx # Quadrature corresponds to L2 integration
-		# Mass Mf (n*n): same
-		Mf_form=ufl.inner(w,z)*self.r*ufl.dx
-		# Assembling matrices
-		QE = dfx.fem.assemble_matrix(QE_form); QE.assemble()
-		Mq = dfx.fem.assemble_matrix(Mq_form); Mq.assemble()
-		Mf = dfx.fem.assemble_matrix(Mf_form); Mf.assemble()
+		w = ufl.TrialFunction(self.u_space)
+		z = ufl.TestFunction( self.u_space)
 
-		# Sizes
-		n=u_space.dofmap.index_map.size_global * u_space.dofmap.index_map_bs
-		n_local = Mf.local_size[0]
+		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the quadrature in R.
+		B_form=ufl.inner(w,v)*self.r**2*ufl.dx
+		# Extractor H (n*m) reshapes response vector (m*1) to (n*1)
+		H_form=ufl.inner(u,z)*ufl.dx
+		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
+		M_form=ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
+		# Assembling matrices
+		self.B = dfx.fem.assemble_matrix(B_form); self.B.assemble(); self.B.zeroRows(self.dofs,0)
+		self.H = dfx.fem.assemble_matrix(H_form); self.H.assemble()
+		self.M = dfx.fem.assemble_matrix(M_form); self.M.assemble()
 		if p0: print("Quadrature, Extractor & Mass matrices computed !")
+
+		# Resolvent operator
+		w, z = self.N.createVecs()
+		a, b = self.M.createVecs()
+		class R_class:
+			def mult(cls,A,x,y):
+				self.B.mult(x,w)
+				self.KSPs[0].solve(w,z)
+				self.H.mult(z,y)
+
+			def multTranspose(cls,A,x,y):
+				self.H.multTranspose(x,w)
+				self.KSPs[1].solve(w,z)
+				self.B.multTranspose(z,y)
 
 		# Necessary for matrix-free routine
 		class LHS_class:
-			def mult(self,A,x,y):
-				w, z = Mq.createVecs()
-				QE.mult(x,w)
-				KSPs[0].solve(w,z)
-				Mq.mult(z,w)
-				KSPs[1].solve(w,z)
-				QE.multTranspose(z,y)
+			def mult(cls,A,x,y):
+				self.R.mult(x,a)
+				self.M.mult(a,b)
+				self.R.multTranspose(b,y)
 
+		# Sizes
+		n=self.u_space.dofmap.index_map.size_global * self.u_space.dofmap.index_map_bs
+		n_local = self.M.local_size[0]
+			
+		# Matrix free methods
+		for name in ["R","LHS"]:
+			exec("""
+self.A=pet.Mat().create(comm=COMM_WORLD)
+self.A.setSizes([[n_local,n],[n_local,n]])
+self.A.setType(pet.Mat.Type.PYTHON)
+self.A.setPythonContext(A_class())
+self.A.setUp()""".replace('A',name))
+
+	def resolvent(self,k:int,St_list):
 		# Solver
 		EPS = slp.EPS(); EPS.create()
 		for St in St_list:
 			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 
-			KSPs = []
+			self.KSPs = []
 			# Useful solvers (here to put options for computing a smart R)
 			for Mat in [L,L.hermitianTranspose()]:
 				KSP = pet.KSP().create()
 				KSP.setOperators(Mat)
 				KSP.setTolerances(rtol=self.params['rtol'], atol=self.params['atol'], max_it=self.params['max_iter'])
-				# Krylov subspace
+				"""# Krylov subspace
 				KSP.setType('preonly')
 				# Preconditioner
 				PC = KSP.getPC(); PC.setType('lu')
-				PC.setFactorSolverType('mumps')
+				PC.setFactorSolverType('mumps')"""
 				KSP.setFromOptions()
-				KSPs.append(KSP)
-			
-			# Tests
-			x=self.mesh.geometry.x
-			FE_vector_1=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),1,3)
-			FE_vector_2=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
-			V1 = dfx.FunctionSpace(self.mesh,FE_vector_1)
-			v1 = dfx.Function(V1)
-			v1.vector.zeroEntries()
-			v1.vector[::3]=np.sin(np.pi*(x[:,1]-1))*np.exp(-.5*((x[:,0]-2)**2/.2**2+(x[:,1]-1)**2/.2**2))
-			V2 = dfx.FunctionSpace(self.mesh,FE_vector_2)
-			v2 = dfx.Function(V2)
-			v2.interpolate(v1)
-			ft = dfx.Function(self.TH)
-			ft.vector.zeroEntries()
-			_, map_U = self.TH.sub(0).collapse(collapsed_dofs=True)
-			ft.vector[map_U]=v2.vector
-			ft.vector.assemble()
-			ftu,_=ft.split()
-			with XDMFFile(COMM_WORLD, "sanity_check_gaussian_input.xdmf","w") as xdmf:
-				xdmf.write_mesh(self.mesh)
-				xdmf.write_function(ftu)
-			qt = dfx.Function(self.TH)
-			x, _ = self.N.createVecs()
-			self.N.mult(ft.vector,x)
-			fx = dfx.Function(self.TH)
-			fx.vector[:]=x
-			fxu,_=fx.split()
-			with XDMFFile(COMM_WORLD, "sanity_check_gaussian_x.xdmf","w") as xdmf:
-				xdmf.write_mesh(self.mesh)
-				xdmf.write_function(fxu)
-			KSPs[0].solve(x,qt.vector)
-			ut,_=qt.split()
-			with XDMFFile(COMM_WORLD, "sanity_check_gaussian_test.xdmf","w") as xdmf:
-				xdmf.write_mesh(self.mesh)
-				xdmf.write_function(ut)
-			
-			# Matrix free operator
-			LHS=pet.Mat()
-			LHS.create(comm=COMM_WORLD)
-			LHS.setSizes([[n_local,n],[n_local,n]])
-			LHS.setType(pet.Mat.Type.PYTHON)
-			LHS.setPythonContext(LHS_class())
-			LHS.setUp()
+				self.KSPs.append(KSP)
 
 			# Eigensolver
-			EPS.setOperators(LHS,Mf) # Solve E^T*Q^T*L^-1H*Mq*L^-1*Q*E*f=sigma^2*Mf*f (cheaper than a proper SVD)
-			EPS.setProblemType(slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), but M is semi-positive
+			EPS.setOperators(self.LHS,self.M) # Solve QE^T*L^-1H*M*L^-1*QE*f=sigma^2*M*f (cheaper than a proper SVD)
+			EPS.setProblemType(slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-positive
 			EPS.setWhichEigenpairs(EPS.Which.LARGEST_MAGNITUDE) # Find largest eigenvalues
 			EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 			EPS.setTolerances(self.params['atol'],self.params['max_iter']) # Set absolute tolerance and number of iterations
@@ -160,7 +129,7 @@ class SPYP(SPY):
 			if n==0: continue
 
 			# Conversion back into numpy 
-			gains=np.sqrt(np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex))
+			gains=np.array([EPS.getEigenvalue(i) for i in range(n)], dtype=np.complex)
 			#write gains
 			if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
 			np.savetxt(self.resolvent_path+"gains"+self.save_string+"_St="+f"{St:00.3f}"+".dat",np.abs(gains))
@@ -168,28 +137,38 @@ class SPYP(SPY):
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				# Obtain forcings as eigenvectors
-				fu=dfx.Function(self.TH.sub(0).collapse(collapsed_dofs=True)[0])
+				fu=dfx.Function(self.u_space)
 				EPS.getEigenvector(i,fu.vector)
-				fu.x.scatter_forward()
+				#fu.x.scatter_forward()
 				with XDMFFile(COMM_WORLD, self.resolvent_path+"forcing_u" +self.save_string+"_St="+f"{St:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(fu)
 
+
 				# Obtain response from forcing
-				q=dfx.Function(self.TH)
-				_, tmp = QE.createVecs()
-				QE.mult(fu.vector,tmp)
-				KSP.solve(tmp,q.vector)
-				u,p=q.split()
+				u=dfx.Function(self.u_space)
+
+				ids=self.dofs
+				print(np.max(np.abs(fu.vector[ids])))
+				w,z=self.N.createVecs()
+				self.B.mult(fu.vector,w)
+				print(np.max(np.abs(w[ids])))
+				self.KSPs[0].solve(w,z)
+				print(np.max(np.abs(z[ids])))
+				self.H.mult(z,u.vector)
+				print(np.max(np.abs(u.vector[ids])))
+
+				self.R.mult(fu.vector,u.vector)
 				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u"+self.save_string+"_St="+f"{St:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(u)
+			
 			if p0: print("Strouhal",St,"handled !")
 
 	# Modal analysis
 	def eigenvalues(self,sigma:complex,k:int) -> None:
 		# Solver
-		EPS = slp.EPS(COMM_WORLD); EPS.create()
+		EPS = slp.EPS(COMM_WORLD).create()
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
 		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is no hermitian, but M is semi-positive
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma

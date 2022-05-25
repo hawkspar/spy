@@ -10,7 +10,9 @@ from spyp import SPYP # Must be after setup
 m=0
 spyp=SPYP(params,datapath,Ref,nutf,direction_map,0,m)
 boundaryConditionsPerturbations(spyp,m)
+spyp.sanityCheckBCs()
 # For efficiency, matrix is assembled only once
-spyp.assembleMatrices()
+spyp.assembleJNMatrices()
+spyp.assembleMRMatrices()
 # Resolvent analysis
 spyp.resolvent(1,[.6])

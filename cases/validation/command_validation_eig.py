@@ -19,7 +19,7 @@ load=True
 spyp=SPYP(params, datapath, Ref, nutf, direction_map, 1, -1)
 boundaryConditionsPerturbations(spyp,-1)
 # For efficiency, matrix is assembled only once
-spyp.assembleMatrices()
+spyp.assembleJNMatrices()
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 if load and p0:

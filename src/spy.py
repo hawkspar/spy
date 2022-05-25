@@ -38,15 +38,16 @@ class SPY:
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
 		
-		# Taylor Hodd elements ; stable element pair
+		# Finite elements & function spaces
 		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
 		FE_scalar=ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
-		self.TH=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar)	# full vector function space
 		V = dfx.FunctionSpace(self.mesh,FE_scalar)
+		self.TH=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar)	# Taylor Hodd elements ; stable element pair
+		self.u_space, _ = self.TH.sub(0).collapse(collapsed_dofs=True)
 		
-		# test & trial functions
-		self.test  = ufl.TestFunction(self.TH)
+		# Test & trial functions
 		self.trial = ufl.TrialFunction(self.TH)
+		self.test  = ufl.TestFunction(self.TH)
 		
 		# Re computation
 		self.Re = Ref(self)
@@ -181,3 +182,18 @@ class SPY:
 			self.npyToDat(self.npy_path+file_name,
 						  self.dat_complex_path+file_name[:-3]+'dat')
 		shutil.rmtree(self.npy_path)
+	
+	def sanityCheckU(self):
+		u,_=self.q.split()
+		with XDMFFile(COMM_WORLD, "sanity_check_u.xdmf","w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(u)
+
+	def sanityCheckBCs(self):
+		v=dfx.Function(self.TH)
+		v.vector.zeroEntries()
+		v.vector[self.dofs]=np.ones(self.dofs.size)
+		u,_=v.split()
+		with XDMFFile(COMM_WORLD, "sanity_check_bcs.xdmf","w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(u)
