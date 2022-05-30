@@ -45,63 +45,54 @@ class SPYP(SPY):
 
 	def assembleMRMatrices(self):
 		# Fonctions des petits et grands espaces
+		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 		w = ufl.TrialFunction(self.u_space)
 		z = ufl.TestFunction( self.u_space)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the quadrature in R.
 		B_form = ufl.inner(w,v)*self.r**2*ufl.dx
+		# Extractor H (n*m) reshapes response vector (m*1) into (n*1)
+		#H_form = ufl.inner(u,z)*ufl.dx
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
+		O_form = ufl.inner(u,v)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Assembling matrices
 		self.B = dfx.fem.assemble_matrix(B_form); self.B.assemble(); self.B.zeroRows(self.dofs,0)
+		#self.H = dfx.fem.assemble_matrix(H_form); self.H.assemble()
+		O = dfx.fem.assemble_matrix(O_form); O.assemble()
 		self.M = dfx.fem.assemble_matrix(M_form); self.M.assemble()
 		if p0: print("Quadrature, Extractor & Mass matrices computed !")
 
 		# Sizes
-		m =      self.TH.dofmap.index_map.size_global * 	   self.TH.dofmap.index_map_bs
+		m =      self.TH.dofmap.index_map.size_global * 	 self.TH.dofmap.index_map_bs
 		n = self.u_space.dofmap.index_map.size_global * self.u_space.dofmap.index_map_bs
 		n_local = self.M.local_size[0]
 		Istart, Iend = self.N.getOwnershipRange()
 		m_local = Iend - Istart
-
-		# Columns
-		cols = np.arange(n_local,dtype='int32')
-		# Efficient creation of the rows
-
-		# Notice rows is local
-		rows = np.zeros(m_local+1,dtype='int32')
-		np.add.at(rows, self.u_dofs+1, 1)
-		np.cumsum(rows, out=rows)
-        
-		# Efficient creation of a properly partitioned parallel B
-		self.H = pet.Mat().createAIJ([[m_local,m],[n_local,n]],
-								csr=(rows,cols,np.ones(self.u_dofs.size,dtype='bool')),
-								comm=COMM_WORLD)
-		self.H.setUp()
-		self.H.assemble()
-		print(self.H.norm())
-		self.H=self.H.transpose()
+		
+		"""print(self.H.norm())
+		#self.H=self.H.transpose()
 		I = pet.Mat().createAIJ([10,10],csr=(range(11),range(10),np.ones(10,dtype='bool')),comm=COMM_WORLD)
 		I.setUp()
 		I.assemble()
 		print(I.norm())
-		print(I.getValues(range(10),range(10)))
+		print(I.getValues(range(10),range(10)))"""
 
 		# Resolvent operator
 		w, z = self.N.createVecs()
-		a, b = self.M.createVecs()
+		a, b = 		O.createVecs()
 		class R_class:
 			def mult(cls,A,x,y):
 				self.B.mult(x,w)
-				self.KSPs[0].solve(w,z)
-				z.ghostUpdate(addv=pet.InsertMode.INSERT,
+				self.KSPs[0].solve(w,y)
+				y.ghostUpdate(addv=pet.InsertMode.INSERT,
 							  mode=pet.ScatterMode.FORWARD)
-				self.H.mult(z,y)
+				#self.H.mult(z,y)
 
 			def multTranspose(cls,A,x,y):
-				self.H.multTranspose(x,w)
-				self.KSPs[1].solve(w,z)
+				#self.H.multTranspose(x,w)
+				self.KSPs[1].solve(x,z)
 				z.ghostUpdate(addv=pet.InsertMode.INSERT,
 							  mode=pet.ScatterMode.FORWARD)
 				self.B.multTranspose(z,y)
@@ -110,17 +101,20 @@ class SPYP(SPY):
 		class LHS_class:
 			def mult(cls,A,x,y):
 				self.R.mult(x,a)
-				self.M.mult(a,b)
+				O.mult(a,b)
 				self.R.multTranspose(b,y)
-			
-		# Matrix free methods
-		for name in ["R","LHS"]:
-			exec("""
-self.A=pet.Mat().create(comm=COMM_WORLD)
-self.A.setSizes([[n_local,n],[n_local,n]])
-self.A.setType(pet.Mat.Type.PYTHON)
-self.A.setPythonContext(A_class())
-self.A.setUp()""".replace('A',name))
+
+		self.R=pet.Mat().create(comm=COMM_WORLD)
+		self.R.setSizes([[m_local,m],[n_local,n]])
+		self.R.setType(pet.Mat.Type.PYTHON)
+		self.R.setPythonContext(R_class())
+		self.R.setUp()
+		
+		self.LHS=pet.Mat().create(comm=COMM_WORLD)
+		self.LHS.setSizes([[n_local,n],[n_local,n]])
+		self.LHS.setType(pet.Mat.Type.PYTHON)
+		self.LHS.setPythonContext(LHS_class())
+		self.LHS.setUp()
 
 	def resolvent(self,k:int,St_list):
 		# Solver
@@ -130,7 +124,7 @@ self.A.setUp()""".replace('A',name))
 
 			self.KSPs = []
 			# Useful solvers (here to put options for computing a smart R)
-			for Mat in [L,L.hermitianTranspose()]:
+			for Mat in [L,L.copy().hermitianTranspose()]:
 				KSP = pet.KSP().create()
 				KSP.setOperators(Mat)
 				KSP.setTolerances(rtol=self.params['rtol'], atol=self.params['atol'], max_it=self.params['max_iter'])
@@ -149,12 +143,12 @@ self.A.setUp()""".replace('A',name))
 			EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 			EPS.setTolerances(self.params['atol'],self.params['max_iter']) # Set absolute tolerance and number of iterations
 			# Spectral transform
-			ST  = EPS.getST();  ST.setType('shift')
+			ST  = EPS.getST();   ST.setType('shift')
 			ST.setShift(0)
 			# Krylov subspace
-			KSP = ST.getKSP(); KSP.setType('preonly')
+			KSP =  ST.getKSP(); KSP.setType('preonly')
 			# Preconditioner
-			PC  = KSP.getPC();  PC.setType('lu')
+			PC  = KSP.getPC();   PC.setType('lu')
 			PC.setFactorSolverType('mumps')
 			EPS.setFromOptions()
 			if p0: print("Solver launch...")
@@ -178,21 +172,20 @@ self.A.setUp()""".replace('A',name))
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(fu)
 
-
 				# Obtain response from forcing
-				u=dfx.Function(self.u_space)
+				q=dfx.Function(self.TH)
 
 				ids=self.dofs
 				print(np.max(np.abs(fu.vector[ids])))
-				w,z=self.N.createVecs()
+				w,_=self.N.createVecs()
 				self.B.mult(fu.vector,w)
 				print(np.max(np.abs(w[ids])))
-				self.KSPs[0].solve(w,z)
-				print(np.max(np.abs(z[ids])))
-				self.H.mult(z,u.vector)
+				self.KSPs[0].solve(w,q.vector)
+				print(np.max(np.abs(q.vector[ids])))
+				"""self.H.mult(z,u.vector)
 				print(np.max(np.abs(u.vector[ids])))
-
-				self.R.mult(fu.vector,u.vector)
+				self.R.mult(fu.vector,q.vector)"""
+				u,_=q.split()
 				with XDMFFile(COMM_WORLD, self.resolvent_path+"response_u"+self.save_string+"_St="+f"{St:00.3f}"+"_n="+f"{i+1:1d}"+".xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(u)
@@ -210,11 +203,11 @@ self.A.setUp()""".replace('A',name))
 		EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 		EPS.setTolerances(self.params['atol'],self.params['max_iter']) # Set absolute tolerance and number of iterations
 		# Spectral transform
-		ST  = EPS.getST();  ST.setType('sinvert')
+		ST  = EPS.getST();   ST.setType('sinvert')
 		# Krylov subspace
-		KSP = ST.getKSP(); KSP.setType('preonly')
+		KSP =  ST.getKSP(); KSP.setType('preonly')
 		# Preconditioner
-		PC  = KSP.getPC();  PC.setType('lu')
+		PC  = KSP.getPC();   PC.setType('lu')
 		PC.setFactorSolverType('mumps')
 		EPS.setFromOptions()
 		EPS.solve()
