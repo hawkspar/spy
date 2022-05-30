@@ -43,7 +43,8 @@ class SPY:
 		FE_scalar=ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
 		V = dfx.FunctionSpace(self.mesh,FE_scalar)
 		self.TH=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar)	# Taylor Hodd elements ; stable element pair
-		self.u_space, _ = self.TH.sub(0).collapse(collapsed_dofs=True)
+		self.u_space, self.u_dofs = self.TH.sub(0).collapse(collapsed_dofs=True)
+		self.u_dofs=np.array(self.u_dofs)
 		
 		# Test & trial functions
 		self.trial = ufl.TrialFunction(self.TH)
