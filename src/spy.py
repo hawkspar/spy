@@ -9,7 +9,7 @@ import dolfinx as dfx
 import os, ufl, shutil
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
-from mpi4py.MPI import COMM_WORLD
+from mpi4py.MPI import COMM_WORLD as comm
 
 # Swirling Parallel Yaj
 class SPY:
@@ -33,7 +33,7 @@ class SPY:
 
 		# Mesh from file
 		meshpath=self.case_path+datapath[:-1]+".xdmf"
-		with XDMFFile(COMM_WORLD, meshpath, "r") as file:
+		with XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
@@ -148,16 +148,16 @@ class SPY:
 			Sd = float(file_name[offset:offset+5]) # Take advantage of file format 
 			fd = abs(S-Sd)
 			if fd<d: d,closest_file_name=fd,path+file_name
-		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', comm)
 		vector.load(viewer)
 		vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 		# Loading eddy viscosity too
-		if COMM_WORLD.rank==0:
+		if comm.rank==0:
 			print("Loaded "+closest_file_name+" as part of memoisation scheme")
 
 	# Converters
 	def datToNpy(self,fi,fo) -> None:
-		viewer = pet.Viewer().createMPIIO(fi, 'r', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(fi, 'r', comm)
 		self.q.vector.load(viewer)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 		np.save(fo,self.q.x.array)
@@ -173,7 +173,7 @@ class SPY:
 	def npyToDat(self,fi,fo) -> None:
 		self.q.vector.array.real=np.load(fi,allow_pickle=True)
 		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		viewer = pet.Viewer().createMPIIO(fo, 'w', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(fo, 'w', comm)
 		self.q.vector.view(viewer)
 	
 	def npyToDatAll(self) -> None:
@@ -184,9 +184,10 @@ class SPY:
 						  self.dat_complex_path+file_name[:-3]+'dat')
 		shutil.rmtree(self.npy_path)
 	
+	# Quick check functions
 	def sanityCheckU(self):
 		u,_=self.q.split()
-		with XDMFFile(COMM_WORLD, "sanity_check_u.xdmf","w") as xdmf:
+		with XDMFFile(comm, "sanity_check_u.xdmf","w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(u)
 
@@ -195,6 +196,6 @@ class SPY:
 		v.vector.zeroEntries()
 		v.vector[self.dofs]=np.ones(self.dofs.size)
 		u,_=v.split()
-		with XDMFFile(COMM_WORLD, "sanity_check_bcs.xdmf","w") as xdmf:
+		with XDMFFile(comm, "sanity_check_bcs.xdmf","w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(u)

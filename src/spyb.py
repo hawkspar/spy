@@ -10,9 +10,9 @@ from spy import SPY
 import dolfinx as dfx
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
-from mpi4py.MPI import COMM_WORLD, MIN
+from mpi4py.MPI import COMM_WORLD as comm, MIN
 
-p0=COMM_WORLD.rank==0
+p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
@@ -44,7 +44,7 @@ class SPYB(SPY):
 
 		# Encapsulations
 		problem = dfx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
-		solver  = dfx.NewtonSolver(COMM_WORLD, problem)
+		solver  = dfx.NewtonSolver(comm, problem)
 		# Fine tuning
 		solver.convergence_criterion = "incremental"
 		solver.relaxation_parameter=self.params['rp'] # Absolutely crucial for convergence
@@ -67,13 +67,13 @@ class SPYB(SPY):
 		if save:  # Memoisation
 			u,p = self.q.split()
 			if not os.path.isdir(self.dat_real_path): os.mkdir(self.dat_real_path)
-			with XDMFFile(COMM_WORLD, self.print_path+"u_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
+			with XDMFFile(comm, self.print_path+"u_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
 			if not os.path.isdir(self.print_path): os.mkdir(self.print_path)
-			viewer = pet.Viewer().createMPIIO(self.dat_real_path+"baseflow_S="+f"{S:00.3f}"+".dat", 'w', COMM_WORLD)
+			viewer = pet.Viewer().createMPIIO(self.dat_real_path+"baseflow_S="+f"{S:00.3f}"+".dat", 'w', comm)
 			self.q.vector.view(viewer)
-			if COMM_WORLD.rank==0: print(".xmdf, .dat written!")
+			if comm.rank==0: print(".xmdf, .dat written!")
 
 	# To be run in real mode
 	# DESTRUCTIVE !
@@ -88,10 +88,10 @@ class SPYB(SPY):
 		
 		#write result of current mu
 		u,p=self.q.split()
-		with XDMFFile(COMM_WORLD, self.print_path+"last_u.xdmf", "w") as xdmf:
+		with XDMFFile(comm, self.print_path+"last_u.xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(u)
-		viewer = pet.Viewer().createMPIIO(self.dat_real_path+"last_baseflow.dat", 'w', COMM_WORLD)
+		viewer = pet.Viewer().createMPIIO(self.dat_real_path+"last_baseflow.dat", 'w', comm)
 		self.q.vector.view(viewer)
 		if p0: print("Last checkpoint written!")
 
@@ -99,5 +99,5 @@ class SPYB(SPY):
 		u,p=self.q.split()
 		u=u.compute_point_values()[:,self.direction_map['x']]
 		mu=np.min(u)
-		mu=COMM_WORLD.reduce(mu,op=MIN) # minimum across processors
+		mu=comm.reduce(mu,op=MIN) # minimum across processors
 		return mu
