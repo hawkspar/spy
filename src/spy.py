@@ -48,7 +48,7 @@ class SPY:
 		
 		# Test & trial functions
 		self.trial = ufl.TrialFunction(self.TH)
-		self.test  = ufl.TestFunction(self.TH)
+		self.test  = ufl.TestFunction( self.TH)
 		
 		# Re computation
 		self.Re = Ref(self)
@@ -118,25 +118,25 @@ class SPY:
 	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
 		sub_space=self.TH.sub(0).sub(self.direction_map[direction])
 		sub_space_collapsed=sub_space.collapse()
-		# Compute proper zeros
+		# Compute proper values
 		constant=dfx.Function(sub_space_collapsed)
 		with constant.vector.localForm() as zero_loc: zero_loc.set(value)
-		# Compute DoFs
+		# Compute unflattened DoFs (don't care for flattened ones)
 		dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
 		# Actual BCs
 		bcs = dfx.DirichletBC(constant, dofs, sub_space) # u_i=value at boundary
-		return dofs[0], bcs # Only return unflattened dofs
+		return dofs,bcs
 
 	# Encapsulation	
-	def applyBCs(self, dofs:np.array, bcs:list):
-		self.dofs=np.union1d(self.dofs,dofs)
+	def applyBCs(self, dofs:np.array,bcs:list):
+		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.extend(bcs)
 
 	def applyHomogeneousBCs(self, tup:list):
 		for marker,directions in tup:
 			for direction in directions:
-				dofs, bcs=self.constantBC(direction,marker)
-				self.applyBCs(dofs, [bcs])
+				dofs,bcs=self.constantBC(direction,marker)
+				self.applyBCs(dofs,[bcs])
 	
 	# Memoisation routine - find closest in S
 	def loadStuff(self,S,last_name,path,offset,vector) -> None:

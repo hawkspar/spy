@@ -54,13 +54,12 @@ def Ref(spy:SPY) -> dfx.Function:
 # No turbulent visosity for this case
 def nutf(spy:SPY,S:float): spy.nut=0
 
-
 # Grabovski-Berger vortex with final slope
 def grabovski_berger(r) -> np.ndarray:
 	psi=(r_max-r)/(r_max-r_phy)/r_phy
 	mr=r<1
 	psi[mr]=r[mr]*(2-r[mr]**2)
-	ir=np.logical_and(r>=1,r<r_phy)
+	ir=(r>=1)*(r<r_phy)
 	psi[ir]=1/r[ir]
 	return psi
 
@@ -90,7 +89,7 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 	# Actual BCs
 	_, bcs_inlet_x = spyb.constantBC('x',inlet,1) # u_x =1
 
-	spyb.applyBCs(np.empty(0),[bcs_inlet_x, bcs_inlet_th]) # x=X entirely handled by implicit Neumann
+	spyb.applyBCs([bcs_inlet_x, bcs_inlet_th]) # x=X entirely handled by implicit Neumann
 	
 	# Handle homogeneous boundary conditions
 	spyb.applyHomogeneousBCs([(inlet,['r']),(top,['r','th']),(spyb.symmetry,['r','th'])])

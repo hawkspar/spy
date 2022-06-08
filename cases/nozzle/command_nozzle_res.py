@@ -17,6 +17,7 @@ boundaryConditionsPerturbations(spyp,m)
 # For efficiency, matrix is assembled only once
 spyp.assembleJNMatrices()
 spyp.assembleMRMatrices()
+spyp.sanityCheckU()
 # Resolvent analysis
 spyp.resolvent(2,[.6])
 if p0:

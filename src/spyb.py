@@ -18,8 +18,7 @@ p0=comm.rank==0
 class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, InletAzimuthalVelocity) -> None:
 		super().__init__(params, datapath, Ref, nutf, direction_map)
-		# Compute DoFs
-		sub_space_th=self.TH.sub(0).sub(2)
+		sub_space_th=self.TH.sub(0).sub(direction_map['th'])
 		sub_space_th_collapsed=sub_space_th.collapse()
 
 		# Modified vortex that goes to zero at top boundary
@@ -34,7 +33,6 @@ class SPYB(SPY):
 		# Apply new BC
 		self.inlet_azimuthal_velocity.S=S
 		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
-		self.u_inlet_th.x.scatter_forward()
 		
 		# Memoisation
 		if hot_start: self.hotStart(S)
@@ -67,13 +65,13 @@ class SPYB(SPY):
 		if save:  # Memoisation
 			u,p = self.q.split()
 			if not os.path.isdir(self.dat_real_path): os.mkdir(self.dat_real_path)
-			with XDMFFile(comm, self.print_path+"u_S="+f"{S:00.3f}"+".xdmf", "w") as xdmf:
+			with XDMFFile(comm, self.print_path+f"u_S={S:00.3f}.xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
 			if not os.path.isdir(self.print_path): os.mkdir(self.print_path)
-			viewer = pet.Viewer().createMPIIO(self.dat_real_path+"baseflow_S="+f"{S:00.3f}"+".dat", 'w', comm)
+			viewer = pet.Viewer().createMPIIO(self.dat_real_path+f"baseflow_S={S:00.3f}.dat", 'w', comm)
 			self.q.vector.view(viewer)
-			if comm.rank==0: print(".xmdf, .dat written!")
+			if p0: print(".xmdf, .dat written!")
 
 	# To be run in real mode
 	# DESTRUCTIVE !
@@ -82,7 +80,7 @@ class SPYB(SPY):
 		shutil.rmtree(self.print_path)
 		for S in Ss: 	   # Then on swirl intensity
 			if p0:
-				print("##########################")
+				print('#'*25)
 				print("Swirl intensity: ", S)
 			self.baseflow(S!=Ss[0],True,S)
 		

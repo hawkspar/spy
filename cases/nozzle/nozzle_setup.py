@@ -32,9 +32,7 @@ def y(x):
 def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,	  params['atol']) # Left border
 def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],L,	  params['atol']) # Right border
 def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],y(x[0]),params['atol']) # Top (tilded) boundary
-def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.logical_and(
-														  np.isclose(x[1],R,	  params['atol']),
-														  x[0]<R)
+def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,	  params['atol'])*(x[0]<R)
 def Ref(spy:SPY): return 1e4
 
 def nutf(spy:SPY,S:float): spy.loadStuff(S,"",spy.nut_path,6,spy.nut.vector)
