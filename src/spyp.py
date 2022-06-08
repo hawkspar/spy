@@ -16,7 +16,7 @@ from mpi4py.MPI import COMM_WORLD as comm
 p0=comm.rank==0
 
 # Wrapper
-def assembleForm(comm,form:ufl.Form,bcs:list=[],sym=False,diag=0):
+def assembleForm(comm,form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	jit_parameters = {"cffi_extra_compile_args": ["-Ofast", "-march=native"],
 					  "cffi_libraries": ["m"]}
 	# JIT options for speed
@@ -42,7 +42,7 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	return Mat
 
 # Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict):
+def configureKSP(KSP:pet.KSP,params:dict) -> None:
 	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
 	# Krylov subspace
 	KSP.setType('preonly')
@@ -52,7 +52,7 @@ def configureKSP(KSP:pet.KSP,params:dict):
 	KSP.setFromOptions()
 
 # Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict):
+def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
 
@@ -66,11 +66,11 @@ class SPYP(SPY):
 	# To be run in complex mode
 	def assembleJNMatrices(self) -> None:
 		# Load baseflow
-		self.loadStuff(self.S,"last_baseflow.dat",self.dat_complex_path,11,self.q.vector)
+		self.loadStuff(self.S,self.dat_complex_path,11,self.q.vector)
 		# Enforce no azimuthal flow in case S=0
 		if self.S==0:
 			_, w_dofs = self.TH.sub(0).sub(self.direction_map['th']).collapse(collapsed_dofs=True)
-			self.q.vector[w_dofs]=np.zeros(len(w_dofs))
+			self.q.x.array[w_dofs]=np.zeros(len(w_dofs))
 		# Load turbulent viscosity
 		self.nutf(self.S)
 
@@ -185,7 +185,7 @@ class SPYP(SPY):
 				print("# of CV eigenvalues : "+str(n))
 				print("# of iterations : "+str(EPS.getIterationNumber()))
 				# Get a list of all the file paths with the same parameters
-				fileList = glob.glob(self.resolvent_path+"*_u" +self.save_string+f"_St={St:00.3f}_n=*.*")
+				fileList = glob.glob(self.resolvent_path+"*_u" +self.save_string+f"_St={St:00.3f}_n={comm.size:1d}_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: os.remove(filePath)
 
@@ -194,7 +194,7 @@ class SPYP(SPY):
 				# Obtain forcings as eigenvectors
 				fu=dfx.Function(self.u_space)
 				EPS.getEigenvector(i,fu.vector)
-				with XDMFFile(comm, self.resolvent_path+"forcing_u" +self.save_string+f"_St={St:00.3f}_n={i+1:1d}.xdmf","w") as xdmf:
+				with XDMFFile(comm, self.resolvent_path+"forcing_u" +self.save_string+f"_St={St:00.3f}_n={comm.size:1d}_i={i+1:1d}.xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(fu)
 
@@ -202,7 +202,7 @@ class SPYP(SPY):
 				q=dfx.Function(self.TH)
 				self.R.mult(fu.vector,q.vector)
 				u,_=q.split()
-				with XDMFFile(comm, self.resolvent_path+"response_u"+self.save_string+f"_St={St:00.3f}_n={i+1:1d}.xdmf","w") as xdmf:
+				with XDMFFile(comm, self.resolvent_path+"response_u"+self.save_string+f"_St={St:00.3f}_n={comm.size:1d}_i={i+1:1d}.xdmf","w") as xdmf:
 					xdmf.write_mesh(self.mesh)
 					xdmf.write_function(u)
 			if p0: print("Strouhal",St,"handled !")
@@ -229,14 +229,13 @@ class SPYP(SPY):
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		if not os.path.isdir(self.eig_path): os.mkdir(self.eig_path)
 		# write eigenvalues
-		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={np.real(sigma):00.3f}{np.imag(sigma):+00.3f}j.dat",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={np.real(sigma):00.3f}{np.imag(sigma):+00.3f}j_n={comm.size:1d}.dat",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=dfx.Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
-			q.x.scatter_forward()
 			u,p = q.split()
-			with XDMFFile(comm, self.eig_path+f"u/evec_u_S={self.S:00.3f}_m={self.m:1d}_lam={vals[i].real:00.3f}{vals[i].imag:+00.3f}j.xdmf", "w") as xdmf:
+			with XDMFFile(comm, self.eig_path+f"u/evec_u_S={self.S:00.3f}_m={self.m:1d}_lam={vals[i].real:00.3f}{vals[i].imag:+00.3f}j_n={comm.size:1d}.xdmf", "w") as xdmf:
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
 		if p0: print("Eigenpairs written !")

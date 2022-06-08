@@ -27,7 +27,7 @@ class SPYB(SPY):
 		
 	# Memoisation routine - find closest in S
 	def hotStart(self, S) -> None:
-		self.loadStuff(S,"last_baseflow.dat",self.dat_real_path,11,self.q.vector)
+		self.loadStuff(S,self.dat_real_path,11,self.q.vector)
 	
 	def baseflow(self,hot_start:bool,save:bool,S:float):
 		# Apply new BC
@@ -69,7 +69,7 @@ class SPYB(SPY):
 				xdmf.write_mesh(self.mesh)
 				xdmf.write_function(u)
 			if not os.path.isdir(self.print_path): os.mkdir(self.print_path)
-			viewer = pet.Viewer().createMPIIO(self.dat_real_path+f"baseflow_S={S:00.3f}.dat", 'w', comm)
+			viewer = pet.Viewer().createMPIIO(self.dat_real_path+f"baseflow_S={S:00.3f}_n={comm.size:1d}.dat", 'w', comm)
 			self.q.vector.view(viewer)
 			if p0: print(".xmdf, .dat written!")
 
@@ -83,14 +83,7 @@ class SPYB(SPY):
 				print('#'*25)
 				print("Swirl intensity: ", S)
 			self.baseflow(S!=Ss[0],True,S)
-		
-		#write result of current mu
-		u,p=self.q.split()
-		with XDMFFile(comm, self.print_path+"last_u.xdmf", "w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(u)
-		viewer = pet.Viewer().createMPIIO(self.dat_real_path+"last_baseflow.dat", 'w', comm)
-		self.q.vector.view(viewer)
+
 		if p0: print("Last checkpoint written!")
 
 	def minimumAxial(self) -> float:

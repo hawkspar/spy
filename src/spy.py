@@ -139,15 +139,18 @@ class SPY:
 				self.applyBCs(dofs,[bcs])
 	
 	# Memoisation routine - find closest in S
-	def loadStuff(self,S,last_name,path,offset,vector) -> None:
-		closest_file_name=path+last_name
+	def loadStuff(self,S,path,offset,vector) -> None:
+		closest_file_name=path
 		if not os.path.isdir(path): os.mkdir(path)
 		file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
-			Sd = float(file_name[offset:offset+5]) # Take advantage of file format 
+			Sd = float(file_name[offset:offset+5]) # Take advantage of file format
+			n = int(file_name[offset+8:offset+9])
+			if n!=comm.size: continue # Don't read if != proc nb
 			fd = abs(S-Sd)
 			if fd<d: d,closest_file_name=fd,path+file_name
+		print(closest_file_name)
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', comm)
 		vector.load(viewer)
 		vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
