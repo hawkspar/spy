@@ -8,7 +8,6 @@ import os, ufl, glob #source /usr/local/bin/dolfinx-complex-mode
 import numpy as np
 from spy import SPY
 import dolfinx as dfx
-from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
@@ -17,10 +16,9 @@ p0=comm.rank==0
 
 # Wrapper
 def assembleForm(comm,form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
-	jit_parameters = {"cffi_extra_compile_args": ["-Ofast", "-march=native"],
-					  "cffi_libraries": ["m"]}
 	# JIT options for speed
-	form = dfx.fem.Form(form, jit_parameters=jit_parameters)
+	form = dfx.fem.Form(form, jit_parameters={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
+					  						  "cffi_libraries": ["m"]})
 	# Sparsity pattern
 	sp = dfx.fem.create_sparsity_pattern(form._cpp_object)
 	sp.assemble()
@@ -61,12 +59,13 @@ class SPYP(SPY):
 	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int) -> None:
 		super().__init__(params, datapath, Ref, nutf, direction_map)
 		self.S=S; self.m=m
-		self.save_string=f"_S={S:00.3f}_m={m:1d}"
+		self.save_string=f"_S={S:00.3f}_m={m:00.2f}"
+		if p0 and not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
 
 	# To be run in complex mode
 	def assembleJNMatrices(self) -> None:
 		# Load baseflow
-		self.loadStuff(self.S,self.dat_complex_path,11,self.q.vector)
+		self.loadStuff(self.S,self.dat_complex_path,r'_S=(([0-9]|.)*)',self.q.vector)
 		# Enforce no azimuthal flow in case S=0
 		if self.S==0:
 			_, w_dofs = self.TH.sub(0).sub(self.direction_map['th']).collapse(collapsed_dofs=True)
@@ -174,18 +173,18 @@ class SPYP(SPY):
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0: continue
-
-			# Conversion back into numpy 
-			gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
-			#write gains
-			if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
-			np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.dat",np.abs(gains))
 			
 			if p0:
+				# Conversion back into numpy 
+				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
+				#write gains
+				if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
+				np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.dat",gains)
+				# Pretty print
 				print("# of CV eigenvalues : "+str(n))
 				print("# of iterations : "+str(EPS.getIterationNumber()))
 				# Get a list of all the file paths with the same parameters
-				fileList = glob.glob(self.resolvent_path+"*_u" +self.save_string+f"_St={St:00.3f}_n={comm.size:1d}_i=*.*")
+				fileList = glob.glob(self.resolvent_path+"*_u" +self.save_string+f"_St={St:00.3f}_n={comm.size:d}_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: os.remove(filePath)
 
@@ -194,17 +193,13 @@ class SPYP(SPY):
 				# Obtain forcings as eigenvectors
 				fu=dfx.Function(self.u_space)
 				EPS.getEigenvector(i,fu.vector)
-				with XDMFFile(comm, self.resolvent_path+"forcing_u" +self.save_string+f"_St={St:00.3f}_n={comm.size:1d}_i={i+1:1d}.xdmf","w") as xdmf:
-					xdmf.write_mesh(self.mesh)
-					xdmf.write_function(fu)
+				self.saveStuff(self.resolvent_path+"forcing/",self.save_string+f"_St={St:00.3f}_i={i+1:d}",fu)
 
 				# Obtain response from forcing
 				q=dfx.Function(self.TH)
 				self.R.mult(fu.vector,q.vector)
 				u,_=q.split()
-				with XDMFFile(comm, self.resolvent_path+"response_u"+self.save_string+f"_St={St:00.3f}_n={comm.size:1d}_i={i+1:1d}.xdmf","w") as xdmf:
-					xdmf.write_mesh(self.mesh)
-					xdmf.write_function(u)
+				self.saveStuff(self.resolvent_path+"response/",self.save_string+f"_St={St:00.3f}_i={i+1:d}",u)
 			if p0: print("Strouhal",St,"handled !")
 
 	# Modal analysis
@@ -229,13 +224,11 @@ class SPYP(SPY):
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		if not os.path.isdir(self.eig_path): os.mkdir(self.eig_path)
 		# write eigenvalues
-		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={np.real(sigma):00.3f}{np.imag(sigma):+00.3f}j_n={comm.size:1d}.dat",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={sigma:00.3f}_n={comm.size:d}.dat",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=dfx.Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
 			u,p = q.split()
-			with XDMFFile(comm, self.eig_path+f"u/evec_u_S={self.S:00.3f}_m={self.m:1d}_lam={vals[i].real:00.3f}{vals[i].imag:+00.3f}j_n={comm.size:1d}.xdmf", "w") as xdmf:
-				xdmf.write_mesh(self.mesh)
-				xdmf.write_function(u)
+			self.saveStuff(self.eig_path+"u/","evec_u"+self.save_string+f"_lam={vals[i]:00.3f}",u)
 		if p0: print("Eigenpairs written !")

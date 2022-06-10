@@ -7,7 +7,7 @@ Created on Wed Oct  13 17:07:00 2021
 from fileinput import filename
 import os
 import numpy as np
-from validation_setup import *
+from setup import *
 from mpi4py.MPI import COMM_WORLD
 from matplotlib import pyplot as plt
 from spyp import SPYP # Must be after setup
@@ -19,7 +19,7 @@ load=True
 spyp=SPYP(params, datapath, Ref, nutf, direction_map, 1, -1)
 boundaryConditionsPerturbations(spyp,-1)
 # For efficiency, matrix is assembled only once
-spyp.assembleJNMatrices()
+spyp.assembleMatrices()
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 if load and p0:

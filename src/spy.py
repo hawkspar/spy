@@ -4,12 +4,27 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
+from fileinput import filename
+import re
 import numpy as np
 import dolfinx as dfx
 import os, ufl, shutil
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm
+
+p0=comm.rank==0
+
+# Simple handler
+def meshConvert(path:str,cell_type:str) -> None:
+	if p0:
+		import meshio #pip3 install --no-binary=h5py h5py meshio
+		gmsh_mesh = meshio.read(path+".msh")
+		# Write it out again
+		ps = gmsh_mesh.points[:,:2]
+		cs = gmsh_mesh.get_cells_type(cell_type)
+		dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
+		meshio.write(path+".xdmf", dolfinx_mesh)
 
 # Swirling Parallel Yaj
 class SPY:
@@ -37,7 +52,7 @@ class SPY:
 			self.mesh = file.read_mesh(name="Grid")
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
-		
+	
 		# Finite elements & function spaces
 		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
 		FE_scalar=ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
@@ -128,7 +143,7 @@ class SPY:
 		return dofs,bcs
 
 	# Encapsulation	
-	def applyBCs(self, dofs:np.array,bcs:list):
+	def applyBCs(self, dofs:np.ndarray,bcs:list):
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.extend(bcs)
 
@@ -138,19 +153,23 @@ class SPY:
 				dofs,bcs=self.constantBC(direction,marker)
 				self.applyBCs(dofs,[bcs])
 	
-	# Memoisation routine - find closest in S
-	def loadStuff(self,S,path,offset,vector) -> None:
+	# Memoisation routine - find closest in param
+	def loadStuff(self,param,path,pattern,vector) -> None:
 		closest_file_name=path
-		if not os.path.isdir(path): os.mkdir(path)
+		if not os.path.isdir(path):
+			comm.barrier() # Wait for all other processors
+			if p0: os.mkdir(path)
+			return
 		file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
-			Sd = float(file_name[offset:offset+5]) # Take advantage of file format
-			n = int(file_name[offset+8:offset+9])
+			match = re.search(pattern,file_name)
+			param_file = float(match.group(1)) # Take advantage of file format
+			match = re.search(r'_n=([0-9]*)',file_name)
+			n = int(match.group(1))
 			if n!=comm.size: continue # Don't read if != proc nb
-			fd = abs(S-Sd)
+			fd = abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
-		print(closest_file_name)
 		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', comm)
 		vector.load(viewer)
 		vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
@@ -158,16 +177,27 @@ class SPY:
 		if comm.rank==0:
 			print("Loaded "+closest_file_name+" as part of memoisation scheme")
 
+	def saveStuff(self,dir:str,name:str,fun:dfx.Function) -> None:
+		if p0 and not os.path.isdir(dir): os.mkdir(dir)
+		with XDMFFile(comm, dir+name+".xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(fun)
+	
+	def saveStuffMPI(self,dir:str,name:str,vec:pet.Vec) -> None:
+		if p0 and not os.path.isdir(dir): os.mkdir(dir)
+		viewer = pet.Viewer().createMPIIO(dir+name+f"_n={comm.size:d}.dat", 'w', comm)
+		vec.view(viewer)
+
 	# Converters
 	def datToNpy(self,fi,fo) -> None:
 		viewer = pet.Viewer().createMPIIO(fi, 'r', comm)
 		self.q.vector.load(viewer)
-		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+		self.q.x.scatter_forward()
 		np.save(fo,self.q.x.array)
 
 	def datToNpyAll(self) -> None:
 		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
-		if not os.path.isdir(self.npy_path): os.mkdir(self.npy_path)
+		if p0 and not os.path.isdir(self.npy_path): os.mkdir(self.npy_path)
 		for file_name in file_names:
 			self.datToNpy(self.dat_real_path+file_name,
 						  self.npy_path+file_name[:-3]+'npy')
@@ -175,13 +205,13 @@ class SPY:
 
 	def npyToDat(self,fi,fo) -> None:
 		self.q.vector.array.real=np.load(fi,allow_pickle=True)
-		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+		self.q.x.scatter_forward()
 		viewer = pet.Viewer().createMPIIO(fo, 'w', comm)
 		self.q.vector.view(viewer)
 	
 	def npyToDatAll(self) -> None:
 		file_names = [f for f in os.listdir(self.npy_path)]
-		if not os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
+		if p0 and not os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
 		for file_name in file_names:
 			self.npyToDat(self.npy_path+file_name,
 						  self.dat_complex_path+file_name[:-3]+'dat')
@@ -190,15 +220,11 @@ class SPY:
 	# Quick check functions
 	def sanityCheckU(self):
 		u,_=self.q.split()
-		with XDMFFile(comm, "sanity_check_u.xdmf","w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(u)
+		self.saveStuff("","sanity_check_u",u)
 
 	def sanityCheckBCs(self):
 		v=dfx.Function(self.TH)
 		v.vector.zeroEntries()
-		v.vector[self.dofs]=np.ones(self.dofs.size)
+		v.x.array[self.dofs]=np.ones(self.dofs.size)
 		u,_=v.split()
-		with XDMFFile(comm, "sanity_check_bcs.xdmf","w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(u)
+		self.saveStuff("","sanity_check_bcs",u)

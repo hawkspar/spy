@@ -7,9 +7,9 @@ Created on Fri Dec 10 12:00:00 2021
 import os, shutil
 import numpy as np
 from spy import SPY
-import dolfinx as dfx
-from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
+from dolfinx.fem import NonlinearProblem
+from dolfinx import Function, NewtonSolver
 from mpi4py.MPI import COMM_WORLD as comm, MIN
 
 p0=comm.rank==0
@@ -22,55 +22,58 @@ class SPYB(SPY):
 		sub_space_th_collapsed=sub_space_th.collapse()
 
 		# Modified vortex that goes to zero at top boundary
-		self.u_inlet_th=dfx.Function(sub_space_th_collapsed)
+		self.u_inlet_th=Function(sub_space_th_collapsed)
 		self.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
+		if p0 and not os.path.isdir(self.baseflow_path): os.mkdir(self.baseflow_path)
 		
-	# Memoisation routine - find closest in S
-	def hotStart(self, S) -> None:
-		self.loadStuff(S,self.dat_real_path,11,self.q.vector)
+	# Memoisation routine - find closest along given parameter
+	def hotStartS(self, S) -> None:
+		self.loadStuff(S, self.dat_real_path,r'_S=(([0-9]|.)*)',self.q.vector)
 	
-	def baseflow(self,hot_start:bool,save:bool,S:float):
+	def hotStartRe(self, Re) -> None:
+		self.loadStuff(Re,self.dat_real_path,r'_Re=([0-9]*)',	self.q.vector)
+	
+	# Careful here Re is only for printing purposes ; self.Re is a more involved function
+	def baseflow(self,Re:int,S:float,hot_start_S:bool,hot_start_Re:bool,save:bool=True,baseflowInit=None):
 		# Apply new BC
 		self.inlet_azimuthal_velocity.S=S
 		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
-		
+		# Cold initialisation
+		if baseflowInit!=None:
+			u,p=self.q.split()
+			u.interpolate(baseflowInit)
 		# Memoisation
-		if hot_start: self.hotStart(S)
+		if hot_start_S:  self.hotStartS(S)
+		if hot_start_Re: self.hotStartRe(Re)
+		self.saveStuff("./","sanity_check",u)
 		# Compute form
 		base_form  = self.navierStokes() #no azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(0) # m=0
 
 		# Encapsulations
-		problem = dfx.fem.NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
-		solver  = dfx.NewtonSolver(comm, problem)
+		problem = NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
+		solver  = NewtonSolver(comm, problem)
 		# Fine tuning
 		solver.convergence_criterion = "incremental"
 		solver.relaxation_parameter=self.params['rp'] # Absolutely crucial for convergence
 		solver.max_iter=self.params['max_iter']
 		solver.rtol=self.params['rtol']
 		solver.atol=self.params['atol']
-		solver.report = True
 		ksp = solver.krylov_solver
 		opts = pet.Options()
 		option_prefix = ksp.getOptionsPrefix()
 		opts[f"{option_prefix}pc_type"] = "lu"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-		#set_log_level(LogLevel.INFO)
 		ksp.setFromOptions()
 		# Actual heavyweight
-		try: solver.solve(self.q)
-		except RuntimeError: pass
-		self.q.x.scatter_forward()
+		#try:
+		solver.solve(self.q)
+		#except RuntimeError: pass
 
 		if save:  # Memoisation
 			u,p = self.q.split()
-			if not os.path.isdir(self.dat_real_path): os.mkdir(self.dat_real_path)
-			with XDMFFile(comm, self.print_path+f"u_S={S:00.3f}.xdmf", "w") as xdmf:
-				xdmf.write_mesh(self.mesh)
-				xdmf.write_function(u)
-			if not os.path.isdir(self.print_path): os.mkdir(self.print_path)
-			viewer = pet.Viewer().createMPIIO(self.dat_real_path+f"baseflow_S={S:00.3f}_n={comm.size:1d}.dat", 'w', comm)
-			self.q.vector.view(viewer)
+			self.saveStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",u)
+			self.saveStuffMPI(self.dat_real_path,f"baseflow_S={S:00.3f}_Re={Re:d}",self.q.vector)
 			if p0: print(".xmdf, .dat written!")
 
 	# To be run in real mode

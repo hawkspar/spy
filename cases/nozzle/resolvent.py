@@ -4,25 +4,20 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-from nozzle_setup import *
+from setup import *
 from spyp import SPYP # Must be after setup
 from mpi4py.MPI import COMM_WORLD as comm
-import time
+import numpy as np
 
 p0=comm.rank==0
-m=0
-ts=np.empty(10)
-for i in range(10):
-	if p0: start = time.perf_counter()
+ms=np.arange(1,6)
+Sts=np.linspace(0,1,20)
+
+for m in ms:
 	spyp=SPYP(params,datapath,Ref,nutf,direction_map,0,m)
 	boundaryConditionsPerturbations(spyp,m)
-	# For efficiency, matrix is assembled only once
+	# For efficiency, matrices assembled once per Sts
 	spyp.assembleJNMatrices()
 	spyp.assembleMRMatrices()
 	# Resolvent analysis
-	spyp.resolvent(2,[.6])
-	if p0:
-		end = time.perf_counter()
-		ts[i]=end-start
-	print(f"Runtime: {end-start}")
-print(f"Average runtime: {np.mean(ts)}")
+	spyp.resolvent(1,Sts)

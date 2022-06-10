@@ -7,7 +7,6 @@ Created on Wed Oct  13 17:07:00 2021
 import ufl, sys
 import numpy as np
 import dolfinx as dfx
-import petsc4py as pet
 
 sys.path.append('/home/shared/src')
 
@@ -27,7 +26,7 @@ params = {"rp":.99,    #relaxation_parameter
 		  "atol":1e-6, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":100}
-datapath='validation/' #folder for results
+datapath='meliga/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
 # Geometry
@@ -87,9 +86,10 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 	bcs_inlet_th = dfx.DirichletBC(spyb.u_inlet_th, dofs_inlet_th, sub_space_th) # u_th=S*psi(r) at x=0
 
 	# Actual BCs
-	_, bcs_inlet_x = spyb.constantBC('x',inlet,1) # u_x =1
+	dofs_inlet_x, bcs_inlet_x = spyb.constantBC('x',inlet,1) # u_x =1
 
-	spyb.applyBCs([bcs_inlet_x, bcs_inlet_th]) # x=X entirely handled by implicit Neumann
+	spyb.applyBCs(np.union1d(dofs_inlet_th,dofs_inlet_x),
+							 [bcs_inlet_th, bcs_inlet_x]) # x=X entirely handled by implicit Neumann
 	
 	# Handle homogeneous boundary conditions
 	spyb.applyHomogeneousBCs([(inlet,['r']),(top,['r','th']),(spyb.symmetry,['r','th'])])

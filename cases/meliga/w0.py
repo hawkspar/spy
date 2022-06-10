@@ -5,7 +5,7 @@ Created on Wed Oct  13 17:07:00 2021
 @author: hawkspar
 """
 import numpy as np
-from validation_setup import *
+from setup import *
 from scipy.optimize import root
 from mpi4py.MPI import COMM_WORLD
 from matplotlib import pyplot as plt
