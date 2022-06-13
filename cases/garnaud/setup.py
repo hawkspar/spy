@@ -36,8 +36,8 @@ def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],x_max,
 def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],r_max,params['atol']) # Top boundary at r=R
 def wall(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[0]<params['atol'])*(x[1]>R-params['atol']) # Walls
 
-# Sponged Reynolds number
-def Ref(spy:SPY) -> float: return 1e1
+# Restriction on forcing area
+def forcingIndicator(x): return x[0]<0
 
 # No turbulent visosity for this case
 def nutf(spy:SPY,S:float): spy.nut=0
@@ -85,7 +85,7 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 # d_ru_x=0 at top (Meliga paper, no slip)
 def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	# Handle homogeneous boundary conditions
-	homogeneous_boundaries=[(inlet,['x','r','th']),(outlet,['x','r','th']),(top,['x','r','th']),(wall,['x','r','th'])]
+	homogeneous_boundaries=[(inlet,['x','r','th']),(wall,['x','r','th'])]
 	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
 	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))

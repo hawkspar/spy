@@ -4,7 +4,6 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-from fileinput import filename
 import re
 import numpy as np
 import dolfinx as dfx
@@ -14,6 +13,12 @@ from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm
 
 p0=comm.rank==0
+
+def dirCreator(path:str):
+	if not os.path.isdir(path):
+		comm.barrier() # Wait for all other processors
+		if p0: os.mkdir(path)
+		return True
 
 # Simple handler
 def meshConvert(path:str,cell_type:str) -> None:
@@ -25,10 +30,11 @@ def meshConvert(path:str,cell_type:str) -> None:
 		cs = gmsh_mesh.get_cells_type(cell_type)
 		dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
 		meshio.write(path+".xdmf", dolfinx_mesh)
+	comm.barrier()
 
 # Swirling Parallel Yaj
 class SPY:
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict) -> None:
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, forcingIndicator=None) -> None:
 		# Direction dependant
 		self.direction_map=direction_map
 
@@ -67,9 +73,15 @@ class SPY:
 		
 		# Re computation
 		self.Re = Ref(self)
-		self.q = dfx.Function(self.TH) # Initialisation of q
+		# Initialisation of q
+		self.q = dfx.Function(self.TH)
+		# Turbulent viscosity
 		self.nut = dfx.Function(V)
 		self.nutf = lambda S: nutf(self,S)
+		# Forcing localisation
+		if forcingIndicator==None: forcingIndicator=lambda x: 1
+		self.indic = dfx.Function(V)
+		self.indic.interpolate(forcingIndicator)
 
 		# BCs essentials
 		self.dofs = np.empty(0,dtype=np.int32)
@@ -154,73 +166,78 @@ class SPY:
 				self.applyBCs(dofs,[bcs])
 	
 	# Memoisation routine - find closest in param
-	def loadStuff(self,param,path,pattern,vector) -> None:
+	def loadStuff(self,params:list,path:str,keys:list,vector:pet.Vec) -> None:
 		closest_file_name=path
-		if not os.path.isdir(path):
-			comm.barrier() # Wait for all other processors
-			if p0: os.mkdir(path)
-			return
+		if dirCreator(path): return
 		file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
-			match = re.search(pattern,file_name)
-			param_file = float(match.group(1)) # Take advantage of file format
-			match = re.search(r'_n=([0-9]*)',file_name)
+			match = re.search(r'_n=(\d*)',file_name)
 			n = int(match.group(1))
 			if n!=comm.size: continue # Don't read if != proc nb
-			fd = abs(param-param_file)
+			fd=0 # Compute distance according to all params
+			for param,key in zip(params,keys):
+				match = re.search(r'_'+key+r'=((\d|\.)*)',file_name)
+				param_file = float(match.group(1)) # Take advantage of file format
+				fd += abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
-		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', comm)
-		vector.load(viewer)
-		vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		# Loading eddy viscosity too
-		if comm.rank==0:
-			print("Loaded "+closest_file_name+" as part of memoisation scheme")
+		try:
+			viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', comm)
+			vector.load(viewer)
+			vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+			# Loading eddy viscosity too
+			if p0: print("Loaded "+closest_file_name+" as part of memoisation scheme")
+		except:
+			if p0: print("Error loading file ! Moving on...")
 
 	def saveStuff(self,dir:str,name:str,fun:dfx.Function) -> None:
-		if p0 and not os.path.isdir(dir): os.mkdir(dir)
+		dirCreator(dir)
 		with XDMFFile(comm, dir+name+".xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(fun)
 	
 	def saveStuffMPI(self,dir:str,name:str,vec:pet.Vec) -> None:
-		if p0 and not os.path.isdir(dir): os.mkdir(dir)
+		dirCreator(dir)
 		viewer = pet.Viewer().createMPIIO(dir+name+f"_n={comm.size:d}.dat", 'w', comm)
 		vec.view(viewer)
 
 	# Converters
-	def datToNpy(self,fi,fo) -> None:
+	def datToNpy(self,fi:str,fo:str) -> None:
 		viewer = pet.Viewer().createMPIIO(fi, 'r', comm)
 		self.q.vector.load(viewer)
 		self.q.x.scatter_forward()
 		np.save(fo,self.q.x.array)
 
 	def datToNpyAll(self) -> None:
-		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
-		if p0 and not os.path.isdir(self.npy_path): os.mkdir(self.npy_path)
-		for file_name in file_names:
-			self.datToNpy(self.dat_real_path+file_name,
-						  self.npy_path+file_name[:-3]+'npy')
-		shutil.rmtree(self.dat_real_path)
+		if os.path.isdir(self.dat_real_path):
+			file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
+			dirCreator(self.npy_path)
+			for file_name in file_names:
+				self.datToNpy(self.dat_real_path+file_name,
+							self.npy_path+file_name[:-4]+f"_p={comm.rank:d}.npy")
+			if p0: shutil.rmtree(self.dat_real_path)
 
-	def npyToDat(self,fi,fo) -> None:
-		self.q.vector.array.real=np.load(fi,allow_pickle=True)
+	def npyToDat(self,fi:str,fo:str) -> None:
+		self.q.x.array.real=np.load(fi,allow_pickle=True)
 		self.q.x.scatter_forward()
 		viewer = pet.Viewer().createMPIIO(fo, 'w', comm)
 		self.q.vector.view(viewer)
 	
 	def npyToDatAll(self) -> None:
-		file_names = [f for f in os.listdir(self.npy_path)]
-		if p0 and not os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
-		for file_name in file_names:
-			self.npyToDat(self.npy_path+file_name,
-						  self.dat_complex_path+file_name[:-3]+'dat')
-		shutil.rmtree(self.npy_path)
+		if os.path.isdir(self.npy_path):
+			file_names = [f for f in os.listdir(self.npy_path)]
+			dirCreator(self.dat_complex_path)
+			for file_name in file_names:
+				match = re.search(r'_p=([0-9]*)',file_name)
+				if comm.rank==int(match.group(1)):
+					self.npyToDat(self.npy_path+file_name,
+								self.dat_complex_path+file_name[:-8]+".dat")
+			if p0: shutil.rmtree(self.npy_path)
 	
 	# Quick check functions
 	def sanityCheckU(self):
 		u,_=self.q.split()
-		self.saveStuff("","sanity_check_u",u)
+		self.saveStuff("./","sanity_check_u",u)
 
 	def sanityCheckBCs(self):
 		v=dfx.Function(self.TH)

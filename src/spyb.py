@@ -6,7 +6,7 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import os, shutil
 import numpy as np
-from spy import SPY
+from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 from dolfinx.fem import NonlinearProblem
 from dolfinx import Function, NewtonSolver
@@ -24,17 +24,10 @@ class SPYB(SPY):
 		# Modified vortex that goes to zero at top boundary
 		self.u_inlet_th=Function(sub_space_th_collapsed)
 		self.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
-		if p0 and not os.path.isdir(self.baseflow_path): os.mkdir(self.baseflow_path)
-		
-	# Memoisation routine - find closest along given parameter
-	def hotStartS(self, S) -> None:
-		self.loadStuff(S, self.dat_real_path,r'_S=(([0-9]|.)*)',self.q.vector)
-	
-	def hotStartRe(self, Re) -> None:
-		self.loadStuff(Re,self.dat_real_path,r'_Re=([0-9]*)',	self.q.vector)
+		dirCreator(self.baseflow_path)
 	
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,S:float,hot_start_S:bool,hot_start_Re:bool,save:bool=True,baseflowInit=None):
+	def baseflow(self,Re:int,S:float,hot_start:bool,save:bool=True,baseflowInit=None):
 		# Apply new BC
 		self.inlet_azimuthal_velocity.S=S
 		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
@@ -43,9 +36,8 @@ class SPYB(SPY):
 			u,p=self.q.split()
 			u.interpolate(baseflowInit)
 		# Memoisation
-		if hot_start_S:  self.hotStartS(S)
-		if hot_start_Re: self.hotStartRe(Re)
-		self.saveStuff("./","sanity_check",u)
+		if hot_start:
+			self.loadStuff([S,Re],self.dat_real_path,['S','Re'],self.q.vector)
 		# Compute form
 		base_form  = self.navierStokes() #no azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(0) # m=0
@@ -65,10 +57,9 @@ class SPYB(SPY):
 		opts[f"{option_prefix}pc_type"] = "lu"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 		ksp.setFromOptions()
+		if p0: print("Solver launch...")
 		# Actual heavyweight
-		#try:
 		solver.solve(self.q)
-		#except RuntimeError: pass
 
 		if save:  # Memoisation
 			u,p = self.q.split()

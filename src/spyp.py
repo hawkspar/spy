@@ -6,7 +6,7 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import os, ufl, glob #source /usr/local/bin/dolfinx-complex-mode
 import numpy as np
-from spy import SPY
+from spy import SPY, dirCreator
 import dolfinx as dfx
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
@@ -56,16 +56,16 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map)
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int, forcingIndicator:None) -> None:
+		super().__init__(params, datapath, Ref, nutf, direction_map, forcingIndicator)
 		self.S=S; self.m=m
 		self.save_string=f"_S={S:00.3f}_m={m:00.2f}"
-		if p0 and not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
+		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode
-	def assembleJNMatrices(self) -> None:
+	def assembleJNMatrices(self,Re:int) -> None:
 		# Load baseflow
-		self.loadStuff(self.S,self.dat_complex_path,r'_S=(([0-9]|.)*)',self.q.vector)
+		self.loadStuff([self.S,Re],self.dat_complex_path,['S','Re'],self.q.vector)
 		# Enforce no azimuthal flow in case S=0
 		if self.S==0:
 			_, w_dofs = self.TH.sub(0).sub(self.direction_map['th']).collapse(collapsed_dofs=True)
@@ -97,7 +97,7 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.u_space)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the quadrature in R.
-		B_form = ufl.inner(w,v)*self.r**2*ufl.dx
+		B_form = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r	 *ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
@@ -178,8 +178,8 @@ class SPYP(SPY):
 				# Conversion back into numpy 
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
 				#write gains
-				if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
-				np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.dat",gains)
+				dirCreator(self.resolvent_path)
+				np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.txt",gains)
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n))
 				print("# of iterations : "+str(EPS.getIterationNumber()))
@@ -193,13 +193,13 @@ class SPYP(SPY):
 				# Obtain forcings as eigenvectors
 				fu=dfx.Function(self.u_space)
 				EPS.getEigenvector(i,fu.vector)
-				self.saveStuff(self.resolvent_path+"forcing/",self.save_string+f"_St={St:00.3f}_i={i+1:d}",fu)
+				self.saveStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",fu)
 
 				# Obtain response from forcing
 				q=dfx.Function(self.TH)
 				self.R.mult(fu.vector,q.vector)
 				u,_=q.split()
-				self.saveStuff(self.resolvent_path+"response/",self.save_string+f"_St={St:00.3f}_i={i+1:d}",u)
+				self.saveStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",u)
 			if p0: print("Strouhal",St,"handled !")
 
 	# Modal analysis
@@ -222,9 +222,9 @@ class SPYP(SPY):
 		if n==0: return
 		# Conversion back into numpy 
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
-		if not os.path.isdir(self.eig_path): os.mkdir(self.eig_path)
+		dirCreator(self.eig_path)
 		# write eigenvalues
-		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={sigma:00.3f}_n={comm.size:d}.dat",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={sigma:00.3f}_n={comm.size:d}.txt",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=dfx.Function(self.TH)
