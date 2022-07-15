@@ -4,10 +4,10 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl, glob #source /usr/local/bin/dolfinx-complex-mode
-import numpy as np
-from spy import SPY, dirCreator
+import numpy as np #source /usr/local/bin/dolfinx-complex-mode
+import os, ufl, glob
 import dolfinx as dfx
+from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
@@ -56,10 +56,10 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int, forcingIndicator:None) -> None:
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
 		super().__init__(params, datapath, Ref, nutf, direction_map, forcingIndicator)
 		self.S=S; self.m=m
-		self.save_string=f"_S={S:00.3f}_m={m:00.2f}"
+		self.save_string=f"_S={S:00.3f}_m={m:d}"
 		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode
@@ -184,7 +184,7 @@ class SPYP(SPY):
 				print("# of CV eigenvalues : "+str(n))
 				print("# of iterations : "+str(EPS.getIterationNumber()))
 				# Get a list of all the file paths with the same parameters
-				fileList = glob.glob(self.resolvent_path+"*_u" +self.save_string+f"_St={St:00.3f}_n={comm.size:d}_i=*.*")
+				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+self.save_string+f"_St={St:00.3f}_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: os.remove(filePath)
 
@@ -224,11 +224,11 @@ class SPYP(SPY):
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		dirCreator(self.eig_path)
 		# write eigenvalues
-		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={sigma:00.3f}_n={comm.size:d}.txt",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=dfx.Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
 			u,p = q.split()
-			self.saveStuff(self.eig_path+"u/","evec_u"+self.save_string+f"_lam={vals[i]:00.3f}",u)
+			self.saveStuff(self.eig_path+"u/","evec_"+self.save_string+f"_l={vals[i]:00.3f}",u)
 		if p0: print("Eigenpairs written !")

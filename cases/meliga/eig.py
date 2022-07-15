@@ -19,7 +19,7 @@ load=True
 spyp=SPYP(params, datapath, Ref, nutf, direction_map, 1, -1)
 boundaryConditionsPerturbations(spyp,-1)
 # For efficiency, matrix is assembled only once
-spyp.assembleMatrices()
+spyp.assembleJNMatrices(100)
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 if load and p0:
@@ -62,11 +62,10 @@ if p0:
 
     # Plot them all!
     fig = plt.figure()
-    ax = fig.add_subplot(111)
     msk=vals.real<0
-    plt.scatter(vals.imag[msk], vals.real[msk], edgecolors='k',facecolors='none') # Stable eigenvalues
+    plt.scatter(vals.imag[msk], vals.real[msk], edgecolors='k',facecolors='none')  # Stable eigenvalues
     if vals[~msk].size>0:
-        plt.scatter(vals.imag[~msk],vals.real[~msk],edgecolors='k',facecolors='k')    # Unstable eigenvalues
+        plt.scatter(vals.imag[~msk],vals.real[~msk],edgecolors='k',facecolors='k') # Unstable eigenvalues
     plt.plot([-1e1,1e1],[0,0],'k--')
     plt.axis([-2.5,2.5,-.12,.08])
     plt.xlabel(r'$\omega$')

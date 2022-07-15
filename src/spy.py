@@ -79,7 +79,7 @@ class SPY:
 		self.nut = dfx.Function(V)
 		self.nutf = lambda S: nutf(self,S)
 		# Forcing localisation
-		if forcingIndicator==None: forcingIndicator=lambda x: 1
+		if forcingIndicator==None: forcingIndicator=lambda x: np.ones(x[0].shape)
 		self.indic = dfx.Function(V)
 		self.indic.interpolate(forcingIndicator)
 
@@ -116,11 +116,11 @@ class SPY:
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u,0),	  r*s)
+		F  = ufl.inner(rdiv(u,0), r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(u,0)*u,  r*v)       	   # Convection
-		F += ufl.inner(rgrad(u,0),gradr(v,0))*(1/self.Re+self.nut) # Diffusion
-		F -= ufl.inner(r*p,		   divr(v,0)) 	  	   # Pressure
+		F += ufl.inner(rgrad(u,0)*u, r*v) # Convection
+		F += ufl.inner(rgrad(u,0)+rgrad(u,0).T,gradr(v,0))*(1/self.Re+self.nut) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(r*p,	divr(v,0)) # Pressure
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
@@ -133,12 +133,12 @@ class SPY:
 		v, s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u, m),	   r*s)
+		F  = ufl.inner( rdiv(u, m),	     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(ub,0)*u,  r*v)    		 # Convection
-		F += ufl.inner(rgrad(u, m)*ub, r*v)
-		F += ufl.inner(rgrad(u, m),gradr(v,m))*(1/self.Re+self.nut) # Diffusion
-		F -= ufl.inner(r*p,			divr(v,m)) 		 # Pressure
+		F += ufl.inner(rgrad(ub,0)*u,    r*v)    		 # Convection
+		F += ufl.inner(rgrad(u, m)*ub,   r*v)
+		F += ufl.inner(rgrad(u, m)+rgrad(u, m).T,gradr(v,m))*(1/self.Re+self.nut) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(r*p,			  divr(v,m)) 		 # Pressure
 		return F*ufl.dx
 		
 	# Code factorisation
@@ -177,7 +177,7 @@ class SPY:
 			if n!=comm.size: continue # Don't read if != proc nb
 			fd=0 # Compute distance according to all params
 			for param,key in zip(params,keys):
-				match = re.search(r'_'+key+r'=((\d|\.)*)',file_name)
+				match = re.search(r'_'+key+r'=(\d*\.?\d*)',file_name)
 				param_file = float(match.group(1)) # Take advantage of file format
 				fd += abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
@@ -186,7 +186,7 @@ class SPY:
 			vector.load(viewer)
 			vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 			# Loading eddy viscosity too
-			if p0: print("Loaded "+closest_file_name+" as part of memoisation scheme")
+			if p0: print("Loaded "+closest_file_name)
 		except:
 			if p0: print("Error loading file ! Moving on...")
 

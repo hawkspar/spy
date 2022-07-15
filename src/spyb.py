@@ -4,7 +4,7 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, shutil
+import shutil
 import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet

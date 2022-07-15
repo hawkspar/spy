@@ -12,8 +12,10 @@ sys.path.append('/home/shared/src')
 from spy import SPY
 
 # Geometry parameters (nozzle)
-R=1;  L=100
-h=15; H=20
+R=1;  L=100; H=15
+
+# /!\ OpenFOAM coherence /!\
+Re=450000
 
 # Numerical Parameters
 params = {"rp":.99,    #relaxation_parameter
@@ -23,19 +25,14 @@ params = {"rp":.99,    #relaxation_parameter
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
-def y(x):
-	y=h*np.ones(x.shape)
-	y[x>R]+=(H-h)*(x[x>R]-R)/(L-R)
-	return y
-
 # Geometry
-def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,	  params['atol']) # Left border
-def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],L,	  params['atol']) # Right border
-def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],y(x[0]),params['atol']) # Top (tilded) boundary
-def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,	  params['atol'])*(x[0]<R)
-def Ref(spy:SPY): return 1e4
+def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,params['atol']) # Left border
+def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],L,params['atol']) # Right border
+def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],H,params['atol']) # Top (tilded) boundary
+def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,params['atol'])*(x[0]<R)
+def Ref(spy:SPY): return Re
 
-def nutf(spy:SPY,S:float): spy.loadStuff(S,spy.nut_path,6,spy.nut.vector)
+def nutf(spy:SPY,S:float): spy.loadStuff([S,Re],spy.nut_path,['S','Re'],spy.nut.vector)
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

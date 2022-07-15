@@ -27,8 +27,8 @@ for i,St in enumerate(Sts):
 
 if COMM_WORLD.rank==0:
     # Plot stopping point graph
-    plt.plot(Sts, gains)
+    plt.plot(Sts, gains*Sts)
     plt.xlabel(r'$St$')
-    plt.ylabel(r'$G^{bf}_{opt}(St)$')
+    plt.ylabel(r'$St G^{bf}_{opt}(St)$')
     plt.yscale('log')
     plt.savefig("fig6.png")
