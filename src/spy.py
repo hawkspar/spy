@@ -6,14 +6,34 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import numpy as np
 import dolfinx as dfx
-import os, ufl, shutil
+import os, ufl, shutil, re
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm
 
+p0=comm.rank==0
+
+def dirCreator(path:str):
+	if not os.path.isdir(path):
+		comm.barrier() # Wait for all other processors
+		if p0: os.mkdir(path)
+		return True
+
+# Simple handler
+def meshConvert(path:str,cell_type:str) -> None:
+	if p0:
+		import meshio #pip3 install --no-binary=h5py h5py meshio
+		gmsh_mesh = meshio.read(path+".msh")
+		# Write it out again
+		ps = gmsh_mesh.points[:,:2]
+		cs = gmsh_mesh.get_cells_type(cell_type)
+		dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
+		meshio.write(path+".xdmf", dolfinx_mesh)
+	comm.barrier()
+
 # Swirling Parallel Yaj
 class SPY:
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict) -> None:
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, forcingIndicator=None) -> None:
 		# Direction dependant
 		self.direction_map=direction_map
 
@@ -37,12 +57,12 @@ class SPY:
 			self.mesh = file.read_mesh(name="Grid")
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
-		
+	
 		# Finite elements & function spaces
-		FE_vector=ufl.VectorElement("Lagrange",self.mesh.ufl_cell(),2,3)
-		FE_scalar=ufl.FiniteElement("Lagrange",self.mesh.ufl_cell(),1)
+		FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+		FE_scalar=ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		V = dfx.FunctionSpace(self.mesh,FE_scalar)
-		self.TH=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar)	# Taylor Hodd elements ; stable element pair
+		self.TH=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar) # Taylor Hodd elements ; stable element pair
 		self.u_space, self.u_dofs = self.TH.sub(0).collapse(collapsed_dofs=True)
 		self.u_dofs=np.array(self.u_dofs)
 		
@@ -52,9 +72,16 @@ class SPY:
 		
 		# Re computation
 		self.Re = Ref(self)
-		self.q = dfx.Function(self.TH) # Initialisation of q
+		# Initialisation of q
+		self.q = dfx.Function(self.TH)
+		# Turbulent viscosity
 		self.nut = dfx.Function(V)
 		self.nutf = lambda S: nutf(self,S)
+		# Forcing localisation
+		if forcingIndicator==None: self.indic=1
+		else:
+			self.indic = dfx.Function(V)
+			self.indic.interpolate(forcingIndicator)
 
 		# BCs essentials
 		self.dofs = np.empty(0,dtype=np.int32)
@@ -64,8 +91,15 @@ class SPY:
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray:
 		return np.isclose(x[self.direction_map['r']],0,self.params['atol']) # Axis of symmetry at r=0
 
-	# Gradient with x[0] is x, x[1] is r, x[2] is theta
+	# Gradient with r multiplication
+	def grad(self,v,m):
+		return ufl.as_tensor([[v[0].dx(self.direction_map['x']), v[0].dx(self.direction_map['r']),  m*1j*v[0]	   /self.r],
+							  [v[1].dx(self.direction_map['x']), v[1].dx(self.direction_map['r']), (m*1j*v[1]-v[2])/self.r],
+							  [v[2].dx(self.direction_map['x']), v[2].dx(self.direction_map['r']), (m*1j*v[2]+v[1])/self.r]])
+
 	def rgrad(self,v,m):
+		if isinstance(v,ufl.indexed.Indexed):
+			return ufl.as_vector([self.r*v.dx(self.direction_map['x']), self.r*v.dx(self.direction_map['r']), m*1j*v])
 		return ufl.as_tensor([[self.r*v[0].dx(self.direction_map['x']), self.r*v[0].dx(self.direction_map['r']), m*1j*v[0]],
 							  [self.r*v[1].dx(self.direction_map['x']), self.r*v[1].dx(self.direction_map['r']), m*1j*v[1]-v[2]],
 							  [self.r*v[2].dx(self.direction_map['x']), self.r*v[2].dx(self.direction_map['r']), m*1j*v[2]+v[1]]])
@@ -89,11 +123,11 @@ class SPY:
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u,0),	  r*s)
+		F  = ufl.inner(rdiv(u,0), 				   r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(u,0)*u,  r*v)       	   # Convection
-		F += ufl.inner(rgrad(u,0),gradr(v,0))*(1/self.Re+self.nut) # Diffusion
-		F -= ufl.inner(r*p,		   divr(v,0)) 	  	   # Pressure
+		F += ufl.inner(rgrad(u,0)*u, 			   r*v) # Convection
+		F += ufl.inner(rgrad(u,0)+rgrad(u,0).T,gradr(v,0))*(1/self.Re+self.nut) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(r*p,						divr(v,0)) # Pressure
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
@@ -104,14 +138,16 @@ class SPY:
 		u, p=ufl.split(self.trial)
 		ub,_=ufl.split(self.q) # Baseflow
 		v, s=ufl.split(self.test)
+		e=1e-6 # SUPG stabilisation
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u, m),	   r*s)
+		F  = ufl.inner( rdiv(u, m),	     			r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(ub,0)*u,  r*v)    		 # Convection
-		F += ufl.inner(rgrad(u, m)*ub, r*v)
-		F += ufl.inner(rgrad(u, m),gradr(v,m))*(1/self.Re+self.nut) # Diffusion
-		F -= ufl.inner(r*p,			divr(v,m)) 		 # Pressure
+		F += ufl.inner(rgrad(ub,0)*u,    			r*v+e*rgrad(ub,0)*v) # Convection
+		F += ufl.inner(rgrad(u, m)*ub,   		 	r*v+e*rgrad(ub,0)*v)
+		F += ufl.inner(rgrad(u, m)+rgrad(u,m).T,gradr(v,m))*(1/self.Re+self.nut) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(r*p,			  			 divr(v,m)) # Pressure
+		F += ufl.inner(rgrad(p, m),			  		    e*rgrad(ub,0)*v)
 		return F*ufl.dx
 		
 	# Code factorisation
@@ -128,7 +164,7 @@ class SPY:
 		return dofs,bcs
 
 	# Encapsulation	
-	def applyBCs(self, dofs:np.array,bcs:list):
+	def applyBCs(self, dofs:np.ndarray,bcs:list):
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.extend(bcs)
 
@@ -138,64 +174,89 @@ class SPY:
 				dofs,bcs=self.constantBC(direction,marker)
 				self.applyBCs(dofs,[bcs])
 	
-	# Memoisation routine - find closest in S
-	def loadStuff(self,S,last_name,path,offset,vector) -> None:
-		closest_file_name=path+last_name
-		if not os.path.isdir(path): os.mkdir(path)
+	# Memoisation routine - find closest in param
+	def loadStuff(self,params:list,path:str,keys:list,vector:pet.Vec) -> None:
+		closest_file_name=path
+		if dirCreator(path): return
 		file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
 		d=np.infty
 		for file_name in file_names:
-			Sd = float(file_name[offset:offset+5]) # Take advantage of file format 
-			fd = abs(S-Sd)
+			match = re.search(r'_n=(\d*)',file_name)
+			n = int(match.group(1))
+			if n!=comm.size: continue # Don't read if != proc nb
+			fd=0 # Compute distance according to all params
+			for param,key in zip(params,keys):
+				match = re.search(r'_'+key+r'=(\d*\.?\d*)',file_name)
+				param_file = float(match.group(1)) # Take advantage of file format
+				fd += abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
-		viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', comm)
-		vector.load(viewer)
-		vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
-		# Loading eddy viscosity too
-		if comm.rank==0:
-			print("Loaded "+closest_file_name+" as part of memoisation scheme")
+		try:
+			viewer = pet.Viewer().createMPIIO(closest_file_name, 'r', comm)
+			vector.load(viewer)
+			vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+			# Loading eddy viscosity too
+			if p0: print("Loaded "+closest_file_name)
+		except:
+			if p0: print("Error loading file ! Moving on...")
+
+	def saveStuff(self,dir:str,name:str,fun:dfx.Function) -> None:
+		dirCreator(dir)
+		with XDMFFile(comm, dir+name+".xdmf", "w") as xdmf:
+			xdmf.write_mesh(self.mesh)
+			xdmf.write_function(fun)
+	
+	def saveStuffMPI(self,dir:str,name:str,vec:pet.Vec) -> None:
+		dirCreator(dir)
+		viewer = pet.Viewer().createMPIIO(dir+name+f"_n={comm.size:d}.dat", 'w', comm)
+		vec.view(viewer)
 
 	# Converters
-	def datToNpy(self,fi,fo) -> None:
+	def datToNpy(self,fi:str,fo:str) -> None:
 		viewer = pet.Viewer().createMPIIO(fi, 'r', comm)
 		self.q.vector.load(viewer)
-		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+		self.q.x.scatter_forward()
 		np.save(fo,self.q.x.array)
 
 	def datToNpyAll(self) -> None:
-		file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
-		if not os.path.isdir(self.npy_path): os.mkdir(self.npy_path)
-		for file_name in file_names:
-			self.datToNpy(self.dat_real_path+file_name,
-						  self.npy_path+file_name[:-3]+'npy')
-		shutil.rmtree(self.dat_real_path)
+		if os.path.isdir(self.dat_real_path):
+			file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
+			dirCreator(self.npy_path)
+			for file_name in file_names:
+				self.datToNpy(self.dat_real_path+file_name,
+							self.npy_path+file_name[:-4]+f"_p={comm.rank:d}.npy")
+			if p0: shutil.rmtree(self.dat_real_path)
 
-	def npyToDat(self,fi,fo) -> None:
-		self.q.vector.array.real=np.load(fi,allow_pickle=True)
-		self.q.vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+	def npyToDat(self,fi:str,fo:str) -> None:
+		self.q.x.array.real=np.load(fi,allow_pickle=True)
+		self.q.x.scatter_forward()
 		viewer = pet.Viewer().createMPIIO(fo, 'w', comm)
 		self.q.vector.view(viewer)
 	
 	def npyToDatAll(self) -> None:
-		file_names = [f for f in os.listdir(self.npy_path)]
-		if not os.path.isdir(self.dat_complex_path): os.mkdir(self.dat_complex_path)
-		for file_name in file_names:
-			self.npyToDat(self.npy_path+file_name,
-						  self.dat_complex_path+file_name[:-3]+'dat')
-		shutil.rmtree(self.npy_path)
+		if os.path.isdir(self.npy_path):
+			file_names = [f for f in os.listdir(self.npy_path)]
+			dirCreator(self.dat_complex_path)
+			for file_name in file_names:
+				match = re.search(r'_p=([0-9]*)',file_name)
+				if comm.rank==int(match.group(1)):
+					self.npyToDat(self.npy_path+file_name,
+								self.dat_complex_path+file_name[:-8]+".dat")
+			if p0: shutil.rmtree(self.npy_path)
 	
 	# Quick check functions
 	def sanityCheckU(self):
 		u,_=self.q.split()
-		with XDMFFile(comm, "sanity_check_u.xdmf","w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(u)
+		self.saveStuff("./","sanity_check_u",u)
+
+	def sanityCheck(self):
+		u,p=self.q.split()
+		self.saveStuff("./","sanity_check_u",u)
+		self.saveStuff("./","sanity_check_p",p)
+		self.saveStuff("./","sanity_check_nut",self.nut)
 
 	def sanityCheckBCs(self):
 		v=dfx.Function(self.TH)
 		v.vector.zeroEntries()
-		v.vector[self.dofs]=np.ones(self.dofs.size)
+		v.x.array[self.dofs]=np.ones(self.dofs.size)
 		u,_=v.split()
-		with XDMFFile(comm, "sanity_check_bcs.xdmf","w") as xdmf:
-			xdmf.write_mesh(self.mesh)
-			xdmf.write_function(u)
+		self.saveStuff("","sanity_check_bcs",u)

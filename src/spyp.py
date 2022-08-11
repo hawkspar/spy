@@ -4,11 +4,10 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl, glob #source /usr/local/bin/dolfinx-complex-mode
-import numpy as np
-from spy import SPY
+import numpy as np #source /usr/local/bin/dolfinx-complex-mode
+import os, ufl, glob
 import dolfinx as dfx
-from dolfinx.io import XDMFFile
+from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
@@ -16,11 +15,10 @@ from mpi4py.MPI import COMM_WORLD as comm
 p0=comm.rank==0
 
 # Wrapper
-def assembleForm(comm,form:ufl.Form,bcs:list=[],sym=False,diag=0):
-	jit_parameters = {"cffi_extra_compile_args": ["-Ofast", "-march=native"],
-					  "cffi_libraries": ["m"]}
+def assembleForm(comm,form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
-	form = dfx.fem.Form(form, jit_parameters=jit_parameters)
+	form = dfx.fem.Form(form, jit_parameters={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
+					  						  "cffi_libraries": ["m"]})
 	# Sparsity pattern
 	sp = dfx.fem.create_sparsity_pattern(form._cpp_object)
 	sp.assemble()
@@ -42,7 +40,7 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	return Mat
 
 # Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict):
+def configureKSP(KSP:pet.KSP,params:dict) -> None:
 	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
 	# Krylov subspace
 	KSP.setType('preonly')
@@ -52,25 +50,22 @@ def configureKSP(KSP:pet.KSP,params:dict):
 	KSP.setFromOptions()
 
 # Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict):
+def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map)
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
+		super().__init__(params, datapath, Ref, nutf, direction_map, forcingIndicator)
 		self.S=S; self.m=m
-		self.save_string=f"_S={S:00.3f}_m={m:1d}"
+		self.save_string=f"_S={S:00.3f}_m={m:d}"
+		dirCreator(self.resolvent_path)
 
-	# To be run in complex mode
-	def assembleJNMatrices(self) -> None:
+	# To be run in complex mode, assemble crucial matrices
+	def assembleJNMatrices(self,Re:int) -> None:
 		# Load baseflow
-		self.loadStuff(self.S,"last_baseflow.dat",self.dat_complex_path,11,self.q.vector)
-		# Enforce no azimuthal flow in case S=0
-		if self.S==0:
-			_, w_dofs = self.TH.sub(0).sub(self.direction_map['th']).collapse(collapsed_dofs=True)
-			self.q.vector[w_dofs]=np.zeros(len(w_dofs))
+		self.loadStuff([self.S,Re],self.dat_complex_path,['S','Re'],self.q.vector)
 		# Load turbulent viscosity
 		self.nutf(self.S)
 
@@ -86,29 +81,29 @@ class SPYP(SPY):
 		# Assemble matrices
 		self.J = assembleForm(comm,J_form,self.bcs,diag=1)
 		self.N = assembleForm(comm,N_form,self.bcs,True)
-		
+
 		if p0: print("Jacobian & Norm matrices computed !")
 
-	# Assemble norm matrix
-	def assembleMRMatrices(self):
+	# Assemble important matrices for resolvent
+	def assembleMRMatrices(self) -> None:
 		# Fonctions des petits et grands espaces
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 		w = ufl.TrialFunction(self.u_space)
 		z = ufl.TestFunction( self.u_space)
 
-		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the quadrature in R.
-		B_form = ufl.inner(w,v)*self.r**2*ufl.dx
+		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
+		B_form = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
-		M_form = ufl.inner(w,z)*self.r	 *ufl.dx # Quadrature corresponds to L2 integration
+		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
-		Q_form = ufl.inner(u,v)*self.r	 *ufl.dx
+		Q_form = ufl.inner(u,v)*self.r*ufl.dx
 
 		# Assembling matrices
 		B 	   = assembleForm(comm,B_form,self.bcs)
 		self.M = assembleForm(comm,M_form,sym=True)
 		Q 	   = assembleForm(comm,Q_form,sym=True)
-		
+
 		if p0: print("Quadrature, Extractor & Mass matrices computed !")
 
 		# Sizes
@@ -124,12 +119,15 @@ class SPYP(SPY):
 			def mult(cls,A,x,y):
 				B.mult(x,tmp1.vector)
 				tmp1.x.scatter_forward()
-				self.KSPs[0].solve(tmp1.vector,tmp2.vector)
+				self.KSP.solve(tmp1.vector,tmp2.vector)
 				tmp2.x.scatter_forward()
 				tmp2.vector.copy(y)
 
 			def multTranspose(cls,A,x,y):
-				self.KSPs[1].solve(x,tmp2.vector)
+				# Hand made solveHermitianTranspose (save extra LU factorisation)
+				x.conjugate()
+				self.KSP.solveTranspose(x,tmp2.vector)
+				tmp2.vector.conjugate()
 				tmp2.x.scatter_forward()
 				B.multTranspose(tmp2.vector,tmp3.vector)
 				tmp3.x.scatter_forward()
@@ -152,59 +150,51 @@ class SPYP(SPY):
 		for St in St_list:
 			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 
-			self.KSPs = []
-			# Useful solvers (here to put options for computing a smart R)
-			for Mat in [L,L.copy().hermitianTranspose()]:
-				KSP = pet.KSP().create(comm)
-				KSP.setOperators(Mat)
-				configureKSP(KSP,self.params)
-				self.KSPs.append(KSP)
+			# Useful solver
+			self.KSP = pet.KSP().create(comm)
+			self.KSP.setOperators(L)
+			configureKSP(self.KSP,self.params)
 
 			# Eigensolver
-			EPS.setOperators(self.LHS,self.M) # Solve QE^T*L^-1H*M*L^-1*QE*f=sigma^2*M*f (cheaper than a proper SVD)
+			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			EPS.setProblemType(slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			configureEPS(EPS,k,self.params)
-			# Spectral transform (maybe unnecessary ?)
-			ST = EPS.getST(); ST.setType('shift'); ST.setShift(0)
-			# Krylov subspace
-			KSP = ST.getKSP()
+			# Spectral transform (by default shift of 0) & Krylov subspace
+			ST = EPS.getST(); KSP = ST.getKSP()
 			configureKSP(KSP,self.params)
 			EPS.setFromOptions()
-			if p0: print("Solver launch...")
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0: continue
-
-			# Conversion back into numpy 
-			gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
-			#write gains
-			if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
-			np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.dat",np.abs(gains))
 			
 			if p0:
+				# Conversion back into numpy (we know gains to be real positive)
+				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
+				# Write gains
+				dirCreator(self.resolvent_path)
+				np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.txt",gains)
+				# Pretty print
 				print("# of CV eigenvalues : "+str(n))
 				print("# of iterations : "+str(EPS.getIterationNumber()))
 				# Get a list of all the file paths with the same parameters
-				fileList = glob.glob(self.resolvent_path+"*_u" +self.save_string+f"_St={St:00.3f}_n=*.*")
+				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+self.save_string+f"_St={St:00.3f}_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: os.remove(filePath)
 
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				# Obtain forcings as eigenvectors
-				fu=dfx.Function(self.u_space)
-				EPS.getEigenvector(i,fu.vector)
-				with XDMFFile(comm, self.resolvent_path+"forcing_u" +self.save_string+f"_St={St:00.3f}_n={i+1:1d}.xdmf","w") as xdmf:
-					xdmf.write_mesh(self.mesh)
-					xdmf.write_function(fu)
+				forcing_i=dfx.Function(self.u_space)
+				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
+				self.saveStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
-				q=dfx.Function(self.TH)
-				self.R.mult(fu.vector,q.vector)
-				u,_=q.split()
-				with XDMFFile(comm, self.resolvent_path+"response_u"+self.save_string+f"_St={St:00.3f}_n={i+1:1d}.xdmf","w") as xdmf:
-					xdmf.write_mesh(self.mesh)
-					xdmf.write_function(u)
+				response_i=dfx.Function(self.TH)
+				self.R.mult(forcing_i.vector,response_i.vector)
+				velocity_i,_=response_i.split()
+				# Scale response so that it is still unitary
+				velocity_i.x.array[:]/=gain_i
+				self.saveStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",velocity_i)
 			if p0: print("Strouhal",St,"handled !")
 
 	# Modal analysis
@@ -227,16 +217,13 @@ class SPYP(SPY):
 		if n==0: return
 		# Conversion back into numpy 
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
-		if not os.path.isdir(self.eig_path): os.mkdir(self.eig_path)
+		dirCreator(self.eig_path)
 		# write eigenvalues
-		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sigma={np.real(sigma):00.3f}{np.imag(sigma):+00.3f}j.dat",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=dfx.Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
-			q.x.scatter_forward()
 			u,p = q.split()
-			with XDMFFile(comm, self.eig_path+f"u/evec_u_S={self.S:00.3f}_m={self.m:1d}_lam={vals[i].real:00.3f}{vals[i].imag:+00.3f}j.xdmf", "w") as xdmf:
-				xdmf.write_mesh(self.mesh)
-				xdmf.write_function(u)
+			self.saveStuff(self.eig_path+"u/","evec_"+self.save_string+f"_l={vals[i]:00.3f}",u)
 		if p0: print("Eigenpairs written !")
