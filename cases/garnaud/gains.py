@@ -7,8 +7,7 @@ Created on Wed Oct  13 17:07:00 2021
 import numpy as np
 from setup import *
 from spyp import SPYP
-#from mpi4py.MPI import COMM_WORLD
-#from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
 
 # Gains
 n=50
@@ -38,4 +37,5 @@ if COMM_WORLD.rank==0:
     plt.xlabel(r'$St$')
     plt.ylabel(r'$St G^{bf}_{opt}(St)$')
     plt.yscale('log')
-    plt.savefig("fig6_st.png")"""
+    plt.savefig("fig6.png")
+"""

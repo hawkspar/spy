@@ -9,7 +9,7 @@ import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 from dolfinx.fem import NonlinearProblem
-from dolfinx import Function, NewtonSolver, log
+from dolfinx import Function, NewtonSolver
 from mpi4py.MPI import COMM_WORLD as comm, MIN
 
 pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method
@@ -49,7 +49,7 @@ class SPYB(SPY):
 		dbase_form = self.linearisedNavierStokes(0) # m=0
 		
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.q,bcs=self.bcs)#,J=dbase_form)
+		problem = NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning

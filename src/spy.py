@@ -4,6 +4,7 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
+import re
 import numpy as np
 import dolfinx as dfx
 import os, ufl, shutil, re
@@ -247,12 +248,15 @@ class SPY:
 	def sanityCheckU(self):
 		u,_=self.q.split()
 		self.saveStuff("./","sanity_check_u",u)
+<<<<<<< HEAD
 
 	def sanityCheck(self):
 		u,p=self.q.split()
 		self.saveStuff("./","sanity_check_u",u)
 		self.saveStuff("./","sanity_check_p",p)
 		self.saveStuff("./","sanity_check_nut",self.nut)
+=======
+>>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
 
 	def sanityCheckBCs(self):
 		v=dfx.Function(self.TH)
