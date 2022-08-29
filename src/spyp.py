@@ -53,6 +53,7 @@ def configureKSP(KSP:pet.KSP,params:dict) -> None:
 def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
+	EPS.setTrueResidual(True)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -176,6 +177,7 @@ class SPYP(SPY):
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n))
 				print("# of iterations : "+str(EPS.getIterationNumber()))
+				print("Error estimate : "+str(EPS.getErrorEstimate(0)))
 				# Get a list of all the file paths with the same parameters
 				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+self.save_string+f"_St={St:00.3f}_i=*.*")
 				# Iterate over the list of filepaths & remove each file

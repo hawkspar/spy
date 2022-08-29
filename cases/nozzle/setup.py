@@ -15,11 +15,12 @@ from spy import SPY
 R=1;  L=100; H=15
 
 # /!\ OpenFOAM coherence /!\
-Re=450000
+Re=400000
+S=0
 
 # Numerical Parameters
 params = {"rp":.99,    #relaxation_parameter
-		  "atol":1e-6, #absolute_tolerance
+		  "atol":1e-12, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":100}
 datapath='nozzle/' #folder for results

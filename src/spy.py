@@ -37,7 +37,6 @@ class SPY:
 	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, forcingIndicator=None) -> None:
 		# Direction dependant
 		self.direction_map=direction_map
-
 		# Solver parameters (Newton mostly, but also eig)
 		self.params=params
 
@@ -56,13 +55,19 @@ class SPY:
 		meshpath=self.case_path+datapath[:-1]+".xdmf"
 		with XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
+
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
+		# Local cell number
+		tdim = self.mesh.topology.dim
+		num_cells = self.mesh.topology.index_map(tdim).size_local
 	
 		# Finite elements & function spaces
-		FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-		FE_scalar=ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
 		V = dfx.FunctionSpace(self.mesh,FE_scalar)
+		W = dfx.FunctionSpace(self.mesh,FE_constant)
 		self.TH=dfx.FunctionSpace(self.mesh,FE_vector*FE_scalar) # Taylor Hodd elements ; stable element pair
 		self.u_space, self.u_dofs = self.TH.sub(0).collapse(collapsed_dofs=True)
 		self.u_dofs=np.array(self.u_dofs)
@@ -78,6 +83,10 @@ class SPY:
 		# Turbulent viscosity
 		self.nut = dfx.Function(V)
 		self.nutf = lambda S: nutf(self,S)
+		# Local mesh size
+		h = dfx.cpp.mesh.h(self.mesh, tdim, range(num_cells))
+		self.h = dfx.Function(W)
+		self.h.x.array[:]=h
 		# Forcing localisation
 		if forcingIndicator==None: self.indic=1
 		else:
@@ -93,11 +102,6 @@ class SPY:
 		return np.isclose(x[self.direction_map['r']],0,self.params['atol']) # Axis of symmetry at r=0
 
 	# Gradient with r multiplication
-	def grad(self,v,m):
-		return ufl.as_tensor([[v[0].dx(self.direction_map['x']), v[0].dx(self.direction_map['r']),  m*1j*v[0]	   /self.r],
-							  [v[1].dx(self.direction_map['x']), v[1].dx(self.direction_map['r']), (m*1j*v[1]-v[2])/self.r],
-							  [v[2].dx(self.direction_map['x']), v[2].dx(self.direction_map['r']), (m*1j*v[2]+v[1])/self.r]])
-
 	def rgrad(self,v,m):
 		if isinstance(v,ufl.indexed.Indexed):
 			return ufl.as_vector([self.r*v.dx(self.direction_map['x']), self.r*v.dx(self.direction_map['r']), m*1j*v])
@@ -134,21 +138,26 @@ class SPY:
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
-		r=self.r
+		r,h=self.r,self.h
 		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
 		u, p=ufl.split(self.trial)
 		ub,_=ufl.split(self.q) # Baseflow
 		v, s=ufl.split(self.test)
-		e=1e-6 # SUPG stabilisation
+
+		# Weird Johann local tau (SUPG stabilisation)
+		n=.5*ufl.sqrt(ufl.inner(ub,ub))
+		Pe=ufl.real(n*h*self.Re)
+		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
+		t=cPe*h/2/n
 		
 		# Mass (variational formulation)
 		F  = ufl.inner( rdiv(u, m),	     			r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(ub,0)*u,    			r*v+e*rgrad(ub,0)*v) # Convection
-		F += ufl.inner(rgrad(u, m)*ub,   		 	r*v+e*rgrad(ub,0)*v)
+		F += ufl.inner(rgrad(ub,0)*u,    			r*v+t*rgrad(v,m)*ub) # Convection
+		F += ufl.inner(rgrad(u, m)*ub,   		 	r*v+t*rgrad(v,m)*ub)
 		F += ufl.inner(rgrad(u, m)+rgrad(u,m).T,gradr(v,m))*(1/self.Re+self.nut) # Diffusion (grad u.T significant with nut)
 		F -= ufl.inner(r*p,			  			 divr(v,m)) # Pressure
-		F += ufl.inner(rgrad(p, m),			  		    e*rgrad(ub,0)*v)
+		F += ufl.inner(rgrad(p, m),			  		    t*rgrad(v,m)*ub)
 		return F*ufl.dx
 		
 	# Code factorisation
@@ -248,15 +257,12 @@ class SPY:
 	def sanityCheckU(self):
 		u,_=self.q.split()
 		self.saveStuff("./","sanity_check_u",u)
-<<<<<<< HEAD
 
 	def sanityCheck(self):
 		u,p=self.q.split()
 		self.saveStuff("./","sanity_check_u",u)
 		self.saveStuff("./","sanity_check_p",p)
 		self.saveStuff("./","sanity_check_nut",self.nut)
-=======
->>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
 
 	def sanityCheckBCs(self):
 		v=dfx.Function(self.TH)

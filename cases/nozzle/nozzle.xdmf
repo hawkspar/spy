@@ -1,5 +1,1 @@
-<<<<<<< HEAD
-<Xdmf Version="3.0"><Domain><Grid Name="Grid"><Geometry GeometryType="XY"><DataItem DataType="Float" Dimensions="91744 2" Format="HDF" Precision="4">nozzle.h5:/data0</DataItem></Geometry><Topology TopologyType="Triangle" NumberOfElements="179118" NodesPerElement="3"><DataItem DataType="Int" Dimensions="179118 3" Format="HDF" Precision="8">nozzle.h5:/data1</DataItem></Topology></Grid></Domain></Xdmf>
-=======
-<Xdmf Version="3.0"><Domain><Grid Name="Grid"><Geometry GeometryType="XY"><DataItem DataType="Float" Dimensions="2916 2" Format="HDF" Precision="8">nozzle.h5:/data0</DataItem></Geometry><Topology TopologyType="Quadrilateral" NumberOfElements="2809" NodesPerElement="4"><DataItem DataType="Int" Dimensions="2809 4" Format="HDF" Precision="4">nozzle.h5:/data1</DataItem></Topology></Grid></Domain></Xdmf>
->>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
+<Xdmf Version="3.0"><Domain><Grid Name="Grid"><Geometry GeometryType="XY"><DataItem DataType="Float" Dimensions="167379 2" Format="HDF" Precision="4">nozzle.h5:/data0</DataItem></Geometry><Topology TopologyType="Triangle" NumberOfElements="329237" NodesPerElement="3"><DataItem DataType="Int" Dimensions="329237 3" Format="HDF" Precision="8">nozzle.h5:/data1</DataItem></Topology></Grid></Domain></Xdmf>
