@@ -1,12 +1,6 @@
-<<<<<<< HEAD
 import re, os
 import numpy as np
 from matplotlib import pyplot as plt
-=======
-from matplotlib import pyplot as plt
-import numpy as np
-import re, os
->>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
 
 dat={}
 dir="/home/shared/cases/nozzle/resolvent/"

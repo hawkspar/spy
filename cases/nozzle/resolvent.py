@@ -8,7 +8,7 @@ import numpy as np
 from setup import *
 from spyp  import SPYP # Must be after setup
 
-#ms=range(2)
+#ms=range(3)
 ms=[0]
 #Sts=np.linspace(0,1,11)
 Sts=[.3]

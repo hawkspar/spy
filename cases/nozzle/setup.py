@@ -12,7 +12,7 @@ sys.path.append('/home/shared/src')
 from spy import SPY
 
 # Geometry parameters (nozzle)
-R=1;  L=100; H=15
+R=1; L=100; H=15
 
 # /!\ OpenFOAM coherence /!\
 Re=400000

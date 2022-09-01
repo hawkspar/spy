@@ -13,7 +13,7 @@ sys.path.append('/home/shared/src')
 
 from spy import dirCreator
 
-interpolate=False
+interpolate=True
 cell_type_openfoam="triangle"
 cell_type_dolfinx="triangle"
 real_mode=False

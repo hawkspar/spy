@@ -60,7 +60,7 @@ class SPY:
 		self.r = ufl.SpatialCoordinate(self.mesh)[1]
 		# Local cell number
 		tdim = self.mesh.topology.dim
-		num_cells = self.mesh.topology.index_map(tdim).size_local
+		num_cells = self.mesh.topology.index_map(tdim).size_local + self.mesh.topology.index_map(tdim).num_ghosts
 	
 		# Finite elements & function spaces
 		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
@@ -87,6 +87,7 @@ class SPY:
 		h = dfx.cpp.mesh.h(self.mesh, tdim, range(num_cells))
 		self.h = dfx.Function(W)
 		self.h.x.array[:]=h
+
 		# Forcing localisation
 		if forcingIndicator==None: self.indic=1
 		else:
@@ -97,17 +98,45 @@ class SPY:
 		self.dofs = np.empty(0,dtype=np.int32)
 		self.bcs=[]
 
+	# Helper
+	def loadBaseflow(self,S,Re,m):
+		# Load baseflow
+		self.loadStuff([S,Re],self.dat_complex_path,['S','Re'],self.q.vector)
+		# Load turbulent viscosity
+		self.nutf(S)
+
+		# Split Arguments
+		v,_ = ufl.split(self.test)
+		ub,_= ufl.split(self.q) # Baseflow
+
+		# Weird Johann local tau (SUPG stabilisation)
+		n=.5*ufl.sqrt(ufl.inner(ub,ub))
+		Pe=ufl.real(n*self.h*self.Re)
+		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
+		t=cPe*self.h/2/n
+
+		self.SUPG = t*self.rgradv(v,m)*ub # Streamline Upwind Petrov Galerkin
+		self.SUPG = ufl.as_vector([0,0,0])
+
 	# Jet geometry
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray:
 		return np.isclose(x[self.direction_map['r']],0,self.params['atol']) # Axis of symmetry at r=0
 
-	# Gradient with r multiplication
-	def rgrad(self,v,m):
+	# Gradient
+	def grad(self,v,m):
 		if isinstance(v,ufl.indexed.Indexed):
-			return ufl.as_vector([self.r*v.dx(self.direction_map['x']), self.r*v.dx(self.direction_map['r']), m*1j*v])
+			return ufl.as_vector([v.dx(self.direction_map['x']), v.dx(self.direction_map['r']), m*1j*v/self.r])
+		return ufl.as_tensor([[v[0].dx(self.direction_map['x']), v[0].dx(self.direction_map['r']), m*1j*v[0]/self.r],
+							  [v[1].dx(self.direction_map['x']), v[1].dx(self.direction_map['r']), (m*1j*v[1]-v[2])/self.r],
+							  [v[2].dx(self.direction_map['x']), v[2].dx(self.direction_map['r']), (m*1j*v[2]+v[1])/self.r]])
+
+	# Gradient with r multiplication
+	def rgradv(self,v,m):
 		return ufl.as_tensor([[self.r*v[0].dx(self.direction_map['x']), self.r*v[0].dx(self.direction_map['r']), m*1j*v[0]],
 							  [self.r*v[1].dx(self.direction_map['x']), self.r*v[1].dx(self.direction_map['r']), m*1j*v[1]-v[2]],
 							  [self.r*v[2].dx(self.direction_map['x']), self.r*v[2].dx(self.direction_map['r']), m*1j*v[2]+v[1]]])
+	def rgrads(self,v,m):
+		return ufl.as_vector([self.r*v.dx(self.direction_map['x']), self.r*v.dx(self.direction_map['r']), m*1j*v])
 
 	def gradr(self,v,m):
 		return ufl.as_tensor([[self.r*v[0].dx(self.direction_map['x']), v[0]+self.r*v[0].dx(self.direction_map['r']), m*1j*v[0]],
@@ -115,15 +144,30 @@ class SPY:
 							  [self.r*v[2].dx(self.direction_map['x']), v[2]+self.r*v[2].dx(self.direction_map['r']), m*1j*v[2]+v[1]]])
 
 	# Same for divergent
-	def rdiv(self,v,m): return self.r*v[0].dx(self.direction_map['x']) +   v[1] + self.r*v[1].dx(self.direction_map['r']) + m*1j*v[2]
+	def rdivt(self,v,m):
+		return ufl.as_vector([self.r*v[0,0].dx(self.direction_map['x'])+v[1,0] 		 +self.r*v[1,0].dx(self.direction_map['r'])+m*1j*v[2,0],
+							  self.r*v[0,1].dx(self.direction_map['x'])+v[1,1]-v[2,2]+self.r*v[1,1].dx(self.direction_map['r'])+m*1j*v[2,1],
+							  self.r*v[0,2].dx(self.direction_map['x'])+v[1,2]-v[2,1]+self.r*v[1,2].dx(self.direction_map['r'])+m*1j*v[2,2]])
+
+	def rdivv(self,v,m): return self.r*v[0].dx(self.direction_map['x']) +   v[1] + self.r*v[1].dx(self.direction_map['r']) + m*1j*v[2]
 
 	def divr(self,v,m): return self.r*v[0].dx(self.direction_map['x']) + 2*v[1] + self.r*v[1].dx(self.direction_map['r']) + m*1j*v[2]
+
+	def r2lap(self,v,m):
+		return ufl.as_vector([self.r**2*v[0].dx(0).dx(0)+self.r*v[0].dx(1)+self.r**2*v[0].dx(1).dx(1)-m**2*v[0],
+							  self.r**2*v[1].dx(0).dx(0)+self.r*v[1].dx(1)+self.r**2*v[1].dx(1).dx(1)-m**2*v[1]-v[1]-2*m*1j*v[2],
+							  self.r**2*v[2].dx(0).dx(0)+self.r*v[2].dx(1)+self.r**2*v[2].dx(1).dx(1)-m**2*v[2]-v[1]+2*m*1j*v[1]])
+
+	def r2lapT(self,v,m):
+		return ufl.as_vector([self.r**2*  v[0].dx(0).dx(0)+self.r*v[1].dx(0)+self.r**2*v[1].dx(0).dx(1)+self.r*m*1j*v[2].dx(0),
+							  self.r**2*  v[0].dx(0).dx(1)+self.r*v[1].dx(1)+self.r**2*v[1].dx(1).dx(1)+self.r*m*1j*v[2].dx(1)-m*1j*v[2],
+							  self.r*m*1j*v[0].dx(0) +self.r*m*1j*v[1].dx(1)						   +self.r*     v[2].dx(1)-m**2*v[2]])
 
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
 		# Shortforms
 		r=self.r
-		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
+		rdiv,divr,rgrad,gradr=self.rdivv,self.divr,self.rgradv,self.gradr
 		u,p=ufl.split(self.q)
 		v,s=ufl.split(self.test)
 		
@@ -138,26 +182,23 @@ class SPY:
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
-		r,h=self.r,self.h
-		rdiv,divr,rgrad,gradr=self.rdiv,self.divr,self.rgrad,self.gradr
+		r=self.r
+		rdiv,divr,rgrad,rgrads,gradr=self.rdivv,self.divr,self.rgradv,self.rgrads,self.gradr
+		r2lap,r2lapT=self.r2lap,self.r2lapT
 		u, p=ufl.split(self.trial)
 		ub,_=ufl.split(self.q) # Baseflow
 		v, s=ufl.split(self.test)
-
-		# Weird Johann local tau (SUPG stabilisation)
-		n=.5*ufl.sqrt(ufl.inner(ub,ub))
-		Pe=ufl.real(n*h*self.Re)
-		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
-		t=cPe*h/2/n
 		
 		# Mass (variational formulation)
-		F  = ufl.inner( rdiv(u, m),	     			r*s)
+		F  = ufl.inner( rdiv(u, m), r**2*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrad(ub,0)*u,    			r*v+t*rgrad(v,m)*ub) # Convection
-		F += ufl.inner(rgrad(u, m)*ub,   		 	r*v+t*rgrad(v,m)*ub)
-		F += ufl.inner(rgrad(u, m)+rgrad(u,m).T,gradr(v,m))*(1/self.Re+self.nut) # Diffusion (grad u.T significant with nut)
-		F -= ufl.inner(r*p,			  			 divr(v,m)) # Pressure
-		F += ufl.inner(rgrad(p, m),			  		    t*rgrad(v,m)*ub)
+		F += ufl.inner(rgrad(ub,0)*u,  r**2*v+r*self.SUPG) # Convection
+		F += ufl.inner(rgrad(u, m)*ub, r**2*v+r*self.SUPG)
+		F += ufl.inner(rgrad(u, m) +rgrad(u,m).T,gradr(v,m))*(1/self.Re+self.nut) # Diffusion (grad u.T significant with nut)
+		#F -= ufl.inner((rgrad(u,m) +rgrad(u,m).T)*rgrads(1/self.Re+self.nut,m),self.SUPG)
+		#F -= ufl.inner((r2lap(u,m)+r2lapT(u,m))*	    (1/self.Re+self.nut),  self.SUPG)
+		F -= ufl.inner(r*2**p,			  		  divr(v,m)) # Pressure
+		#F += ufl.inner(rgrads(p, m),		  r*self.SUPG)
 		return F*ufl.dx
 		
 	# Code factorisation
