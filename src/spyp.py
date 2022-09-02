@@ -64,10 +64,7 @@ class SPYP(SPY):
 		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,Re:int) -> None:
-		# Sets up SUPG
-		self.loadBaseflow(self.S,Re,self.m)
-
+	def assembleJNMatrices(self) -> None:
 		# Functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
@@ -79,13 +76,13 @@ class SPYP(SPY):
 
 		# Assemble matrices
 		self.J = assembleForm(comm,J_form,self.bcs,diag=1)
-		self.N = assembleForm(comm,N_form,self.bcs,True)
+		self.N = assembleForm(comm,N_form,self.bcs)#,True)
 
 		if p0: print("Jacobian & Norm matrices computed !")
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self) -> None:
-		# Fonctions des petits et grands espaces
+		# Velocity and full space functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 		w = ufl.TrialFunction(self.u_space)

@@ -16,8 +16,10 @@ Sts=[.3]
 for m in ms:
 	spyp=SPYP(params,datapath,Ref,nutf,direction_map,S,m)#,forcingIndicator)
 	boundaryConditionsPerturbations(spyp,m)
+	spyp.loadBaseflow(S,Re,m)
+	#spyp.sanityCheck()
 	# For efficiency, matrices assembled once per Sts
-	spyp.assembleJNMatrices(Re)
+	spyp.assembleJNMatrices()
 	spyp.assembleMRMatrices()
 	# Resolvent analysis
 	spyp.resolvent(1,Sts)
