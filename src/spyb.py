@@ -8,8 +8,9 @@ import shutil
 import numpy as np
 from spy import SPY, dirCreator, loadStuff
 from petsc4py import PETSc as pet
-from dolfinx.fem import NonlinearProblem
-from dolfinx import Function, NewtonSolver
+from dolfinx.fem import Function
+from dolfinx.nls.petsc import NewtonSolver
+from dolfinx.fem.petsc import NonlinearProblem
 from mpi4py.MPI import COMM_WORLD as comm, MIN
 
 pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method

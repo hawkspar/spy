@@ -8,6 +8,7 @@ import numpy as np #source /usr/local/bin/dolfinx-complex-mode
 import os, ufl, glob
 import dolfinx as dfx
 from spy import SPY, dirCreator
+from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
@@ -15,18 +16,13 @@ from mpi4py.MPI import COMM_WORLD as comm
 p0=comm.rank==0
 
 # Wrapper
-def assembleForm(comm,form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
+def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
-	form = dfx.fem.Form(form, jit_parameters={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
-					  						  "cffi_libraries": ["m"]})
-	# Sparsity pattern
-	sp = dfx.fem.create_sparsity_pattern(form._cpp_object)
-	sp.assemble()
-	# Create sparse matrix
-	A = dfx.cpp.la.create_matrix(comm, sp)
-	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1)
+	form = dfx.fem.form(form, jit_params={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
+					  					  "cffi_libraries": ["m"]})
+	# Default is already fully local
+	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag)
 	A.setOption(A.Option.SYMMETRIC,sym)
-	A = dfx.fem.assemble_matrix(A,form,bcs,diag)
 	A.assemble()
 	return A
 
@@ -72,12 +68,11 @@ class SPYP(SPY):
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(self.m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		#N_form  = ufl.inner(u,self.r*v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
-		N_form  = ufl.inner(u,v+self.SUPG)*ufl.dx
-
+		N_form  = ufl.inner(u,self.r*v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
+		
 		# Assemble matrices
-		self.J = assembleForm(comm,J_form,self.bcs,diag=1)
-		self.N = assembleForm(comm,N_form,self.bcs)#,True)
+		self.J = assembleForm(J_form,self.bcs,diag=1)
+		self.N = assembleForm(N_form,self.bcs)#,True)
 
 		if p0: print("Jacobian & Norm matrices computed !")
 
@@ -90,17 +85,16 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.u_space)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		#B_form  = ufl.inner(w,self.r*v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		B_form  = ufl.inner(w,v+self.SUPG)*self.indic*ufl.dx
+		B_form  = ufl.inner(w,self.r*v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
 		Q_form = ufl.inner(u,v)*self.r*ufl.dx
 
 		# Assembling matrices
-		B 	   = assembleForm(comm,B_form,self.bcs)
-		self.M = assembleForm(comm,M_form,sym=True)
-		Q 	   = assembleForm(comm,Q_form,sym=True)
+		B 	   = assembleForm(B_form,self.bcs)
+		self.M = assembleForm(M_form,sym=True)
+		Q 	   = assembleForm(Q_form,sym=True)
 
 		if p0: print("Quadrature, Extractor & Mass matrices computed !")
 
@@ -109,8 +103,8 @@ class SPYP(SPY):
 		m_local,n_local = B.getLocalSize()
 
 		# Temporary vectors
-		tmp1, tmp2 = dfx.Function(self.TH), dfx.Function(self.TH)
-		tmp3 = dfx.Function(self.u_space)
+		tmp1, tmp2 = Function(self.TH), Function(self.TH)
+		tmp3 = Function(self.u_space)
 
 		# Resolvent operator
 		class R_class:
@@ -183,12 +177,12 @@ class SPYP(SPY):
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				# Obtain forcings as eigenvectors
-				forcing_i=dfx.Function(self.u_space)
+				forcing_i=Function(self.u_space)
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				self.saveStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
-				response_i=dfx.Function(self.TH)
+				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
 				velocity_i,_=response_i.split()
 				# Scale response so that it is still unitary
@@ -221,7 +215,7 @@ class SPYP(SPY):
 		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
-			q=dfx.Function(self.TH)
+			q=Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
 			u,p = q.split()
 			self.saveStuff(self.eig_path+"u/","evec_"+self.save_string+f"_l={vals[i]:00.3f}",u)

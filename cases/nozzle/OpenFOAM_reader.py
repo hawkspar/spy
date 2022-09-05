@@ -2,18 +2,19 @@ import re, os
 import numpy as np
 from setup import *
 import dolfinx as dfx
+from setup import Re,S
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
 from dolfinx.io import XDMFFile
 from petsc4py import PETSc as pet
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
-from setup import Re,S
+from dolfinx.fem import FunctionSpace, Function
 
 sys.path.append('/home/shared/src')
 
 from spy import dirCreator
 
-interpolate=False
+interpolate=True
 cell_type_openfoam="triangle"
 cell_type_dolfinx="triangle"
 real_mode=False
@@ -62,13 +63,15 @@ with XDMFFile(comm, "nozzle.xdmf", "r") as file:
 
 # Create FiniteElement, FunctionSpace & Functions
 FE_vector  =ufl.VectorElement("CG",mesh.ufl_cell(),1,3)
-FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
+FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),3,3)
 FE_scalar  =ufl.FiniteElement("CG",mesh.ufl_cell(),1)
-V =dfx.FunctionSpace(mesh, FE_vector)
-V2=dfx.FunctionSpace(mesh, FE_vector_2)
-W =dfx.FunctionSpace(mesh, FE_scalar)
-u, u2  = dfx.Function(V), dfx.Function(V2)
-p, nut = dfx.Function(W), dfx.Function(W)
+FE_scalar_2=ufl.FiniteElement("CG",mesh.ufl_cell(),2)
+V =FunctionSpace(mesh, FE_vector)
+V2=FunctionSpace(mesh, FE_vector_2)
+W =FunctionSpace(mesh, FE_scalar)
+W2=FunctionSpace(mesh, FE_scalar_2)
+u, u2  = Function(V), Function(V2)
+p, p2, nut = Function(W), Function(W2), Function(W)
 
 # Handlers (still useful when !interpolate)
 fine_xy=openfoam_data.points[:,:2]
@@ -93,14 +96,15 @@ p.x.array[:]  =interp(pv)
 nut.x.array[:]=interp(nutv)
 # Interpolation to higher order
 u2.interpolate(u)
+p2.interpolate(p)
 
 # Write result as mixed
-TH = dfx.FunctionSpace(mesh,FE_vector_2*FE_scalar)
-_, dofs_U = TH.sub(0).collapse(collapsed_dofs=True)
-_, dofs_p = TH.sub(1).collapse(collapsed_dofs=True)
-q = dfx.Function(TH)
+TH = FunctionSpace(mesh,FE_vector_2*FE_scalar_2)
+_, dofs_U = TH.sub(0).collapse()
+_, dofs_p = TH.sub(1).collapse()
+q = Function(TH)
 q.x.array[dofs_U]=u2.x.array
-q.x.array[dofs_p]=p.x.array
+q.x.array[dofs_p]=p2.x.array
 """
 # Save pretty graphs
 u,p=q.split()
