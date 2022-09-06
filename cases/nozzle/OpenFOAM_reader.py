@@ -52,7 +52,8 @@ if comm.rank==0:
         dolfinx_data = meshio.read("nozzle_2D_coarse.msh")
         # Write it out again in a dolfinx friendly format
         converter(dolfinx_data,cell_type_dolfinx)
-    else: converter(openfoam_data,cell_type_openfoam)
+    else:
+        converter(openfoam_data,cell_type_openfoam)
 else: openfoam_data=None
 
 openfoam_data = comm.bcast(openfoam_data, root=0) # data available to all but not distributed
@@ -62,12 +63,14 @@ with XDMFFile(comm, "nozzle.xdmf", "r") as file:
 
 # Create FiniteElement, FunctionSpace & Functions
 FE_vector  =ufl.VectorElement("CG",mesh.ufl_cell(),1,3)
-FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
+FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),3,3)
 FE_scalar  =ufl.FiniteElement("CG",mesh.ufl_cell(),1)
+FE_scalar_2=ufl.FiniteElement("CG",mesh.ufl_cell(),2)
+TH=FunctionSpace(mesh,FE_vector_2*FE_scalar_2)
 V =FunctionSpace(mesh, FE_vector)
-V2=FunctionSpace(mesh, FE_vector_2)
 W =FunctionSpace(mesh, FE_scalar)
-u, u2  = Function(V), Function(V2)
+q = Function(TH)
+u = Function(V)
 p, nut = Function(W), Function(W)
 
 # Handlers (still useful when !interpolate)
@@ -91,20 +94,14 @@ u.x.array[:]=np.hstack((interp(uxv,1),
                         interp(uthv,1))).flatten()
 p.x.array[:]  =interp(pv)
 nut.x.array[:]=interp(nutv)
-# Interpolation to higher order
-u2.interpolate(u)
 
 # Write result as mixed
-TH = FunctionSpace(mesh,FE_vector_2*FE_scalar)
-_, dofs_U = TH.sub(0).collapse()
-_, dofs_p = TH.sub(1).collapse()
-q = Function(TH)
-q.x.array[dofs_U]=u2.x.array
-q.x.array[dofs_p]=p.x.array
+us,ps=q.split()
+us.interpolate(u)
+ps.interpolate(p)
 """
 # Save pretty graphs
-u,p=q.split()
-for f in ['u','p','nut']:
+for f in ['us','ps','nut']:
     with XDMFFile(comm, "sanity_check_"+f+".xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
         eval("xdmf.write_function("+f+")")
@@ -112,8 +109,8 @@ for f in ['u','p','nut']:
 # Write turbulent viscosity separately
 dirCreator("./baseflow")
 dirCreator("./baseflow/nut")
-if real_mode:   dirCreator("./baseflow/dat_real")
-else:           dirCreator("./baseflow/dat_complex")
+if real_mode: dirCreator("./baseflow/dat_real")
+else:         dirCreator("./baseflow/dat_complex")
 viewer = pet.Viewer().createMPIIO(f"./baseflow/nut/nut_S={S:.3f}_Re={Re:d}_n={comm.size:d}.dat", 'w', comm)
 nut.vector.view(viewer)
 if real_mode:

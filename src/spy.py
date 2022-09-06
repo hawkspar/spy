@@ -88,10 +88,12 @@ class SPY:
 		num_cells = self.mesh.topology.index_map(tdim).size_local + self.mesh.topology.index_map(tdim).num_ghosts
 	
 		# Finite elements & function spaces
-		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),3,3)
+		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),2)
+		FE_scalar_1=ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
 		V = FunctionSpace(self.mesh,FE_scalar)
+		V1= FunctionSpace(self.mesh,FE_scalar_1)
 		W = FunctionSpace(self.mesh,FE_constant)
 		self.TH=FunctionSpace(self.mesh,FE_vector*FE_scalar) # Taylor Hodd elements ; stable element pair
 		self.u_space, self.u_dofs = self.TH.sub(0).collapse()
@@ -106,7 +108,7 @@ class SPY:
 		# Initialisation of q
 		self.q = Function(self.TH)
 		# Turbulent viscosity
-		self.nut  = Function(V)
+		self.nut  = Function(V1)
 		self.nutf = lambda S: nutf(self,S)
 		# Local mesh size
 		self.h = Function(W)
@@ -127,31 +129,19 @@ class SPY:
 		return np.isclose(x[self.direction_map['r']],0,self.params['atol']) # Axis of symmetry at r=0
 
 	# Gradient with r multiplication
-	def rgrd(self,v,m):
+	def grd(self,v,m,i=0):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		if isinstance(v,ufl.indexed.Indexed):
 			return ufl.as_vector([r*v.dx(dx), r*v.dx(dr), m*1j*v])
-		return ufl.as_tensor([[r*v[dx].dx(dx), r*v[dx].dx(dr), m*1j*v[dx]],
-							  [r*v[dr].dx(dx), r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
-							  [r*v[dt].dx(dx), r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
+		return ufl.as_tensor([[r*v[dx].dx(dx), i*v[dx]+r*v[dx].dx(dr), m*1j*v[dx]],
+							  [r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
+							  [r*v[dt].dx(dx), i*v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
 
-	def grdr(self,v,m):
+	def div(self,v,m,i=0):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		return ufl.as_tensor([[r*v[dx].dx(dx), v[dx]+r*v[dx].dx(dr), m*1j*v[dx]],
-					  		  [r*v[dr].dx(dx), v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
-							  [r*v[dt].dx(dx), v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
-
-	def rdiv(self,v,m):
-		r=self.r
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		return r*v[dx].dx(dx) +   v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
-
-	def divr(self,v,m):
-		r=self.r
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		return r*v[dx].dx(dx) + 2*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
+		return r*v[dx].dx(dx) + (1+i)*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
 	
 	def r2vis(self,v,m):
 		r=self.r
@@ -180,33 +170,32 @@ class SPY:
 		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
 		t=cPe*h/2/n
 
-		self.SUPG = t*self.rgrd(v,m)*U # Streamline Upwind Petrov Galerkin
-		self.SUPG *= 0
+		self.SUPG = t*self.grd(v,m)*U # Streamline Upwind Petrov Galerkin
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
-		rdiv,divr,rgrd,grdr=self.rdiv,self.divr,self.rgrd,self.grdr
+		div,grd=self.div,self.grd
 		
 		# Functions
 		u,p=ufl.split(self.q)
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   rdiv(u,0),     r**2*s)
+		F  = ufl.inner(	   div(u,0),  r**2*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(    rgrd(u,0)*u,   r**2*v) # Convection
-		F -= ufl.inner(	   r*   p,	    divr(r*v,0)) # Pressure
-		F += ufl.inner(nu*(rgrd(u,0)+
-					   	   rgrd(u,0).T),grdr(r*v,0)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(    grd(u,0)*u,r**2*v) # Convection
+		F -= ufl.inner(	  	 r*p,	 div(r*v,0,1)) # Pressure
+		F += ufl.inner(nu*(grd(u,0)+
+					   	   grd(u,0).T),grd(r*v,0,1)) # Diffusion (grad u.T significant with nut)
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
-		rdiv,divr,rgrd,grdr=self.rdiv,self.divr,self.rgrd,self.grdr
+		div,grd=self.div,self.grd
 		SUPG,r2vis=self.SUPG,self.r2vis
 		
 		# Functions
@@ -215,15 +204,15 @@ class SPY:
 		v, s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   rdiv( u,m),     r**2*s)
+		F  = ufl.inner(	   div(u,m),    r**2*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   rgrd( U,0)*u,   r**2*v+r*SUPG) # Convection
-		F += ufl.inner(	   rgrd( u,m)*U,   r**2*v+r*SUPG)
-		F -= ufl.inner(	   r*	 p,      divr(r*v,m)) # Pressure
-		F += ufl.inner(	   rgrd( p,m),	 	      r*SUPG)
-		F += ufl.inner(nu*(rgrd( u,m)+
-					   	   rgrd( u,m).T),grdr(r*v,m)) # Diffusion (grad u.T significant with nut)
-		F -= ufl.inner(	   r2vis(u,m),			    SUPG)
+		F += ufl.inner(	   grd(U,0)*u,  r**2*v+r*SUPG) # Convection
+		F += ufl.inner(	   grd(u,m)*U,  r**2*v+r*SUPG)
+		F -= ufl.inner(	     r*p,      div(r*v,m,1)) # Pressure
+		F += ufl.inner(	   grd(p,m),   		 r*SUPG)
+		F += ufl.inner(nu*(grd(u,m)+
+					   	   grd(u,m).T),grd(r*v,m,1)) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(  r2vis(u,m),		   SUPG)
 		return F*ufl.dx
 		
 	# Code factorisation
