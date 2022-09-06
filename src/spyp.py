@@ -53,10 +53,10 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
+	def __init__(self, params:dict, datapath:str, Ref, Re, nutf, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
 		super().__init__(params, datapath, Ref, nutf, direction_map, forcingIndicator)
 		self.S=S; self.m=m
-		self.save_string=f"_S={S:00.3f}_m={m:d}"
+		self.save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode, assemble crucial matrices

@@ -1,7 +1,6 @@
 import re, os
 import numpy as np
 from setup import *
-import dolfinx as dfx
 from setup import Re,S
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
 from dolfinx.io import XDMFFile
@@ -46,7 +45,7 @@ if comm.rank==0:
         if fd<d: d,closest_file_name=fd,file_name
 
     # Read OpenFOAM data
-    openfoam_data = meshio.read(file_name)
+    openfoam_data = meshio.read(closest_file_name)
     openfoam_data.points[:,:2]/=R*cos # Scaling & Plane tilted
     if interpolate:
         # Read coarse data (already plane and non tilted)
@@ -63,15 +62,13 @@ with XDMFFile(comm, "nozzle.xdmf", "r") as file:
 
 # Create FiniteElement, FunctionSpace & Functions
 FE_vector  =ufl.VectorElement("CG",mesh.ufl_cell(),1,3)
-FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),3,3)
+FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
 FE_scalar  =ufl.FiniteElement("CG",mesh.ufl_cell(),1)
-FE_scalar_2=ufl.FiniteElement("CG",mesh.ufl_cell(),2)
 V =FunctionSpace(mesh, FE_vector)
 V2=FunctionSpace(mesh, FE_vector_2)
 W =FunctionSpace(mesh, FE_scalar)
-W2=FunctionSpace(mesh, FE_scalar_2)
 u, u2  = Function(V), Function(V2)
-p, p2, nut = Function(W), Function(W2), Function(W)
+p, nut = Function(W), Function(W)
 
 # Handlers (still useful when !interpolate)
 fine_xy=openfoam_data.points[:,:2]
@@ -96,15 +93,14 @@ p.x.array[:]  =interp(pv)
 nut.x.array[:]=interp(nutv)
 # Interpolation to higher order
 u2.interpolate(u)
-p2.interpolate(p)
 
 # Write result as mixed
-TH = FunctionSpace(mesh,FE_vector_2*FE_scalar_2)
+TH = FunctionSpace(mesh,FE_vector_2*FE_scalar)
 _, dofs_U = TH.sub(0).collapse()
 _, dofs_p = TH.sub(1).collapse()
 q = Function(TH)
 q.x.array[dofs_U]=u2.x.array
-q.x.array[dofs_p]=p2.x.array
+q.x.array[dofs_p]=p.x.array
 """
 # Save pretty graphs
 u,p=q.split()

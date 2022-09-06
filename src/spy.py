@@ -88,8 +88,8 @@ class SPY:
 		num_cells = self.mesh.topology.index_map(tdim).size_local + self.mesh.topology.index_map(tdim).num_ghosts
 	
 		# Finite elements & function spaces
-		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),3,3)
-		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),2)
+		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
 		V = FunctionSpace(self.mesh,FE_scalar)
 		W = FunctionSpace(self.mesh,FE_constant)
@@ -181,6 +181,7 @@ class SPY:
 		t=cPe*h/2/n
 
 		self.SUPG = t*self.rgrd(v,m)*U # Streamline Upwind Petrov Galerkin
+		self.SUPG *= 0
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -193,12 +194,12 @@ class SPY:
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(rdiv(u,0),    r**2*s)
+		F  = ufl.inner(	   rdiv(u,0),     r**2*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrd(u,0)*u,  r**2*v) # Convection
-		F -= ufl.inner(r*p,		   divr(r*v,0)) # Pressure
-		F += ufl.inner(rgrd(u,0)+
-					   rgrd(u,0).T,grdr(r*v,0))*nu # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(    rgrd(u,0)*u,   r**2*v) # Convection
+		F -= ufl.inner(	   r*   p,	    divr(r*v,0)) # Pressure
+		F += ufl.inner(nu*(rgrd(u,0)+
+					   	   rgrd(u,0).T),grdr(r*v,0)) # Diffusion (grad u.T significant with nut)
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
@@ -214,15 +215,15 @@ class SPY:
 		v, s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(rdiv( u,m),    r**2*s)
+		F  = ufl.inner(	   rdiv( u,m),     r**2*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(rgrd( U,0)*u,  r**2*v+r*SUPG) # Convection
-		F += ufl.inner(rgrd( u,m)*U,  r**2*v+r*SUPG)
-		F -= ufl.inner(r*	 p,     divr(r*v,m)) # Pressure
-		F += ufl.inner(rgrd( p,m),	 	     r*SUPG)
-		F += ufl.inner(rgrd( u,m)+
-					   rgrd( u,m).T,grdr(r*v,m))*nu # Diffusion (grad u.T significant with nut)
-		F -= ufl.inner(r2vis(u,m),			   SUPG)
+		F += ufl.inner(	   rgrd( U,0)*u,   r**2*v+r*SUPG) # Convection
+		F += ufl.inner(	   rgrd( u,m)*U,   r**2*v+r*SUPG)
+		F -= ufl.inner(	   r*	 p,      divr(r*v,m)) # Pressure
+		F += ufl.inner(	   rgrd( p,m),	 	      r*SUPG)
+		F += ufl.inner(nu*(rgrd( u,m)+
+					   	   rgrd( u,m).T),grdr(r*v,m)) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(	   r2vis(u,m),			    SUPG)
 		return F*ufl.dx
 		
 	# Code factorisation

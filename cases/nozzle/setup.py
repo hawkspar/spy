@@ -15,7 +15,7 @@ from spy import SPY, loadStuff
 R=1; L=100; H=15
 
 # /!\ OpenFOAM coherence /!\
-Re=400000
+Re=1000
 S=0
 
 # Numerical Parameters
