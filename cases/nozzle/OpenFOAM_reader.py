@@ -96,13 +96,13 @@ nut.x.array[:]=interp(nutv)
 
 # BAD because interpolation in wrong order
 U.interpolate(u)
-
+"""
 # Save pretty graphs
 for f in ['U','P','nut']:
     with XDMFFile(comm, "sanity_check_"+f+"_reader.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
         eval("xdmf.write_function("+f+")")
-
+"""
 # Write turbulent viscosity separately
 pre="./baseflow"
 typ=real_mode*"real"+(1-real_mode)*"complex"

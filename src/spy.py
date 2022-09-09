@@ -221,13 +221,15 @@ class SPY:
 		v, s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),     r*s)
+		F  = ufl.inner(	   div(u,m),    r**2*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,   r*v) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v)
-		F -= ufl.inner(	     r*p,      div(v,m,1)) # Pressure
+		F += ufl.inner(	   grd(U,0)*u,  r**2*v+r*SUPG) # Convection
+		F += ufl.inner(	   grd(u,m)*U,  r**2*v+r*SUPG)
+		F -= ufl.inner(	       p,   div(r**2*v,m)) # Pressure
+		F += ufl.inner(	   grd(p,m),   		   r*SUPG)
 		F += ufl.inner(nu*(grd(u,m)+
-					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
+					   	   grd(u,m).T),grd(r*v,m,1)) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(  r2vis(u,m),			 SUPG)
 		return F*ufl.dx
 		
 	# Code factorisation
