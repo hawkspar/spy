@@ -73,9 +73,9 @@ class SPYP(SPY):
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
-		self.N = assembleForm(N_form,self.bcs)#,True)
+		self.N = assembleForm(N_form,self.bcs,True)
 
-		if p0: print("Jacobian & Norm matrices computed !")
+		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self) -> None:
@@ -98,7 +98,7 @@ class SPYP(SPY):
 		self.M = assembleForm(M_form,sym=True)
 		Q 	   = assembleForm(Q_form,sym=True)
 
-		if p0: print("Quadrature, Extractor & Mass matrices computed !")
+		if p0: print("Quadrature, Extractor & Mass matrices computed !",flush=True)
 
 		# Sizes
 		m,		n 		= B.getSize()
@@ -190,7 +190,7 @@ class SPYP(SPY):
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
 				self.printStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",velocity_i)
-			if p0: print("Strouhal",St,"handled !")
+			if p0: print("Strouhal",St,"handled !",flush=True)
 
 	# Modal analysis
 	def eigenvalues(self,sigma:complex,k:int) -> None:
@@ -221,4 +221,4 @@ class SPYP(SPY):
 			EPS.getEigenvector(i,q.vector)
 			u,p = q.split()
 			self.printStuff(self.eig_path+"u/","evec_"+self.save_string+f"_l={vals[i]:00.3f}",u)
-		if p0: print("Eigenpairs written !")
+		if p0: print("Eigenpairs written !",flush=True)

@@ -33,7 +33,7 @@ def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],H,para
 def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,params['atol'])*(x[0]<R)
 
 def Ref(spy:SPY): return Re
-def nutf(spy:SPY,S,Re): loadStuff(spy.nut_path,['Re','S'],[Re,S],[spy.nut.vector],spy.io)
+def nutf(spy:SPY,S,Re): loadStuff(spy.nut_path+"complex/",['S','Re'],[S,Re],spy.nut.vector,spy.io)
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

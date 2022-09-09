@@ -6,7 +6,7 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import shutil
 import numpy as np
-from spy import SPY, dirCreator, loadStuff
+from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 from dolfinx.fem import Function
 from dolfinx.nls.petsc import NewtonSolver
@@ -35,22 +35,16 @@ class SPYB(SPY):
 		self.inlet_azimuthal_velocity.S=S
 		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
 		# Cold initialisation
-		if baseflowInit!=None:
-			u,p=self.q.split()
-			u.interpolate(baseflowInit)
+		if baseflowInit!=None: self.U.interpolate(baseflowInit)
 		# Memoisation
-		elif hot_start:
-			loadStuff([S,Re],self.dat_real_path,['S','Re'],self.q.vector)
-		
-		# Load turbulent viscosity if need be
-		self.nutf(S)
+		elif hot_start:	self.loadBaseflow(S,Re)
 
 		# Compute form
 		base_form  = self.navierStokes() #no azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(0) # m=0
 		
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.q,bcs=self.bcs,J=dbase_form)
+		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning
@@ -67,20 +61,20 @@ class SPYB(SPY):
 		opts[f"{option_prefix}pc_type"] = "lu"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 		ksp.setFromOptions()
-		if p0: print("Solver launch...")
+		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
-		solver.solve(self.q)
+		solver.solve(self.Q)
 
 		if save:  # Memoisation
-			u,p = self.q.split()
-			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",u)
-			self.saveStuff(self.dat_real_path,f"baseflow_S={S:00.3f}_Re={Re:d}",self.q.vector)
-			if p0: print(".xmdf, .dat written!")
+			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",self.U)
+			self.saveBaseflow("_S={S:00.3f}_Re={Re:d}")
+			if p0: print(".xmdf, .dat written!",flush=True)
 
 	# To be run in real mode
 	# DESTRUCTIVE !
 	def baseflowRange(self,Ss) -> None:
-		shutil.rmtree(self.dat_real_path)
+		shutil.rmtree(self.u_path)
+		shutil.rmtree(self.p_path)
 		shutil.rmtree(self.print_path)
 		for S in Ss: 	   # Then on swirl intensity
 			if p0:
@@ -88,11 +82,10 @@ class SPYB(SPY):
 				print("Swirl intensity: ", S)
 			self.baseflow(S!=Ss[0],True,S)
 
-		if p0: print("Last checkpoint written!")
+		if p0: print("Last checkpoint written!",flush=True)
 
 	def minimumAxial(self) -> float:
-		u,p=self.q.split()
-		u=u.compute_point_values()[:,self.direction_map['x']]
+		u=self.U.compute_point_values()[:,self.direction_map['x']]
 		mu=np.min(u)
 		mu=comm.reduce(mu,op=MIN) # minimum across processors
 		return mu

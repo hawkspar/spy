@@ -4,7 +4,6 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import re
 import numpy as np
 import PetscBinaryIO
 import dolfinx as dfx
@@ -34,7 +33,7 @@ def meshConvert(path:str,cell_type:str) -> None:
 	comm.barrier()
 
 # Memoisation routine - find closest in param
-def loadStuff(path:str,keys:list,params:list,vectors:list[pet.Vec],io:PetscBinaryIO) -> None:
+def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) -> None:
 	closest_file_name=path
 	file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
 	d=np.infty
@@ -52,12 +51,17 @@ def loadStuff(path:str,keys:list,params:list,vectors:list[pet.Vec],io:PetscBinar
 	proc_name = closest_file_name.split("_p=")
 	proc_name = proc_name[0]+f"_p={comm.rank:d}"+proc_name[1][1:]
 	
-	input_vectors = io.readBinaryFile(proc_name)
-	for input_vector, vector in zip(input_vectors, vectors):
-		vector[...] = input_vector
-		vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+	input_vector = io.readBinaryFile(proc_name)[0]
+	vector[...] = input_vector
+	vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 	# Loading eddy viscosity too
-	if p0: print("Loaded "+proc_name[0]+".dat",flush=True)
+	if p0: print("Loaded "+proc_name+".dat",flush=True)
+
+# Naive save with dir creation
+def saveStuff(dir:str,name:str,vec:pet.Vec,io:PetscBinaryIO) -> None:
+	dirCreator(dir)
+	io_vec = vec.array_w.view(PetscBinaryIO.Vec)
+	io.writeBinaryFile(dir+name+f"_n={comm.size:d}_p={comm.rank:d}.dat", [io_vec])
 
 # Swirling Parallel Yaj
 class SPY:
@@ -70,11 +74,10 @@ class SPY:
 		# Paths
 		self.case_path	   ='/home/shared/cases/'+datapath
 		self.baseflow_path =self.case_path+'baseflow/'
-		self.nut_path	   =self.baseflow_path+'nut/'
 		self.u_path	 	   =self.baseflow_path+'u/'
 		self.p_path		   =self.baseflow_path+'p/'
+		self.nut_path	   =self.baseflow_path+'nut/'
 		self.print_path	   =self.baseflow_path+'print/'
-		self.npy_path	   =self.baseflow_path+'npy/'
 		self.resolvent_path=self.case_path+'resolvent/'
 		self.eig_path	   =self.case_path+'eigenvalues/'
 
@@ -83,7 +86,9 @@ class SPY:
 		with dfx.io.XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 
+		# file handler and complex mode
 		self.io = PetscBinaryIO.PetscBinaryIO(complexscalars=C)
+		self.C=C
 
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[direction_map['r']]
@@ -95,6 +100,7 @@ class SPY:
 		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
 		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+		U = FunctionSpace(self.mesh,FE_vector)
 		V = FunctionSpace(self.mesh,FE_scalar)
 		W = FunctionSpace(self.mesh,FE_constant)
 		self.TH=FunctionSpace(self.mesh,FE_vector*FE_scalar) # Taylor Hodd elements ; stable element pair
@@ -107,8 +113,9 @@ class SPY:
 		
 		# Re computation
 		self.Re = Ref(self)
-		# Initialisation of q
-		self.q = Function(self.TH)
+		# Initialisation of baseflow
+		self.U = Function(U)
+		self.P = Function(V)
 		# Turbulent viscosity
 		self.nut  = Function(V)
 		self.nutf = nutf
@@ -154,10 +161,23 @@ class SPY:
 							  r  *(nu*(r*v[dt].dx(dx)+m*1j*v[dx])).dx(dx) +r*(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
 
 	# Helper
+	def loadBaseflow(self,S,Re):
+		typ=self.C*"complex/"+(1-self.C)*"real/"
+		loadStuff(self.u_path+typ,['S','Re'],[S,Re],self.U.vector,self.io)
+		loadStuff(self.p_path+typ,['S','Re'],[S,Re],self.P.vector,self.io)
+		self.nutf(self,S,Re)
+
+	def saveBaseflow(self,str):
+		typ=self.C*"complex/"+(1-self.C)*"real/"
+		dirCreator(self.u_path)
+		dirCreator(self.p_path)
+		saveStuff(self.u_path+typ,"u"+str+".dat",self.U.vector,self.io)
+		saveStuff(self.p_path+typ,"p"+str+".dat",self.P.vector,self.io)
+
 	def computeSUPG(self,m):
 		# Split Arguments
 		v,_ = ufl.split(self.test)
-		U,_ = ufl.split(self.q) # Baseflow
+		U   = self.U # Baseflow
 
 		h,nu=self.h,1/self.Re+self.nut
 
@@ -176,16 +196,16 @@ class SPY:
 		div,grd=self.div,self.grd
 		
 		# Functions
-		u,p=ufl.split(self.q)
+		U,P=self.Q.split()
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,0),  r**2*s)
+		F  = ufl.inner(	   div(U,0),    r**2*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(    grd(u,0)*u,r**2*v) # Convection
-		F -= ufl.inner(	  	 r*p,	 div(r*v,0,1)) # Pressure
-		F += ufl.inner(nu*(grd(u,0)+
-					   	   grd(u,0).T),grd(r*v,0,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(    grd(U,0)*U,  r**2*v) # Convection
+		F -= ufl.inner(	  	 r*P,	   div(r*v,0,1)) # Pressure
+		F += ufl.inner(nu*(grd(U,0)+
+					   	   grd(U,0).T),grd(r*v,0,1)) # Diffusion (grad u.T significant with nut)
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
@@ -197,7 +217,7 @@ class SPY:
 		
 		# Functions
 		u, p=ufl.split(self.trial)
-		U, _=ufl.split(self.q) # Baseflow
+		U   = self.U # Baseflow
 		v, s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
@@ -236,54 +256,48 @@ class SPY:
 		with dfx.io.XDMFFile(comm, dir+name+".xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(fun)
-	
-	def saveStuff(self,dir:str,name:str,vec:pet.Vec,C:bool=True) -> None:
-		dirCreator(dir)
-		solnAsPetscBiIOVec = vec.array_w.view(PetscBinaryIO.Vec)
-		self.io.writeBinaryFile(dir+name+f"_n={comm.size:d}_p={comm.rank:d}.dat",
-								[solnAsPetscBiIOVec])
 
 	# Converters
-	def datToNpy(self,fi:str,fo:str) -> None:
-		self.q.vector = self.io.readBinaryFile(fi)
-		self.q.x.scatter_forward()
-		np.save(fo,self.q.x.array)
+	def datToNpy(self,fi:str,fo:str,fun:Function) -> None:
+		fun.vector = self.io.readBinaryFile(fi)
+		fun.x.scatter_forward()
+		np.save(fo,fun.x.array)
 
 	def datToNpyAll(self) -> None:
-		if os.path.isdir(self.dat_real_path):
-			file_names = [f for f in os.listdir(self.dat_real_path) if f[-3:]=="dat"]
-			dirCreator(self.npy_path)
-			for file_name in file_names:
-				self.datToNpy(self.dat_real_path+file_name,
-							self.npy_path+file_name[:-4]+f"_p={comm.rank:d}.npy")
-			if p0: shutil.rmtree(self.dat_real_path)
+		for fun,path in [(self.U,self.u_path),(self.P,self.p_path),(self.nut,self.nut_path)]:
+			if os.path.isdir(path+"real/"):
+				file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
+				dirCreator(path+"npy/")
+				for file_name in file_names:
+					self.datToNpy(path+"real/"+file_name,
+								  path+"npy/"+file_name[:-4]+".npy",fun)
+				if p0: shutil.rmtree(path+"real/")
 
-	def npyToDat(self,fi:str,fo:str) -> None:
-		self.q.x.array.real=np.load(fi,allow_pickle=True)
-		self.q.x.scatter_forward()
-		solnAsPetscBiIOVec = self.q.vector.array_w.view(PetscBinaryIO.Vec)
+	def npyToDat(self,fi:str,fo:str,fun:Function) -> None:
+		fun.x.array.real=np.load(fi,allow_pickle=True)
+		fun.x.scatter_forward()
+		solnAsPetscBiIOVec = fun.vector.array_w.view(PetscBinaryIO.Vec)
 		self.io.writeBinaryFile(fo, [solnAsPetscBiIOVec])
 	
 	def npyToDatAll(self) -> None:
-		if os.path.isdir(self.npy_path):
-			file_names = [f for f in os.listdir(self.npy_path)]
-			dirCreator(self.dat_complex_path)
-			for file_name in file_names:
-				match = re.search(r'_p=([0-9]*)',file_name)
-				if comm.rank==int(match.group(1)):
-					self.npyToDat(self.npy_path+file_name,
-								self.dat_complex_path+file_name[:-8]+".dat")
-			if p0: shutil.rmtree(self.npy_path)
+		for fun,path in [(self.U,self.u_path),(self.P,self.p_path),(self.nut,self.nut_path)]:
+			if os.path.isdir(path+"npy/"):
+				file_names = [f for f in os.listdir(path+"npy/")]
+				dirCreator(path+"complex/")
+				for file_name in file_names:
+					match = re.search(r'_p=([0-9]*)',file_name)
+					if comm.rank==int(match.group(1)):
+						self.npyToDat(path+"npy/"+file_name,
+									  path+"complex/"+file_name[:-4]+".dat",fun)
+				if p0: shutil.rmtree(path+"npy/")
 	
 	# Quick check functions
 	def sanityCheckU(self):
-		u,_=self.q.split()
-		self.printStuff("./","sanity_check_u",u)
+		self.printStuff("./","sanity_check_u",self.U)
 
 	def sanityCheck(self):
-		u,p=self.q.split()
-		self.printStuff("./","sanity_check_u",u)
-		self.printStuff("./","sanity_check_p",p)
+		self.printStuff("./","sanity_check_u",  self.U)
+		self.printStuff("./","sanity_check_p",  self.P)
 		self.printStuff("./","sanity_check_nut",self.nut)
 
 	def sanityCheckBCs(self):
