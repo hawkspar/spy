@@ -1,10 +1,10 @@
 import re, os
 import numpy as np
 from setup import *
+import PetscBinaryIO
 from setup import Re,S
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
 from dolfinx.io import XDMFFile
-from petsc4py import PETSc as pet
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
 from dolfinx.fem import FunctionSpace, Function
@@ -13,7 +13,7 @@ sys.path.append('/home/shared/src')
 
 from spy import dirCreator
 
-interpolate=True
+interpolate=False
 cell_type_openfoam="triangle"
 cell_type_dolfinx="triangle"
 real_mode=False
@@ -30,7 +30,7 @@ params=[Re,S]
 if comm.rank==0:
     def converter(data,cell_type):
         mesh = meshio.Mesh(points=data.points[:,:2],
-                           cells={cell_type: data.get_cells_type(cell_type)})
+                        cells={cell_type: data.get_cells_type(cell_type)})
         meshio.write("nozzle.xdmf", mesh)
 
     # Searching closest file with respect to setup parameters
@@ -63,14 +63,12 @@ with XDMFFile(comm, "nozzle.xdmf", "r") as file:
 
 # Create FiniteElement, FunctionSpace & Functions
 FE_vector  =ufl.VectorElement("CG",mesh.ufl_cell(),1,3)
-FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),3,3)
+FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
 FE_scalar  =ufl.FiniteElement("CG",mesh.ufl_cell(),1)
-FE_scalar_2=ufl.FiniteElement("CG",mesh.ufl_cell(),2)
-TH=FunctionSpace(mesh,FE_vector_2*FE_scalar_2)
 V =FunctionSpace(mesh, FE_vector)
+V2=FunctionSpace(mesh, FE_vector_2)
 W =FunctionSpace(mesh, FE_scalar)
-q = Function(TH)
-u = Function(V)
+u, U = Function(V), Function(V2)
 p, nut = Function(W), Function(W)
 
 # Handlers (still useful when !interpolate)
@@ -95,26 +93,29 @@ u.x.array[:]=np.hstack((interp(uxv,1),
 p.x.array[:]  =interp(pv)
 nut.x.array[:]=interp(nutv)
 
-# Write result as mixed
-us,ps=q.split()
-us.interpolate(u)
-ps.interpolate(p)
-"""
+# BAD because interpolation in wrong order
+U.interpolate(u)
+
 # Save pretty graphs
-for f in ['us','ps','nut']:
+for f in ['U','p','nut']:
     with XDMFFile(comm, "sanity_check_"+f+".xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
         eval("xdmf.write_function("+f+")")
-"""
+
 # Write turbulent viscosity separately
-dirCreator("./baseflow")
-dirCreator("./baseflow/nut")
-if real_mode: dirCreator("./baseflow/dat_real")
-else:         dirCreator("./baseflow/dat_complex")
-viewer = pet.Viewer().createMPIIO(f"./baseflow/nut/nut_S={S:.3f}_Re={Re:d}_n={comm.size:d}.dat", 'w', comm)
-nut.vector.view(viewer)
-if real_mode:
-    viewer = pet.Viewer().createMPIIO(f"./baseflow/dat_real/baseflow_S={S:.3f}_Re={Re:d}_n={comm.size:d}.dat", 'w', comm)
-else:
-    viewer = pet.Viewer().createMPIIO(f"./baseflow/dat_complex/baseflow_S={S:.3f}_Re={Re:d}_n={comm.size:d}.dat", 'w', comm)
-q.vector.view(viewer)
+pre="./baseflow"
+dirCreator(pre)
+dirCreator(pre+"/u/")
+dirCreator(pre+"/p/")
+dirCreator(pre+"/nut/")
+
+app=f"_S={S:.3f}_Re={Re:d}_n={comm.size:d}_p={comm.rank:d}.dat"
+
+io = PetscBinaryIO.PetscBinaryIO(complexscalars=not real_mode)
+U = U.vector.array_w.view(PetscBinaryIO.Vec)
+p = p.vector.array_w.view(PetscBinaryIO.Vec)
+nut = nut.vector.array_w.view(PetscBinaryIO.Vec)
+
+io.writeBinaryFile(pre+"/u/u"+app, [U])
+io.writeBinaryFile(pre+"/p/p"+app, [p])
+io.writeBinaryFile(pre+"/nut/nut"+app, [nut])

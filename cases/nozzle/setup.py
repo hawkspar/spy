@@ -9,7 +9,7 @@ import numpy as np
 
 sys.path.append('/home/shared/src')
 
-from spy import SPY, loadStuff
+from spy import SPY,loadStuff
 
 # Geometry parameters (nozzle)
 R=1; L=100; H=15
@@ -31,9 +31,9 @@ def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,para
 def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],L,params['atol']) # Right border
 def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],H,params['atol']) # Top (tilded) boundary
 def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,params['atol'])*(x[0]<R)
-def Ref(spy:SPY): return Re
 
-def nutf(spy:SPY,S:float): loadStuff([S,Re],spy.nut_path,['S','Re'],spy.nut.vector)
+def Ref(spy:SPY): return Re
+def nutf(spy:SPY,S,Re): loadStuff(spy.nut_path,['Re','S'],[Re,S],[spy.nut.vector],spy.io)
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

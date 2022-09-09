@@ -54,7 +54,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
 	def __init__(self, params:dict, datapath:str, Ref, Re, nutf, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map, forcingIndicator)
+		super().__init__(params, datapath, Ref, nutf, direction_map, True, forcingIndicator)
 		self.S=S; self.m=m
 		self.save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		dirCreator(self.resolvent_path)
@@ -68,8 +68,8 @@ class SPYP(SPY):
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(self.m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,(self.r*v+self.SUPG)*self.r**2)*ufl.dx # Same multiplication process as base equations
-		#N_form = ufl.inner(u,self.r*v*self.r**2)*ufl.dx # Same multiplication process as base equations
+		#N_form = ufl.inner(u,(self.r*v+self.SUPG)*self.r**2)*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v*self.r**2)*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
@@ -86,8 +86,8 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.u_space)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form  = ufl.inner(w,(self.r*v+self.SUPG)*self.r**2)*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		#B_form  = ufl.inner(w,self.r*v*self.r**2)*self.indic*ufl.dx
+		#B_form  = ufl.inner(w,(self.r*v+self.SUPG)*self.r**2)*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
+		B_form  = ufl.inner(w,v*self.r**2)*self.indic*ufl.dx
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
@@ -181,7 +181,7 @@ class SPYP(SPY):
 				# Obtain forcings as eigenvectors
 				forcing_i=Function(self.u_space)
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
-				self.saveStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
+				self.printStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
 				response_i=Function(self.TH)
@@ -189,7 +189,7 @@ class SPYP(SPY):
 				velocity_i,_=response_i.split()
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
-				self.saveStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",velocity_i)
+				self.printStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",velocity_i)
 			if p0: print("Strouhal",St,"handled !")
 
 	# Modal analysis
@@ -220,5 +220,5 @@ class SPYP(SPY):
 			q=Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
 			u,p = q.split()
-			self.saveStuff(self.eig_path+"u/","evec_"+self.save_string+f"_l={vals[i]:00.3f}",u)
+			self.printStuff(self.eig_path+"u/","evec_"+self.save_string+f"_l={vals[i]:00.3f}",u)
 		if p0: print("Eigenpairs written !")

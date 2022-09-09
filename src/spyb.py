@@ -20,7 +20,7 @@ p0=comm.rank==0
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, InletAzimuthalVelocity) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map)
+		super().__init__(params, datapath, Ref, nutf, direction_map, False)
 		sub_space_th=self.TH.sub(0).sub(direction_map['th'])
 		sub_space_th_collapsed=sub_space_th.collapse()
 
@@ -73,8 +73,8 @@ class SPYB(SPY):
 
 		if save:  # Memoisation
 			u,p = self.q.split()
-			self.saveStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",u)
-			self.saveStuffMPI(self.dat_real_path,f"baseflow_S={S:00.3f}_Re={Re:d}",self.q.vector)
+			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",u)
+			self.saveStuff(self.dat_real_path,f"baseflow_S={S:00.3f}_Re={Re:d}",self.q.vector)
 			if p0: print(".xmdf, .dat written!")
 
 	# To be run in real mode

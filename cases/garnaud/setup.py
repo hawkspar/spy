@@ -25,13 +25,6 @@ params = {"rp":.99,    #relaxation_parameter
 datapath='garnaud/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
-<<<<<<< HEAD
-class InletAzimuthalVelocity():
-	def __init__(self, S): self.S = S
-	def __call__(self, x): return 0*x[0]
-
-=======
->>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
 def baseflowInit(x):
 	u=0*x
 	u[0,x[1]<1]=np.tanh(5*(1-x[1][x[1]<1]))
@@ -49,13 +42,6 @@ def forcingIndicator(x): return x[0]<0
 # No turbulent visosity for this case
 def nutf(spy:SPY,S:float): spy.nut=0
 
-<<<<<<< HEAD
-=======
-class InletAzimuthalVelocity():
-	def __init__(self, S): self.S = S
-	def __call__(self, x): return 0*x[0]
-
->>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
 # Baseflow (really only need DirichletBC objects) enforces :
 # u_x=1, u_r=0 & u_th=gb at inlet (velocity control)
 # u_r=0, u_th=0 for symmetry axis (derived from mass csv as r->0)
@@ -76,11 +62,7 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 	
 	# Degrees of freedom
 	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
-<<<<<<< HEAD
 	bcs_inlet_x = dfx.DirichletBC(u_i, dofs_inlet_x, sub_space_x, np.float64) # u_x=tanh(5*(1-r)) at x=0
-=======
-	bcs_inlet_x = dfx.DirichletBC(u_i, dofs_inlet_x, sub_space_x,np.float64) # u_x=tanh(5*(1-r)) at x=0
->>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
 
 	# Actual BCs
 	spyb.applyBCs(dofs_inlet_x,[bcs_inlet_x]) # x=X entirely handled by implicit Neumann
@@ -101,10 +83,6 @@ def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	# Handle homogeneous boundary conditions
 	homogeneous_boundaries=[(inlet,['x','r','th']),(wall,['x','r','th'])]
 	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
-<<<<<<< HEAD
 	#elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
-=======
-	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
->>>>>>> e7398570282b2edc230fca3e22f808ddfa66082c
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
