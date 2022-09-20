@@ -10,15 +10,15 @@ from spyp import SPYP # Must be after setup
 from mpi4py.MPI import COMM_WORLD as comm
 
 #ms=range(3)
-ms=[2]
-Sts=np.linspace(0,1,11)
-#Sts=[.3]
+ms=[0]
+#Sts=np.linspace(0,1,11)
+Sts=[.9]
 
 for m in ms:
 	spyp=SPYP(params,datapath,Ref,Re,nutf,direction_map,S,m)#,forcingIndicator)
 	boundaryConditionsPerturbations(spyp,m)
 	spyp.loadBaseflow(S,Re)
-	#spyp.sanityCheck()
+	spyp.sanityCheck()
 	#spyp.sanityCheckBCs()
 	spyp.computeSUPG(m)
 	# For efficiency, matrices assembled once per Sts

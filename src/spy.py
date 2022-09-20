@@ -122,7 +122,7 @@ class SPY:
 		# Local mesh size
 		self.h = Function(W)
 		self.h.x.array[:]=dfx.cpp.mesh.h(self.mesh, tdim, range(num_cells))
-
+	
 		# Forcing localisation
 		if forcingIndicator==None: self.indic=1
 		else:
@@ -147,30 +147,10 @@ class SPY:
 							  [r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
 							  [r*v[dt].dx(dx), i*v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
 
-	# Gradient with r multiplication
-	def grd_nor(self,v,m):
-		r=self.r
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		if isinstance(v,ufl.indexed.Indexed):
-			return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
-		return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*1j*v[dx]		 /r],
-							  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
-							  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
-
 	def div(self,v,m,i=0):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		return r*v[dx].dx(dx) + (1+i)*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
-
-	def div_nor(self,v,m):
-		r=self.r
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		if len(v.ufl_shape)==1:
-			return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
-		else:
-			return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+(v[dr,dx]+m*1j*v[dt,dx])/r,
-								  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+(v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt])/r,
-								  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+(v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr])/r])
 	
 	def r2vis(self,v,m):
 		r=self.r
@@ -179,14 +159,6 @@ class SPY:
 		return ufl.as_vector([2*r**2*(nu*v[dx].dx(dx)).dx(dx)			  +r*(r*nu*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dr)+m*1j*nu*(r*v[dt].dx(dx)+m*1j*v[dx]),
 							  r**2*(nu*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dx)+r*(2*r*nu*v[dr].dx(dr)).dx(dr)			  +m*1j*nu*(r*v[dt].dx(dr)+m*1j*v[dr])-2*m*1j*nu*v[dt],
 							  r  *(nu*(r*v[dt].dx(dx)+m*1j*v[dx])).dx(dx) +r*(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
-
-	def r2vis_full(self,v,m):
-		r=self.r
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		nu=1/self.Re+self.nut
-		return ufl.as_vector([2*r**2*(nu.dx(dx)*v[dx].dx(dx)+nu*v[dx].dx(dx).dx(dx))			  +r*(nu*(v[dr].dx(dx)+v[dx].dx(dr))+r*nu.dx(dr)*(v[dr].dx(dx)+v[dx].dx(dr))+r*nu*(v[dr].dx(dx).dx(dr)+v[dx].dx(dr).dx(dr)))+m*1j*nu*(r*v[dt].dx(dx)+m*1j*v[dx]),
-							  r**2*(nu.dx(dx)*(v[dr].dx(dx)+v[dx].dx(dr))+nu*(v[dr].dx(dx).dx(dx)+v[dx].dx(dr).dx(dx)))+r*(2*nu*v[dr].dx(dr)+2*r*nu.dx(dr)*v[dr].dx(dr)+2*r*nu*v[dr].dx(dr).dx(dr))			  +m*1j*nu*(r*v[dt].dx(dr)+m*1j*v[dr])-2*m*1j*nu*v[dt],
-							  r  *(nu.dx(dx)*(r*v[dt].dx(dx)+m*1j*v[dx])+nu*(r*v[dt].dx(dx).dx(dx)+m*1j*v[dx].dx(dx))) +r*(nu.dx(dr)*(r*v[dt].dx(dr)+m*1j*v[dr])+nu*(v[dt].dx(dr)+r*v[dt].dx(dr).dx(dr)+m*1j*v[dr].dx(dr)))-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
 
 	# Helper
 	def loadBaseflow(self,S,Re):
@@ -203,7 +175,7 @@ class SPY:
 		saveStuff(self.p_path+typ,"p"+str+".dat",self.P.vector,self.io)
 
 	def computeSUPG(self,m):
-		# Split Arguments
+		# Split arguments
 		v,_ = ufl.split(self.test)
 		U   = self.U # Baseflow
 
@@ -213,6 +185,33 @@ class SPY:
 		n=ufl.sqrt(ufl.inner(U,U))
 		Pe=ufl.real(n*h/nu)
 		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
+		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+		W = FunctionSpace(self.mesh,FE_constant)
+		tau = Function(W)
+		def tauf(x):
+			cells = []
+			points_on_proc = []
+			bb_tree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
+			# Find cells whose bounding-box collide with the the points
+			cell_candidates = dfx.geometry.compute_collisions(bb_tree, x.T)
+			# Choose one of the cells that contains the point
+			colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, x.T)
+			for i, point in enumerate(x.T):
+				if len(colliding_cells.links(i))>0:
+					points_on_proc.append(point)
+					cells.append(colliding_cells.links(i)[0])
+			points_on_proc = np.array(points_on_proc, dtype=np.float64)
+			Ux=U.eval(points_on_proc,cells)
+			hx=h.eval(points_on_proc,cells)
+			nux=1/self.Re+self.nut.eval(points_on_proc,cells)
+			n=np.linalg.norm(Ux,1)
+			Pe=n*hx/nux
+			cPe=Pe
+			cPe[Pe<=3]/=3
+			cPe[Pe>3]=1
+			return (cPe*hx/2/n).T
+		tau.interpolate(tauf)
+		self.printStuff("./","sanity_check_tau",tau)
 
 		self.SUPG = cPe*h/2/n*self.grd(v,m)*U # Streamline Upwind Petrov Galerkin
 	
@@ -240,55 +239,22 @@ class SPY:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		SUPG,r2vis=self.SUPG,self.r2vis_full
+		SUPG,r2vis=self.SUPG,self.r2vis
 		
 		# Functions
 		u, p=ufl.split(self.trial)
 		U   = self.U # Baseflow
 		v, s=ufl.split(self.test)
-		"""
 		# Mass (variational formulation)
 		F  = ufl.inner(	   div(u,m),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,   r*v) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v)
-		F -= ufl.inner(	       p,    r*div(v,m,1)) # Pressure
-		F += ufl.inner(nu*(grd(u,m)+
-					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		"""
-		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),     r*s)
-		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,   r*v+r*SUPG) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v+r*SUPG)
+		F += ufl.inner(	   grd(U,0)*u,   r*v+SUPG) # Convection
+		F += ufl.inner(	   grd(u,m)*U,   r*v+SUPG)
 		F -= ufl.inner(	       p,    r*div(v,m,1)) # Pressure
 		#F += ufl.inner(	   grd(p,m),	   	 r*SUPG)
 		F += ufl.inner(nu*(grd(u,m)+
 					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(  r2vis(u,m),		   SUPG)
-		"""
-		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),    s)
-		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,	   v +SUPG) # Convection
-		F += ufl.inner(	   grd(u,m)*U,	   v +SUPG)
-		F -= ufl.inner(	       p,      div(v,m)) # Pressure
-		F += ufl.inner(	   grd(p,m),   		  SUPG)
-		F += ufl.inner(nu*(grd(u,m)+
-					   	   grd(u,m).T),grd(v,m)) # Diffusion (grad u.T significant with nut)
-		F += ufl.inner(div(nu*(grd(u,m)+
-					   	   	   grd(u,m).T),m),SUPG)
-		F*=r
-		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),    s)
-		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,  v) # Convection
-		F += ufl.inner(	   grd(u,m)*U,  v)
-		F -= ufl.inner(	       p,      div(v,m)) # Pressure
-		F += ufl.inner(nu*(grd(u,m)+
-					   	   grd(u,m).T),grd(v,m)) # Diffusion (grad u.T significant with nut)
-		F*=r
-		"""
 		return F*ufl.dx
 		
 	# Code factorisation
