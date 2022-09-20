@@ -1,6 +1,5 @@
 import re, os
 import numpy as np
-from setup import *
 import PetscBinaryIO #export PYTHONPATH=/usr/local/petsc/lib/petsc/bin/:$PYTHONPATH
 from setup import Re,S
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
@@ -11,12 +10,12 @@ from dolfinx.fem import FunctionSpace, Function
 
 sys.path.append('/home/shared/src')
 
-from spy import dirCreator
+from spy import dirCreator, meshConvert
 
 real_mode=False
 interpolate=True
-cell_type_openfoam="triangle"
-cell_type_dolfinx="triangle"
+sanity_check=False
+cell_type="triangle"
 
 # Dimensionalised stuff
 R,U_M=.1,10
@@ -45,16 +44,12 @@ if comm.rank==0:
     openfoam_data.points[:,:2]/=R*cos # Scaling & Plane tilted
 
     # Convert mesh
-    def converter(data,cell_type):
-        mesh = meshio.Mesh(points=data.points[:,:2], cells={cell_type: data.get_cells_type(cell_type)})
-        meshio.write("nozzle.xdmf", mesh)
     if interpolate:
-        # Read coarse data (already plane and non tilted)
-        dolfinx_data = meshio.read("nozzle_2D_coarse.msh")
         # Write it out again in a dolfinx friendly format
-        converter(dolfinx_data,cell_type_dolfinx)
+        meshConvert("nozzle_2D_coarse","nozzle",cell_type)
     else:
-        converter(openfoam_data,cell_type_openfoam)
+        # Important to ensure consistancy in partioning
+        meshConvert("nozzle_2D","nozzle",cell_type)
 else: openfoam_data=None
 
 openfoam_data = comm.bcast(openfoam_data, root=0) # data available to all but not distributed
@@ -96,14 +91,24 @@ nut.x.array[:]=interp(nutv)
 
 # BAD because interpolation in wrong order
 U.interpolate(u)
-"""
+
 # Save pretty graphs
-for f in ['U','P','nut']:
-    with XDMFFile(comm, "sanity_check_"+f+"_reader.xdmf", "w") as xdmf:
-        xdmf.write_mesh(mesh)
-        eval("xdmf.write_function("+f+")")
+if sanity_check:
+    for f in ['U','P','nut']:
+        with XDMFFile(comm, "sanity_check_"+f+"_reader.xdmf", "w") as xdmf:
+            xdmf.write_mesh(mesh)
+            eval("xdmf.write_function("+f+")")
 """
-# Write turbulent viscosity separately
+FE_constant=ufl.FiniteElement("DG",mesh.ufl_cell(),0)
+V=FunctionSpace(mesh,FE_constant)
+partition=Function(V)
+a,b=partition.vector.getOwnershipRange()
+partition.vector.setValuesLocal(range(b-a),np.ones(b-a)*comm.rank)
+with XDMFFile(comm, "partition_reader.xdmf", "w") as xdmf:
+    xdmf.write_mesh(mesh)
+    xdmf.write_function(partition)
+"""
+# Write all functions separately
 pre="./baseflow"
 typ=real_mode*"real"+(1-real_mode)*"complex"
 dirCreator(pre)
@@ -116,12 +121,13 @@ dirCreator(pre+"/nut/"+typ)
 
 app=f"_S={S:.3f}_Re={Re:d}_n={comm.size:d}_p={comm.rank:d}.dat"
 
+# Binary IO ; parallel
 io = PetscBinaryIO.PetscBinaryIO(complexscalars=not real_mode)
-U = U.vector.array_w.view(PetscBinaryIO.Vec)
-P = P.vector.array_w.view(PetscBinaryIO.Vec)
-nut = nut.vector.array_w.view(PetscBinaryIO.Vec)
+U_vec = U.vector.array_w.view(PetscBinaryIO.Vec)
+P_vec = P.vector.array_w.view(PetscBinaryIO.Vec)
+nut_vec = nut.vector.array_w.view(PetscBinaryIO.Vec)
 comm.barrier() # Important otherwise file corrupted
 
-io.writeBinaryFile(pre+"/u/"  +typ+"/u"  +app, [U])
-io.writeBinaryFile(pre+"/p/"  +typ+"/p"  +app, [P])
-io.writeBinaryFile(pre+"/nut/"+typ+"/nut"+app, [nut])
+io.writeBinaryFile(pre+"/u/"  +typ+"/u"  +app, [U_vec])
+io.writeBinaryFile(pre+"/p/"  +typ+"/p"  +app, [P_vec])
+io.writeBinaryFile(pre+"/nut/"+typ+"/nut"+app, [nut_vec])

@@ -12,7 +12,7 @@ sys.path.append('/home/shared/src')
 from spy import SPY,loadStuff
 
 # Geometry parameters (nozzle)
-R=1; L=100; H=15
+R=1
 
 # /!\ OpenFOAM coherence /!\
 Re=400000
@@ -27,10 +27,10 @@ datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
 # Geometry
-def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,params['atol']) # Left border
-def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],L,params['atol']) # Right border
-def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],H,params['atol']) # Top (tilded) boundary
-def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,params['atol'])*(x[0]<R)
+def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,		   params['atol']) # Left border
+def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.max(x[0]),params['atol']) # Right border
+def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top (tilded) boundary
+def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,		   params['atol'])*(x[0]<R)
 
 def Ref(spy:SPY): return Re
 def nutf(spy:SPY,S,Re): loadStuff(spy.nut_path+"complex/",['S','Re'],[S,Re],spy.nut.vector,spy.io)

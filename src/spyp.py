@@ -68,12 +68,12 @@ class SPYP(SPY):
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(self.m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,(self.r*v+self.SUPG)*self.r**2)*ufl.dx # Same multiplication process as base equations
-		#N_form = ufl.inner(u,v*self.r**2)*ufl.dx # Same multiplication process as base equations
+		#N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
-		self.N = assembleForm(N_form,self.bcs,True)
+		self.N = assembleForm(N_form,self.bcs)#,True)
 
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
@@ -86,8 +86,8 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.u_space)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form  = ufl.inner(w,(self.r*v+self.SUPG)*self.r**2)*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		#B_form  = ufl.inner(w,v*self.r**2)*self.indic*ufl.dx
+		#B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
+		B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
@@ -117,7 +117,7 @@ class SPYP(SPY):
 				tmp2.x.scatter_forward()
 				tmp2.vector.copy(y)
 
-			def multTranspose(cls,A,x,y):
+			def multHermitian(cls,A,x,y):
 				# Hand made solveHermitianTranspose (save extra LU factorisation)
 				x.conjugate()
 				self.KSP.solveTranspose(x,tmp2.vector)
@@ -133,7 +133,7 @@ class SPYP(SPY):
 				self.R.mult(x,tmp2.vector)
 				Q.mult(tmp2.vector,tmp1.vector)
 				tmp1.x.scatter_forward()
-				self.R.multTranspose(tmp1.vector,y)
+				self.R.multHermitian(tmp1.vector,y)
 
 		self.R   = pythonMatrix([[m_local,m],[n_local,n]],  R_class,comm)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_class,comm)

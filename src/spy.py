@@ -21,16 +21,15 @@ def dirCreator(path:str):
 		return True
 
 # Simple handler
-def meshConvert(path:str,cell_type:str) -> None:
-	if p0:
-		import meshio #pip3 install --no-binary=h5py h5py meshio
-		gmsh_mesh = meshio.read(path+".msh")
-		# Write it out again
-		ps = gmsh_mesh.points[:,:2]
-		cs = gmsh_mesh.get_cells_type(cell_type)
-		dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
-		meshio.write(path+".xdmf", dolfinx_mesh)
-	comm.barrier()
+def meshConvert(path:str,out:str,cell_type:str) -> None:
+	import meshio #pip3 install --no-binary=h5py h5py meshio
+	gmsh_mesh = meshio.read(path+".msh")
+	# Write it out again
+	ps = gmsh_mesh.points[:,:2]
+	cs = gmsh_mesh.get_cells_type(cell_type)
+	dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
+	meshio.write(out+".xdmf", dolfinx_mesh)
+	print("Mesh "+path+".msh converted to "+out+".xdmf !",flush=True)
 
 # Memoisation routine - find closest in param
 def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) -> None:
@@ -55,7 +54,7 @@ def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) ->
 	vector[...] = input_vector
 	vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 	# Loading eddy viscosity too
-	if p0: print("Loaded "+proc_name+".dat",flush=True)
+	if p0: print("Loaded "+proc_name,flush=True)
 
 # Naive save with dir creation
 def saveStuff(dir:str,name:str,vec:pet.Vec,io:PetscBinaryIO) -> None:
@@ -85,6 +84,7 @@ class SPY:
 		meshpath=self.case_path+datapath[:-1]+".xdmf"
 		with dfx.io.XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
+		if p0: print("Loaded "+meshpath,flush=True)
 
 		# file handler and complex mode
 		self.io = PetscBinaryIO.PetscBinaryIO(complexscalars=C)
@@ -142,15 +142,35 @@ class SPY:
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		if isinstance(v,ufl.indexed.Indexed):
-			return ufl.as_vector([r*v.dx(dx), r*v.dx(dr), m*1j*v])
+			return ufl.as_vector([r*v.dx(dx), i*v+r*v.dx(dr), m*1j*v])
 		return ufl.as_tensor([[r*v[dx].dx(dx), i*v[dx]+r*v[dx].dx(dr), m*1j*v[dx]],
 							  [r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
 							  [r*v[dt].dx(dx), i*v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
+
+	# Gradient with r multiplication
+	def grd_nor(self,v,m):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		if isinstance(v,ufl.indexed.Indexed):
+			return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
+		return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*1j*v[dx]		 /r],
+							  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
+							  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
 
 	def div(self,v,m,i=0):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		return r*v[dx].dx(dx) + (1+i)*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
+
+	def div_nor(self,v,m):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		if len(v.ufl_shape)==1:
+			return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
+		else:
+			return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+(v[dr,dx]+m*1j*v[dt,dx])/r,
+								  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+(v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt])/r,
+								  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+(v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr])/r])
 	
 	def r2vis(self,v,m):
 		r=self.r
@@ -159,6 +179,14 @@ class SPY:
 		return ufl.as_vector([2*r**2*(nu*v[dx].dx(dx)).dx(dx)			  +r*(r*nu*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dr)+m*1j*nu*(r*v[dt].dx(dx)+m*1j*v[dx]),
 							  r**2*(nu*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dx)+r*(2*r*nu*v[dr].dx(dr)).dx(dr)			  +m*1j*nu*(r*v[dt].dx(dr)+m*1j*v[dr])-2*m*1j*nu*v[dt],
 							  r  *(nu*(r*v[dt].dx(dx)+m*1j*v[dx])).dx(dx) +r*(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
+
+	def r2vis_full(self,v,m):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		nu=1/self.Re+self.nut
+		return ufl.as_vector([2*r**2*(nu.dx(dx)*v[dx].dx(dx)+nu*v[dx].dx(dx).dx(dx))			  +r*(nu*(v[dr].dx(dx)+v[dx].dx(dr))+r*nu.dx(dr)*(v[dr].dx(dx)+v[dx].dx(dr))+r*nu*(v[dr].dx(dx).dx(dr)+v[dx].dx(dr).dx(dr)))+m*1j*nu*(r*v[dt].dx(dx)+m*1j*v[dx]),
+							  r**2*(nu.dx(dx)*(v[dr].dx(dx)+v[dx].dx(dr))+nu*(v[dr].dx(dx).dx(dx)+v[dx].dx(dr).dx(dx)))+r*(2*nu*v[dr].dx(dr)+2*r*nu.dx(dr)*v[dr].dx(dr)+2*r*nu*v[dr].dx(dr).dx(dr))			  +m*1j*nu*(r*v[dt].dx(dr)+m*1j*v[dr])-2*m*1j*nu*v[dt],
+							  r  *(nu.dx(dx)*(r*v[dt].dx(dx)+m*1j*v[dx])+nu*(r*v[dt].dx(dx).dx(dx)+m*1j*v[dx].dx(dx))) +r*(nu.dx(dr)*(r*v[dt].dx(dr)+m*1j*v[dr])+nu*(v[dt].dx(dr)+r*v[dt].dx(dr).dx(dr)+m*1j*v[dr].dx(dr)))-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
 
 	# Helper
 	def loadBaseflow(self,S,Re):
@@ -185,9 +213,8 @@ class SPY:
 		n=ufl.sqrt(ufl.inner(U,U))
 		Pe=ufl.real(n*h/nu)
 		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
-		t=cPe*h/2/n
 
-		self.SUPG = t*self.grd(v,m)*U # Streamline Upwind Petrov Galerkin
+		self.SUPG = cPe*h/2/n*self.grd(v,m)*U # Streamline Upwind Petrov Galerkin
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -196,7 +223,7 @@ class SPY:
 		div,grd=self.div,self.grd
 		
 		# Functions
-		U,P=self.Q.split()
+		U,P=self.U,self.P
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
@@ -213,23 +240,55 @@ class SPY:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		SUPG,r2vis=self.SUPG,self.r2vis
+		SUPG,r2vis=self.SUPG,self.r2vis_full
 		
 		# Functions
 		u, p=ufl.split(self.trial)
 		U   = self.U # Baseflow
 		v, s=ufl.split(self.test)
-		
+		"""
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),    r**2*s)
+		F  = ufl.inner(	   div(u,m),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,  r**2*v+r*SUPG) # Convection
-		F += ufl.inner(	   grd(u,m)*U,  r**2*v+r*SUPG)
-		F -= ufl.inner(	       p,   div(r**2*v,m)) # Pressure
-		F += ufl.inner(	   grd(p,m),   		   r*SUPG)
+		F += ufl.inner(	   grd(U,0)*u,   r*v) # Convection
+		F += ufl.inner(	   grd(u,m)*U,   r*v)
+		F -= ufl.inner(	       p,    r*div(v,m,1)) # Pressure
 		F += ufl.inner(nu*(grd(u,m)+
-					   	   grd(u,m).T),grd(r*v,m,1)) # Diffusion (grad u.T significant with nut)
-		F -= ufl.inner(  r2vis(u,m),			 SUPG)
+					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		"""
+		# Mass (variational formulation)
+		F  = ufl.inner(	   div(u,m),     r*s)
+		# Momentum (different test functions and IBP)
+		F += ufl.inner(	   grd(U,0)*u,   r*v+r*SUPG) # Convection
+		F += ufl.inner(	   grd(u,m)*U,   r*v+r*SUPG)
+		F -= ufl.inner(	       p,    r*div(v,m,1)) # Pressure
+		#F += ufl.inner(	   grd(p,m),	   	 r*SUPG)
+		F += ufl.inner(nu*(grd(u,m)+
+					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		#F -= ufl.inner(  r2vis(u,m),		   SUPG)
+		"""
+		# Mass (variational formulation)
+		F  = ufl.inner(	   div(u,m),    s)
+		# Momentum (different test functions and IBP)
+		F += ufl.inner(	   grd(U,0)*u,	   v +SUPG) # Convection
+		F += ufl.inner(	   grd(u,m)*U,	   v +SUPG)
+		F -= ufl.inner(	       p,      div(v,m)) # Pressure
+		F += ufl.inner(	   grd(p,m),   		  SUPG)
+		F += ufl.inner(nu*(grd(u,m)+
+					   	   grd(u,m).T),grd(v,m)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(div(nu*(grd(u,m)+
+					   	   	   grd(u,m).T),m),SUPG)
+		F*=r
+		# Mass (variational formulation)
+		F  = ufl.inner(	   div(u,m),    s)
+		# Momentum (different test functions and IBP)
+		F += ufl.inner(	   grd(U,0)*u,  v) # Convection
+		F += ufl.inner(	   grd(u,m)*U,  v)
+		F -= ufl.inner(	       p,      div(v,m)) # Pressure
+		F += ufl.inner(nu*(grd(u,m)+
+					   	   grd(u,m).T),grd(v,m)) # Diffusion (grad u.T significant with nut)
+		F*=r
+		"""
 		return F*ufl.dx
 		
 	# Code factorisation
@@ -261,7 +320,7 @@ class SPY:
 
 	# Converters
 	def datToNpy(self,fi:str,fo:str,fun:Function) -> None:
-		fun.vector = self.io.readBinaryFile(fi)
+		fun.vector = self.io.readBinaryFile(fi)[0]
 		fun.x.scatter_forward()
 		np.save(fo,fun.x.array)
 
@@ -307,4 +366,4 @@ class SPY:
 		v.vector.zeroEntries()
 		v.x.array[self.dofs]=np.ones(self.dofs.size)
 		u,_=v.split()
-		self.printStuff("","sanity_check_bcs",u)
+		self.printStuff("./","sanity_check_bcs",u)
