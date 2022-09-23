@@ -152,6 +152,12 @@ class SPY:
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		return r*v[dx].dx(dx) + (1+i)*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
 	
+	def lap(self,v):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		return ufl.as_vector([2*v[dx].dx(dx).dx(dx)			  +(r*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dr)/r,
+							  (v[dr].dx(dx)+v[dx].dx(dr)).dx(dx)+(2*r*v[dr].dx(dr)).dx(dr)/r,
+							  v[dt].dx(dx).dx(dx) +(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
 	def r2vis(self,v,m):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
@@ -161,10 +167,10 @@ class SPY:
 							  r  *(nu*(r*v[dt].dx(dx)+m*1j*v[dx])).dx(dx) +r*(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
 
 	# Helper
-	def loadBaseflow(self,S,Re):
+	def loadBaseflow(self,S,Re,p=False):
 		typ=self.C*"complex/"+(1-self.C)*"real/"
 		loadStuff(self.u_path+typ,['S','Re'],[S,Re],self.U.vector,self.io)
-		loadStuff(self.p_path+typ,['S','Re'],[S,Re],self.P.vector,self.io)
+		if p: loadStuff(self.p_path+typ,['S','Re'],[S,Re],self.P.vector,self.io)
 		self.nutf(self,S,Re)
 
 	def saveBaseflow(self,str):
@@ -206,11 +212,6 @@ class SPY:
 			nux=1/self.Re+self.nut.eval(points_on_proc,cells)
 			n=np.linalg.norm(Ux,1)
 			Pe=n*hx/nux
-			if p0:
-				print(np.all(Pe>=0),flush=True)
-				print(np.all(n>=0),flush=True)
-				print(np.all(hx>=0),flush=True)
-				print(np.all(nux>=0),flush=True)
 			cPe=Pe
 			cPe[Pe<=3]/=3
 			cPe[Pe>3]=1
@@ -231,12 +232,12 @@ class SPY:
 		v,s=ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(U,0),    r**2*s)
+		F  = ufl.inner(	   div(U,0),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(    grd(U,0)*U,  r**2*v) # Convection
-		F -= ufl.inner(	  	 r*P,	   div(r*v,0,1)) # Pressure
+		F += ufl.inner(    grd(U,0)*U,   r*v) # Convection
+		F -= ufl.inner(	  	 r*P,	   div(v,0,1)) # Pressure
 		F += ufl.inner(nu*(grd(U,0)+
-					   	   grd(U,0).T),grd(r*v,0,1)) # Diffusion (grad u.T significant with nut)
+					   	   grd(U,0).T),grd(v,0,1)) # Diffusion (grad u.T significant with nut)
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
