@@ -206,6 +206,11 @@ class SPY:
 			nux=1/self.Re+self.nut.eval(points_on_proc,cells)
 			n=np.linalg.norm(Ux,1)
 			Pe=n*hx/nux
+			if p0:
+				print(np.all(Pe>=0),flush=True)
+				print(np.all(n>=0),flush=True)
+				print(np.all(hx>=0),flush=True)
+				print(np.all(nux>=0),flush=True)
 			cPe=Pe
 			cPe[Pe<=3]/=3
 			cPe[Pe>3]=1
