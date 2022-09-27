@@ -6,6 +6,8 @@ Created on Wed Oct  13 17:07:00 2021
 """
 import ufl, sys
 import numpy as np
+import dolfinx as dfx
+from dolfinx.fem import Function, FunctionSpace
 
 sys.path.append('/home/shared/src')
 
@@ -19,10 +21,10 @@ Re=400000
 S=0
 
 # Numerical Parameters
-params = {"rp":.99,    #relaxation_parameter
+params = {"rp":.95,    #relaxation_parameter
 		  "atol":1e-12, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "max_iter":10000}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
@@ -49,5 +51,28 @@ def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
+
+def boundaryConditionsBaseflow(spy:SPY) -> None:
+	# Compute DoFs
+	sub_space_x=spy.TH.sub(0).sub(0)
+	sub_space_x_collapsed,_=sub_space_x.collapse()
+
+	u_i=Function(sub_space_x_collapsed)
+	u_i.interpolate(lambda x: 10*np.tanh(6*(1-x[1]**2))*(x[1]<1)+
+							  .5*np.tanh(6*(x[1]**2-1))*(x[1]>1))
+	
+	# Degrees of freedom
+	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
+	bcs_inlet_x = dfx.fem.dirichletbc(u_i, dofs_inlet_x, sub_space_x) # Same as OpenFOAM
+
+	# Actual BCs
+	spy.applyBCs(dofs_inlet_x[0],[bcs_inlet_x]) # x=X entirely handled by implicit Neumann
+
+	# Handle homogeneous boundary conditions
+	spy.applyHomogeneousBCs([(nozzle,['x','r','th']),(spy.symmetry,['r','th'])])
+
+class InletAzimuthalVelocity():
+	def __init__(self, S): self.S = 0
+	def __call__(self, x): return self.S*x[0]
 
 def forcingIndicator(x): return np.isclose(x[1],R,.2)*(x[0]<R+.2)

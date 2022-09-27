@@ -114,8 +114,7 @@ class SPY:
 		# Re computation
 		self.Re = Ref(self)
 		# Initialisation of baseflow
-		self.U = Function(U)
-		self.P = Function(V)
+		self.Q = Function(self.TH)
 		# Turbulent viscosity
 		self.nut  = Function(V)
 		self.nutf = nutf
@@ -136,12 +135,32 @@ class SPY:
 	# Jet geometry
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray:
 		return np.isclose(x[self.direction_map['r']],0,self.params['atol']) # Axis of symmetry at r=0
+	
+	# Vanilla operators
+	def grd_nor(self,v,m):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		if len(v.ufl_shape)==0:
+			return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
+		return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*1j*v[dx]		 /r],
+							  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
+							  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
+
+	def div_nor(self,v,m):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		if len(v.ufl_shape)==1:
+			return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
+		else:
+			return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+(v[dr,dx]+m*1j*v[dt,dx])/r,
+								  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+(v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt])/r,
+								  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+(v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr])/r])
 
 	# Gradient with r multiplication
 	def grd(self,v,m,i=0):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		if isinstance(v,ufl.indexed.Indexed):
+		if len(v.ufl_shape)==0:
 			return ufl.as_vector([r*v.dx(dx), i*v+r*v.dx(dr), m*1j*v])
 		return ufl.as_tensor([[r*v[dx].dx(dx), i*v[dx]+r*v[dx].dx(dr), m*1j*v[dx]],
 							  [r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
@@ -151,13 +170,7 @@ class SPY:
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		return r*v[dx].dx(dx) + (1+i)*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
-	
-	def lap(self,v):
-		r=self.r
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		return ufl.as_vector([2*v[dx].dx(dx).dx(dx)			  +(r*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dr)/r,
-							  (v[dr].dx(dx)+v[dx].dx(dr)).dx(dx)+(2*r*v[dr].dx(dr)).dx(dr)/r,
-							  v[dt].dx(dx).dx(dx) +(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
+
 	def r2vis(self,v,m):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
@@ -169,21 +182,36 @@ class SPY:
 	# Helper
 	def loadBaseflow(self,S,Re,p=False):
 		typ=self.C*"complex/"+(1-self.C)*"real/"
-		loadStuff(self.u_path+typ,['S','Re'],[S,Re],self.U.vector,self.io)
-		if p: loadStuff(self.p_path+typ,['S','Re'],[S,Re],self.P.vector,self.io)
+		# Collapsed subspaces
+		V, u_dofs = self.TH.sub(0).collapse()
+		W, p_dofs = self.TH.sub(0).collapse()
+		U,P = Function(V), Function(W)
+		# Load separetly
+		loadStuff(self.u_path+typ,['S','Re'],[S,Re],U.vector,self.io)
+		if p: loadStuff(self.p_path+typ,['S','Re'],[S,Re],P.vector,self.io)
 		self.nutf(self,S,Re)
+		# Write inside MixedElement
+		self.Q.x.array[u_dofs]=U.x.array
+		self.Q.x.array[p_dofs]=P.x.array
 
 	def saveBaseflow(self,str):
 		typ=self.C*"complex/"+(1-self.C)*"real/"
+		# Collapsed subspaces
+		V, u_dofs = self.TH.sub(0).collapse()
+		W, p_dofs = self.TH.sub(0).collapse()
+		U,P = Function(V), Function(W)
+		# Write inside MixedElement
+		U.x.array[:]=self.Q.x.array[u_dofs]
+		P.x.array[:]=self.Q.x.array[p_dofs]
 		dirCreator(self.u_path)
 		dirCreator(self.p_path)
-		saveStuff(self.u_path+typ,"u"+str+".dat",self.U.vector,self.io)
-		saveStuff(self.p_path+typ,"p"+str+".dat",self.P.vector,self.io)
+		saveStuff(self.u_path+typ,"u"+str+".dat",U.vector,self.io)
+		saveStuff(self.p_path+typ,"p"+str+".dat",P.vector,self.io)
 
 	def computeSUPG(self,m):
 		# Split arguments
 		v,_ = ufl.split(self.test)
-		U   = self.U # Baseflow
+		U,_ = self.Q.split() # Baseflow
 
 		h,nu=self.h,1/self.Re+self.nut
 
@@ -224,20 +252,20 @@ class SPY:
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
 		# Shortforms
-		r,nu=self.r,1/self.Re+self.nut
-		div,grd=self.div,self.grd
+		r, nu = self.r, 1/self.Re+self.nut
+		div,grd=lambda v,i=0: self.div(v,0,i),lambda v,i=0: self.grd(v,0,i)
 		
 		# Functions
-		U,P=self.U,self.P
-		v,s=ufl.split(self.test)
+		U, P = ufl.split(self.Q)
+		v, s = ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(U,0),     r*s)
+		F  = ufl.inner(	   div(U),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(    grd(U,0)*U,   r*v) # Convection
-		F -= ufl.inner(	  	 r*P,	   div(v,0,1)) # Pressure
-		F += ufl.inner(nu*(grd(U,0)+
-					   	   grd(U,0).T),grd(v,0,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(    grd(U)*U,   r*v) # Convection
+		F -= ufl.inner(	  	 r*P,	 div(v,1)) # Pressure
+		F += ufl.inner(nu*(grd(U)+
+					   	   grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
@@ -248,9 +276,9 @@ class SPY:
 		SUPG,r2vis=self.SUPG,self.r2vis
 		
 		# Functions
-		u, p=ufl.split(self.trial)
-		U   = self.U # Baseflow
-		v, s=ufl.split(self.test)
+		u, p = ufl.split(self.trial)
+		U, _ = ufl.split(self.Q) # Baseflow
+		v, s = ufl.split(self.test)
 		# Mass (variational formulation)
 		F  = ufl.inner(	   div(u,m),     r*s)
 		# Momentum (different test functions and IBP)
@@ -265,7 +293,12 @@ class SPY:
 		
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
-		sub_space=self.TH.sub(0).sub(self.direction_map[direction])
+		if full_TH:
+			sub_space=self.TH.sub(0).sub(self.direction_map[direction])
+		else:
+			FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+			U = FunctionSpace(self.mesh,FE_vector)
+			sub_space=U.sub(self.direction_map[direction])
 		sub_space_collapsed,_=sub_space.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)
 		dofs,_ = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
@@ -274,14 +307,14 @@ class SPY:
 		return dofs,bcs
 
 	# Encapsulation	
-	def applyBCs(self, dofs:np.ndarray,bcs:list):
+	def applyBCs(self, dofs:np.ndarray,bcs:list) -> None:
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.extend(bcs)
 
-	def applyHomogeneousBCs(self, tup:list):
+	def applyHomogeneousBCs(self, tup:list,full_TH:bool=True) -> None:
 		for marker,directions in tup:
 			for direction in directions:
-				dofs,bcs=self.constantBC(direction,marker)
+				dofs,bcs=self.constantBC(direction,marker,full_TH=full_TH)
 				self.applyBCs(dofs,[bcs])
 
 	def printStuff(self,dir:str,name:str,fun:Function) -> None:
@@ -333,9 +366,13 @@ class SPY:
 		self.printStuff("./","sanity_check_p",  self.P)
 		self.printStuff("./","sanity_check_nut",self.nut)
 
-	def sanityCheckBCs(self):
-		v=Function(self.TH)
+	def sanityCheckBCs(self,full_TH=True):
+		if full_TH: v=Function(self.TH)
+		else:
+			FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+			U = FunctionSpace(self.mesh,FE_vector)
+			v=Function(U)
 		v.vector.zeroEntries()
 		v.x.array[self.dofs]=np.ones(self.dofs.size)
-		u,_=v.split()
-		self.printStuff("./","sanity_check_bcs",u)
+		if full_TH: v,_=v.split()
+		self.printStuff("./","sanity_check_bcs",v)

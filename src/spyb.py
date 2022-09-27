@@ -4,11 +4,12 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import shutil
+import shutil, ufl
 import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
-from dolfinx.fem import Function
+import dolfinx as dfx
+from dolfinx.fem import Function, FunctionSpace
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
 from mpi4py.MPI import COMM_WORLD as comm, MIN
@@ -19,15 +20,31 @@ p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, InletAzimuthalVelocity) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map, False)
-		sub_space_th=self.TH.sub(0).sub(direction_map['th'])
-		sub_space_th_collapsed=sub_space_th.collapse()
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, InletAzimuthalVelocity, C:bool=False, full_TH:bool=True) -> None:
+		super().__init__(params, datapath, Ref, nutf, direction_map, C)
+		if full_TH: th_space,_=self.u_space.sub(direction_map['th']).collapse()
+		else:
+			FE_vector = ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+			V = FunctionSpace(self.mesh,FE_vector)
+			th_space,_=V.sub(direction_map['th']).collapse()
 
 		# Modified vortex that goes to zero at top boundary
-		self.u_inlet_th=Function(sub_space_th_collapsed)
+		self.u_inlet_th=Function(th_space)
 		self.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
 		dirCreator(self.baseflow_path)
+
+	def smoothen(self,e):
+		FE_scalar = ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		V = FunctionSpace(self.mesh,FE_scalar)
+		u,v=ufl.TrialFunction(V),ufl.TestFunction(V)
+		P,r=self.P,self.r
+		grd,div=lambda v: self.grd_nor(v,0),lambda v: self.div_nor(v,0)
+		a=ufl.inner(u,v)
+		a+=e*ufl.inner(grd(u),grd(v))
+		L=ufl.inner(P,v)
+		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx, L*r*ufl.dx, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+		self.P = pb.solve()
+		if p0: print("Smoothing finished !",flush=True)
 	
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
 	def baseflow(self,Re:int,S:float,hot_start:bool,save:bool=True,baseflowInit=None):
@@ -37,15 +54,23 @@ class SPYB(SPY):
 		# Cold initialisation
 		if baseflowInit!=None: self.U.interpolate(baseflowInit)
 		# Memoisation
-		elif hot_start:	self.loadBaseflow(S,Re)
+		elif hot_start:	self.loadBaseflow(S,Re,True)
+
+		self.Q = Function(self.TH)
+		_, V_to_TH = self.TH.sub(0).collapse()
+		_, W_to_TH = self.TH.sub(1).collapse()
+		self.Q.x.array[V_to_TH] = self.U.x.array
+		self.Q.x.array[W_to_TH] = self.P.x.array
 
 		# Compute form
 		base_form  = self.navierStokes() #no azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(0) # m=0
+		#dbase_form = self.linearisedNavierStokes(0) # m=0
 		
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
+		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs)#,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
+
+		if p0: print("self.U.size=",self.U.x.array.size,flush=True)
 		
 		# Fine tuning
 		solver.convergence_criterion = "incremental"

@@ -59,8 +59,6 @@ class SPYP(SPY):
 		self.save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		dirCreator(self.resolvent_path)
 
-	def smoother(self,)
-
 	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self) -> None:
 		# Functions

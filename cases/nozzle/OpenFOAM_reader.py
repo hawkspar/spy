@@ -73,17 +73,6 @@ P, nut = Function(W), Function(W)
 fine_xy=openfoam_data.points[:,:2]
 coarse_xy=mesh.geometry.x[:,:2]
 
-def gaussian_smoothing(coords: np.ndarray, values: np.ndarray, out:np.ndarray, sigma: float, start:int, end: int) -> np.ndarray:
-    block_size=400
-    for start2 in range(start, end, block_size):
-        end2=min(start2+block_size,end)
-        block=slice(start2,end2)
-        # Shape N, k
-        dist = cdist(coords[block], coords, metric="sqeuclidean")
-        gauss = np.exp(-dist / 2 / sigma**2)
-        gauss[gauss<params['atol']]=0
-        out[block] = (gauss @ values) / gauss.sum(axis=1)
-
 def interp(v,reshape=False):
     v=griddata(fine_xy,v,coarse_xy,'cubic')
     if reshape: return v.reshape((-1,1))
@@ -102,27 +91,12 @@ urv,uthv=cos*urv+sin*uthv,-sin*urv+cos*uthv
 # Fix no swirl edge case
 if S==0: uthv[:]=0
 
-# Split blocs amongst processors
-n=fine_xy.shape[0]
-block_size=n//comm.size+1
-start=comm.rank*block_size
-end=start+block_size
-
-surv, spv, snutv = np.empty_like(urv), np.empty_like(pv), np.empty_like(nutv)
-
-if p0: print("Starts smoothing ur",flush=True)
-gaussian_smoothing(fine_xy, urv,  surv,  1e-2, start, end)
-if p0: print("Starts smoothing p",flush=True)
-gaussian_smoothing(fine_xy, pv,   spv,   5e-2, start, end)
-if p0: print("Starts smoothing nut",flush=True)
-gaussian_smoothing(fine_xy, nutv, snutv, 5e-2, start, end)
-
 # Map data onto dolfinx vectors
 u.x.array[:]=np.hstack((interp(uxv, 1),
-                        interp(surv, 1),
+                        interp(urv, 1),
                         interp(uthv,1))).flatten()
-P.x.array[:]  =interp(spv, 0)
-nut.x.array[:]=interp(snutv, 0)
+P.x.array[:]  =interp(pv, 0)
+nut.x.array[:]=interp(nutv, 0)
 
 # BAD because interpolation in wrong order
 U.interpolate(u)
