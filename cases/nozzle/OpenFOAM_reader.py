@@ -17,7 +17,7 @@ p0=comm.rank==0
 
 real_mode=False
 interpolate=True
-sanity_check=True
+sanity_check=False
 cell_type="triangle"
 
 # Dimensionalised stuff
@@ -90,6 +90,8 @@ nutv = openfoam_data.point_data['nut'][msk]/U_M/R
 urv,uthv=cos*urv+sin*uthv,-sin*urv+cos*uthv
 # Fix no swirl edge case
 if S==0: uthv[:]=0
+# Fix negative eddy visocisty
+nutv[nutv<0] = 0
 
 # Map data onto dolfinx vectors
 u.x.array[:]=np.hstack((interp(uxv, 1),

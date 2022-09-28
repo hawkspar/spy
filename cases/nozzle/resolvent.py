@@ -7,7 +7,6 @@ Created on Wed Oct  13 17:07:00 2021
 import numpy as np
 from setup import *
 from spyp import SPYP # Must be after setup
-from spyb import SPYB
 from mpi4py.MPI import COMM_WORLD as comm
 
 #ms=range(3)
@@ -16,17 +15,8 @@ ms=[0]
 Sts=[.9]
 
 for m in ms:
-	spyb=SPYB(params,datapath,Ref,nutf,direction_map,InletAzimuthalVelocity, True)
-	spyb.loadBaseflow(S,Re,True)
-	boundaryConditionsBaseflow(spyb)
-	spyb.sanityCheckBCs()
-	if comm.rank==0: print("BCs fixed",flush=True)
-	spyb.smoothen(.1)
-	spyb.baseflow(Re,0,False)
-	spyb.sanityCheck()
-	"""spyp=SPYP(params,datapath,Ref,Re,nutf,direction_map,S,m)#,forcingIndicator)
+	spyp=SPYP(params,datapath,Ref,Re,nutf,direction_map,S,m)#,forcingIndicator)
 	spyp.loadBaseflow(S,Re)
-	spyp.smoothen(.1)
 	spyp.sanityCheck()
 	boundaryConditionsPerturbations(spyp,m)
 	#spyp.sanityCheckBCs()
@@ -35,4 +25,4 @@ for m in ms:
 	spyp.assembleJNMatrices()
 	spyp.assembleMRMatrices()
 	# Resolvent analysis
-	spyp.resolvent(1,Sts)"""
+	spyp.resolvent(1,Sts)

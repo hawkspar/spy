@@ -104,8 +104,8 @@ class SPY:
 		V = FunctionSpace(self.mesh,FE_scalar)
 		W = FunctionSpace(self.mesh,FE_constant)
 		self.TH=FunctionSpace(self.mesh,FE_vector*FE_scalar) # Taylor Hodd elements ; stable element pair
-		self.u_space, self.u_dofs = self.TH.sub(0).collapse()
-		self.u_dofs=np.array(self.u_dofs)
+		self.TH0, self.TH0_to_TH = self.TH.sub(0).collapse()
+		self.TH1, self.TH1_to_TH = self.TH.sub(1).collapse()
 		
 		# Test & trial functions
 		self.trial = ufl.TrialFunction(self.TH)
@@ -115,6 +115,8 @@ class SPY:
 		self.Re = Ref(self)
 		# Initialisation of baseflow
 		self.Q = Function(self.TH)
+		# Collapsed subspaces
+		self.U,self.P = Function(U), Function(V)
 		# Turbulent viscosity
 		self.nut  = Function(V)
 		self.nutf = nutf
@@ -182,31 +184,23 @@ class SPY:
 	# Helper
 	def loadBaseflow(self,S,Re,p=False):
 		typ=self.C*"complex/"+(1-self.C)*"real/"
-		# Collapsed subspaces
-		V, u_dofs = self.TH.sub(0).collapse()
-		W, p_dofs = self.TH.sub(0).collapse()
-		U,P = Function(V), Function(W)
-		# Load separetly
-		loadStuff(self.u_path+typ,['S','Re'],[S,Re],U.vector,self.io)
-		if p: loadStuff(self.p_path+typ,['S','Re'],[S,Re],P.vector,self.io)
+		# Load separately
+		loadStuff(self.u_path+typ,['S','Re'],[S,Re],self.U.vector,self.io)
+		if p: loadStuff(self.p_path+typ,['S','Re'],[S,Re],self.P.vector,self.io)
 		self.nutf(self,S,Re)
 		# Write inside MixedElement
-		self.Q.x.array[u_dofs]=U.x.array
-		self.Q.x.array[p_dofs]=P.x.array
+		self.Q.x.array[self.TH0_to_TH]=self.U.x.array
+		if p: self.Q.x.array[self.TH1_to_TH]=self.P.x.array
 
 	def saveBaseflow(self,str):
 		typ=self.C*"complex/"+(1-self.C)*"real/"
-		# Collapsed subspaces
-		V, u_dofs = self.TH.sub(0).collapse()
-		W, p_dofs = self.TH.sub(0).collapse()
-		U,P = Function(V), Function(W)
 		# Write inside MixedElement
-		U.x.array[:]=self.Q.x.array[u_dofs]
-		P.x.array[:]=self.Q.x.array[p_dofs]
+		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
+		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
 		dirCreator(self.u_path)
 		dirCreator(self.p_path)
-		saveStuff(self.u_path+typ,"u"+str+".dat",U.vector,self.io)
-		saveStuff(self.p_path+typ,"p"+str+".dat",P.vector,self.io)
+		saveStuff(self.u_path+typ,"u"+str+".dat",self.U.vector,self.io)
+		saveStuff(self.p_path+typ,"p"+str+".dat",self.P.vector,self.io)
 
 	def computeSUPG(self,m):
 		# Split arguments
@@ -273,7 +267,6 @@ class SPY:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		SUPG,r2vis=self.SUPG,self.r2vis
 		
 		# Functions
 		u, p = ufl.split(self.trial)
@@ -282,23 +275,28 @@ class SPY:
 		# Mass (variational formulation)
 		F  = ufl.inner(	   div(u,m),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,   r*v+SUPG) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v+SUPG)
+		F += ufl.inner(	   grd(U,0)*u,   r*v) # Convection
+		F += ufl.inner(	   grd(u,m)*U,   r*v)
 		F -= ufl.inner(	       p,    r*div(v,m,1)) # Pressure
-		#F += ufl.inner(	   grd(p,m),	   	 r*SUPG)
 		F += ufl.inner(nu*(grd(u,m)+
 					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		#F -= ufl.inner(  r2vis(u,m),		   SUPG)
 		return F*ufl.dx
 		
+	# Pseudo-heat equation
+	def smoothen(self, e:float, fun:Function, space:FunctionSpace):
+		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
+		r=self.r
+		grd,div=lambda v: self.grd_nor(v,0),lambda v: self.div_nor(v,0)
+		a=ufl.inner(u,v)
+		a+=e*ufl.inner(grd(u),grd(v))
+		L=ufl.inner(fun,v)
+		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx, L*r*ufl.dx, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+		if p0: print("Smoothing finished !",flush=True)
+		return pb.solve()
+
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
-		if full_TH:
-			sub_space=self.TH.sub(0).sub(self.direction_map[direction])
-		else:
-			FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-			U = FunctionSpace(self.mesh,FE_vector)
-			sub_space=U.sub(self.direction_map[direction])
+		sub_space=self.TH.sub(0).sub(self.direction_map[direction])
 		sub_space_collapsed,_=sub_space.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)
 		dofs,_ = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
@@ -311,10 +309,10 @@ class SPY:
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.extend(bcs)
 
-	def applyHomogeneousBCs(self, tup:list,full_TH:bool=True) -> None:
+	def applyHomogeneousBCs(self, tup:list) -> None:
 		for marker,directions in tup:
 			for direction in directions:
-				dofs,bcs=self.constantBC(direction,marker,full_TH=full_TH)
+				dofs,bcs=self.constantBC(direction,marker)
 				self.applyBCs(dofs,[bcs])
 
 	def printStuff(self,dir:str,name:str,fun:Function) -> None:
@@ -359,20 +357,19 @@ class SPY:
 	
 	# Quick check functions
 	def sanityCheckU(self):
+		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		self.printStuff("./","sanity_check_u",self.U)
 
 	def sanityCheck(self):
+		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
+		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
 		self.printStuff("./","sanity_check_u",  self.U)
 		self.printStuff("./","sanity_check_p",  self.P)
 		self.printStuff("./","sanity_check_nut",self.nut)
 
-	def sanityCheckBCs(self,full_TH=True):
-		if full_TH: v=Function(self.TH)
-		else:
-			FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-			U = FunctionSpace(self.mesh,FE_vector)
-			v=Function(U)
+	def sanityCheckBCs(self):
+		v=Function(self.TH)
 		v.vector.zeroEntries()
 		v.x.array[self.dofs]=np.ones(self.dofs.size)
-		if full_TH: v,_=v.split()
+		v,_=v.split()
 		self.printStuff("./","sanity_check_bcs",v)
