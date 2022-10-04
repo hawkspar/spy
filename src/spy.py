@@ -60,7 +60,10 @@ def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) ->
 def saveStuff(dir:str,name:str,vec:pet.Vec,io:PetscBinaryIO) -> None:
 	dirCreator(dir)
 	io_vec = vec.array_w.view(PetscBinaryIO.Vec)
-	io.writeBinaryFile(dir+name+f"_n={comm.size:d}_p={comm.rank:d}.dat", [io_vec])
+	proc_name=dir+name+f"_n={comm.size:d}_p={comm.rank:d}.dat"
+	comm.barrier()
+	io.writeBinaryFile(proc_name, [io_vec])
+	if p0: print("Saved "+proc_name,flush=True)
 
 # Swirling Parallel Yaj
 class SPY:
@@ -103,7 +106,7 @@ class SPY:
 		U = FunctionSpace(self.mesh,FE_vector)
 		V = FunctionSpace(self.mesh,FE_scalar)
 		W = FunctionSpace(self.mesh,FE_constant)
-		self.TH=FunctionSpace(self.mesh,FE_vector*FE_scalar) # Taylor Hodd elements ; stable element pair
+		self.TH=FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar)) # Taylor Hodd elements ; stable element pair
 		self.TH0, self.TH0_to_TH = self.TH.sub(0).collapse()
 		self.TH1, self.TH1_to_TH = self.TH.sub(1).collapse()
 		
@@ -181,6 +184,14 @@ class SPY:
 							  r**2*(nu*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dx)+r*(2*r*nu*v[dr].dx(dr)).dx(dr)			  +m*1j*nu*(r*v[dt].dx(dr)+m*1j*v[dr])-2*m*1j*nu*v[dt],
 							  r  *(nu*(r*v[dt].dx(dx)+m*1j*v[dx])).dx(dx) +r*(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
 
+	def r2vis2(self,v,m):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		nu=1/self.Re+self.nut
+		return ufl.as_vector([r**2*(nu*v[dx].dx(dx)).dx(dx)+r*(r*nu*v[dr].dx(dx)).dx(dr)+m*1j*nu*r*v[dt].dx(dx),
+							  r**2*(nu*v[dx].dx(dr)).dx(dx)+r*(r*nu*v[dr].dx(dr)).dx(dr)+m*1j*nu*r*v[dt].dx(dr)-m*1j*nu*v[dt],
+							  r   *m*1j*(nu*v[dx]).dx(dx)  +r*m*1j*(nu*v[dr]).dx(dr)	-m**2*nu*v[dt]		   +m*1j*nu*v[dr]])
+
 	# Helper
 	def loadBaseflow(self,S,Re,p=False):
 		typ=self.C*"complex/"+(1-self.C)*"real/"
@@ -199,67 +210,95 @@ class SPY:
 		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
 		dirCreator(self.u_path)
 		dirCreator(self.p_path)
-		saveStuff(self.u_path+typ,"u"+str+".dat",self.U.vector,self.io)
-		saveStuff(self.p_path+typ,"p"+str+".dat",self.P.vector,self.io)
+		saveStuff(self.u_path+typ,"u"+str,self.U.vector,self.io)
+		saveStuff(self.p_path+typ,"p"+str,self.P.vector,self.io)
 
-	def computeSUPG(self,m):
+	def stabilise(self,m):
+		# Important ! Otherwise n is nonsense
+		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		# Split arguments
-		v,_ = ufl.split(self.test)
-		U,_ = self.Q.split() # Baseflow
+		u,_ = ufl.split(self.trial)
+		v,s = ufl.split(self.test)
 
+		# Shorthands
 		h,nu=self.h,1/self.Re+self.nut
+		grd,div,r=self.grd,self.div,self.r
+		U=self.U
 
 		# Weird Johann local tau (SUPG stabilisation)
-		n=ufl.sqrt(ufl.inner(U,U))
-		Pe=ufl.real(n*h/nu)
-		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
-		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
-		W = FunctionSpace(self.mesh,FE_constant)
-		tau = Function(W)
-		def tauf(x):
-			cells = []
-			points_on_proc = []
-			bb_tree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
-			# Find cells whose bounding-box collide with the the points
-			cell_candidates = dfx.geometry.compute_collisions(bb_tree, x.T)
-			# Choose one of the cells that contains the point
-			colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, x.T)
-			for i, point in enumerate(x.T):
-				if len(colliding_cells.links(i))>0:
-					points_on_proc.append(point)
-					cells.append(colliding_cells.links(i)[0])
-			points_on_proc = np.array(points_on_proc, dtype=np.float64)
-			Ux=U.eval(points_on_proc,cells)
-			hx=h.eval(points_on_proc,cells)
-			nux=1/self.Re+self.nut.eval(points_on_proc,cells)
-			n=np.linalg.norm(Ux,1)
-			Pe=n*hx/nux
-			cPe=Pe
-			cPe[Pe<=3]/=3
-			cPe[Pe>3]=1
-			return (cPe*hx/2/n).T
-		tau.interpolate(tauf)
-		self.printStuff("./","sanity_check_tau",tau)
+		i=ufl.Index()
+		n=ufl.sqrt(self.U[i]*self.U[i])
+		Pe=ufl.real(n*h/2/nu)
+		z=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
+		tau=z*h/2/n
 
-		self.SUPG = cPe*h/2/n*self.grd(v,m)*U # Streamline Upwind Petrov Galerkin
+		FE = ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+		W = FunctionSpace(self.mesh,FE)
+		expr=dfx.fem.Expression(n,W.element.interpolation_points())
+		fun = Function(W)
+		fun.interpolate(expr)
+		self.printStuff("./","sanity_check_n",fun)
+		expr=dfx.fem.Expression(Pe,W.element.interpolation_points())
+		fun = Function(W)
+		fun.interpolate(expr)
+		self.printStuff("./","sanity_check_Pe",fun)
+		expr=dfx.fem.Expression(h,W.element.interpolation_points())
+		fun = Function(W)
+		fun.interpolate(expr)
+		self.printStuff("./","sanity_check_h",fun)
+		expr=dfx.fem.Expression(z,W.element.interpolation_points())
+		fun = Function(W)
+		fun.interpolate(expr)
+		self.printStuff("./","sanity_check_z",fun)
+		expr=dfx.fem.Expression(tau,W.element.interpolation_points())
+		fun = Function(W)
+		fun.interpolate(expr)
+		self.printStuff("./","sanity_check_tau",fun)
+		"""
+		# Lutz SUPG
+		c = ufl.inner(grd(u,m)*U,  r*v)		*ufl.dx
+		k = ufl.inner(grd(u,m)*U,grd(v,m)*U)*ufl.dx
+		C = dfx.fem.petsc.assemble_matrix(dfx.fem.form(c),self.bcs)
+		K = dfx.fem.petsc.assemble_matrix(dfx.fem.form(k),self.bcs)
+		K.setOption(K.Option.SYMMETRIC,True)
+		C.assemble()
+		K.assemble()
+
+		tau_S1=C.norm()/K.norm()
+		tau_S3=tau_S1/nu
+		R=1
+		tau=(tau_S1**-R+tau_S3**-R)**(-1/R)
+		"""
+		self.SUPG = tau*grd(v,m)*U # Streamline Upwind Petrov Galerkin
+		"""
+		self.SUPG = ufl.as_tensor([[U[0]**2,  U[0]*U[1],U[0]*U[2]],
+								   [U[1]*U[0],U[1]**2,  U[1]*U[2]],
+								   [U[2]*U[0],U[2]*U[1],U[2]**2]])/n*h/np.sqrt(15)
+		delta=h**2/4/nu
+		gamma=h**2/4/delta
+		self.p_stab=gamma*div(v,m)
+		self.u_stab=delta*(grd(v,m)*U+grd(s,m))"""
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
 		# Shortforms
 		r, nu = self.r, 1/self.Re+self.nut
-		div,grd=lambda v,i=0: self.div(v,0,i),lambda v,i=0: self.grd(v,0,i)
+		div,grd=self.div,self.grd
+		#SUPG, r2vis = self.SUPG, lambda v: self.r2vis(v,0)
 		
 		# Functions
 		U, P = ufl.split(self.Q)
 		v, s = ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(U),     r*s)
+		F  = ufl.inner(	   div(U,0),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(    grd(U)*U,   r*v) # Convection
-		F -= ufl.inner(	  	 r*P,	 div(v,1)) # Pressure
-		F += ufl.inner(nu*(grd(U)+
-					   	   grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(    grd(U,0)*U,   r*v)#+SUPG)) # Convection
+		F -= ufl.inner(	  	 r*P,    div(v,0,1)) # Pressure
+		#F += ufl.inner(	   grd(P),	     r*SUPG)
+		F += ufl.inner(nu*(grd(U,0)+
+					   	   grd(U,0).T),grd(v,0,1)) # Diffusion (grad u.T significant with nut)
+		#F -= ufl.inner(  r2vis(U),		   SUPG)
 		return F*ufl.dx
 		
 	# Not automatic because of convection term
@@ -267,19 +306,22 @@ class SPY:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
+		#r2vis,SUPG=self.r2vis,self.SUPG
 		
 		# Functions
 		u, p = ufl.split(self.trial)
 		U, _ = ufl.split(self.Q) # Baseflow
 		v, s = ufl.split(self.test)
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),     r*s)
+		F  = ufl.inner(	   div(u,m),    r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,   r*v) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v)
-		F -= ufl.inner(	       p,    r*div(v,m,1)) # Pressure
+		F += ufl.inner(	   grd(U,0)*u,  r*v)#+SUPG)) # Convection
+		F += ufl.inner(	   grd(u,m)*U,  r*v)#+SUPG))
+		F -= ufl.inner(	     r*p,     div(v,m,1)) # Pressure
+		#F += ufl.inner(	   grd(p,m), 	   r*SUPG)
 		F += ufl.inner(nu*(grd(u,m)+
 					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		#F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
 		return F*ufl.dx
 		
 	# Pseudo-heat equation
@@ -320,6 +362,7 @@ class SPY:
 		with dfx.io.XDMFFile(comm, dir+name+".xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(fun)
+		if p0: print(dir+name+".xdmf saved !",flush=True)
 
 	# Converters
 	def datToNpy(self,fi:str,fo:str,fun:Function) -> None:
@@ -357,12 +400,20 @@ class SPY:
 	
 	# Quick check functions
 	def sanityCheckU(self):
-		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
-		self.printStuff("./","sanity_check_u",self.U)
+		U,P=self.Q.split()
+		self.printStuff("./","sanity_check_u",U)
 
 	def sanityCheck(self):
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
+
+		FE = ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+		W = FunctionSpace(self.mesh,FE)
+		expr=dfx.fem.Expression(self.div_nor(self.U,0),W.element.interpolation_points())
+		div = Function(W)
+		div.interpolate(expr)
+		self.printStuff("./","sanity_check_div",div)
+		
 		self.printStuff("./","sanity_check_u",  self.U)
 		self.printStuff("./","sanity_check_p",  self.P)
 		self.printStuff("./","sanity_check_nut",self.nut)

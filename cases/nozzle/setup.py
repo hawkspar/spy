@@ -7,7 +7,7 @@ Created on Wed Oct  13 17:07:00 2021
 import ufl, sys
 import numpy as np
 import dolfinx as dfx
-from dolfinx.fem import Function, FunctionSpace
+from dolfinx.fem import Function
 
 sys.path.append('/home/shared/src')
 
@@ -38,7 +38,7 @@ def Ref(spy:SPY): return Re
 
 def nutf(spy:SPY,S,Re):
 	loadStuff(spy.nut_path+"complex/",['S','Re'],[S,Re],spy.nut.vector,spy.io)
-	spy.nut.x.array[spy.nut.x.array<0]=0
+	spy.nut.x.array[spy.nut.x.array<0]=0 # Enforce positive
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

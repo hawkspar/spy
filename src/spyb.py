@@ -9,12 +9,12 @@ import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 import dolfinx as dfx
-from dolfinx.fem import Function, FunctionSpace
+from dolfinx.fem import FunctionSpace
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
 from mpi4py.MPI import COMM_WORLD as comm, MIN
 
-pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method
+#pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method
 
 p0=comm.rank==0
 
@@ -37,7 +37,9 @@ class SPYB(SPY):
 		# Apply new BC
 		self.inlet_azimuthal_velocity.S=S
 		# Cold initialisation
-		if baseflowInit!=None: self.U.interpolate(baseflowInit)
+		if baseflowInit!=None:
+			U,P=self.Q.split()
+			U.interpolate(baseflowInit)
 		# Memoisation
 		elif hot_start:	self.loadBaseflow(S,Re,True)
 
@@ -51,8 +53,6 @@ class SPYB(SPY):
 		
 		# Fine tuning
 		solver.convergence_criterion = "incremental"
-		solver.report = True
-		#log.set_log_level(log.LogLevel.INFO)
 		solver.relaxation_parameter=self.params['rp'] # Absolutely crucial for convergence
 		solver.max_iter=self.params['max_iter']
 		solver.rtol=self.params['rtol']
@@ -68,9 +68,9 @@ class SPYB(SPY):
 		solver.solve(self.Q)
 
 		if save:  # Memoisation
-			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",self.U)
 			self.saveBaseflow(f"_S={S:00.3f}_Re={Re:d}")
-			if p0: print(".xmdf, .dat written!",flush=True)
+			U,P=self.Q.split()
+			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",U)
 
 	# To be run in real mode
 	# DESTRUCTIVE !

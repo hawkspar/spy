@@ -12,7 +12,7 @@ from spyb import SPYB # Must be after setup
 
 #meshConvert("/home/shared/cases/garnaud/garnaud",'triangle')
 #def nutf(spy,_): spy.nut=0
-spyb=SPYB(params,datapath,lambda _: Re, nutf,direction_map,InletAzimuthalVelocity)
+spyb=SPYB(params,datapath,lambda _: Re, nutf,direction_map)
 # Baseflow calculation
 boundaryConditionsBaseflow(spyb)
 spyb.baseflow(Re,S,True)#,baseflowInit=baseflowInit)

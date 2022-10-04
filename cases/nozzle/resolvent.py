@@ -16,11 +16,11 @@ Sts=[.9]
 
 for m in ms:
 	spyp=SPYP(params,datapath,Ref,Re,nutf,direction_map,S,m)#,forcingIndicator)
-	spyp.loadBaseflow(S,Re)
-	spyp.sanityCheck()
+	spyp.loadBaseflow(S,Re) # Don't load pressure
 	boundaryConditionsPerturbations(spyp,m)
-	#spyp.sanityCheckBCs()
-	spyp.computeSUPG(m)
+	spyp.sanityCheckBCs()
+	spyp.sanityCheck()
+	spyp.stabilise(m)
 	# For efficiency, matrices assembled once per Sts
 	spyp.assembleJNMatrices()
 	spyp.assembleMRMatrices()
