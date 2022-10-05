@@ -48,7 +48,7 @@ def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) ->
 		if fd<d: d,closest_file_name=fd,path+file_name
 
 	proc_name = closest_file_name.split("_p=")
-	proc_name = proc_name[0]+f"_p={comm.rank:d}"+proc_name[1][1:]
+	proc_name = proc_name[0]+f"_p={comm.rank:d}.dat"
 	
 	input_vector = io.readBinaryFile(proc_name)[0]
 	vector[...] = input_vector
@@ -217,13 +217,12 @@ class SPY:
 		# Important ! Otherwise n is nonsense
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		# Split arguments
-		u,_ = ufl.split(self.trial)
-		v,s = ufl.split(self.test)
+		U,_ = ufl.split(self.Q)
+		v,_ = ufl.split(self.test)
 
 		# Shorthands
 		h,nu=self.h,1/self.Re+self.nut
-		grd,div,r=self.grd,self.div,self.r
-		U=self.U
+		grd,div=self.grd,self.div
 
 		# Weird Johann local tau (SUPG stabilisation)
 		i=ufl.Index()
@@ -231,53 +230,10 @@ class SPY:
 		Pe=ufl.real(n*h/2/nu)
 		z=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
 		tau=z*h/2/n
-
-		FE = ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
-		W = FunctionSpace(self.mesh,FE)
-		expr=dfx.fem.Expression(n,W.element.interpolation_points())
-		fun = Function(W)
-		fun.interpolate(expr)
-		self.printStuff("./","sanity_check_n",fun)
-		expr=dfx.fem.Expression(Pe,W.element.interpolation_points())
-		fun = Function(W)
-		fun.interpolate(expr)
-		self.printStuff("./","sanity_check_Pe",fun)
-		expr=dfx.fem.Expression(h,W.element.interpolation_points())
-		fun = Function(W)
-		fun.interpolate(expr)
-		self.printStuff("./","sanity_check_h",fun)
-		expr=dfx.fem.Expression(z,W.element.interpolation_points())
-		fun = Function(W)
-		fun.interpolate(expr)
-		self.printStuff("./","sanity_check_z",fun)
-		expr=dfx.fem.Expression(tau,W.element.interpolation_points())
-		fun = Function(W)
-		fun.interpolate(expr)
-		self.printStuff("./","sanity_check_tau",fun)
-		"""
-		# Lutz SUPG
-		c = ufl.inner(grd(u,m)*U,  r*v)		*ufl.dx
-		k = ufl.inner(grd(u,m)*U,grd(v,m)*U)*ufl.dx
-		C = dfx.fem.petsc.assemble_matrix(dfx.fem.form(c),self.bcs)
-		K = dfx.fem.petsc.assemble_matrix(dfx.fem.form(k),self.bcs)
-		K.setOption(K.Option.SYMMETRIC,True)
-		C.assemble()
-		K.assemble()
-
-		tau_S1=C.norm()/K.norm()
-		tau_S3=tau_S1/nu
-		R=1
-		tau=(tau_S1**-R+tau_S3**-R)**(-1/R)
-		"""
+		tau=1/ufl.sqrt((2*n/h)**2+(4*nu/h**2)**2)
 		self.SUPG = tau*grd(v,m)*U # Streamline Upwind Petrov Galerkin
-		"""
-		self.SUPG = ufl.as_tensor([[U[0]**2,  U[0]*U[1],U[0]*U[2]],
-								   [U[1]*U[0],U[1]**2,  U[1]*U[2]],
-								   [U[2]*U[0],U[2]*U[1],U[2]**2]])/n*h/np.sqrt(15)
-		delta=h**2/4/nu
-		gamma=h**2/4/delta
-		self.p_stab=gamma*div(v,m)
-		self.u_stab=delta*(grd(v,m)*U+grd(s,m))"""
+		gamma=(h/2)**2/4/3/tau
+		self.grd_div=gamma*div(v,m,1)
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -306,22 +262,23 @@ class SPY:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		#r2vis,SUPG=self.r2vis,self.SUPG
+		r2vis,SUPG=self.r2vis,self.SUPG
 		
 		# Functions
 		u, p = ufl.split(self.trial)
 		U, _ = ufl.split(self.Q) # Baseflow
 		v, s = ufl.split(self.test)
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),    r*s)
+		F  = ufl.inner(	   div(u,m),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,  r*v)#+SUPG)) # Convection
-		F += ufl.inner(	   grd(u,m)*U,  r*v)#+SUPG))
-		F -= ufl.inner(	     r*p,     div(v,m,1)) # Pressure
+		F += ufl.inner(	   grd(U,0)*u,   r*v)#+SUPG) # Convection
+		F += ufl.inner(	   grd(u,m)*U,   r*v)#+SUPG)
+		F -= ufl.inner(	     r*p,      div(v,m,1)) # Pressure
 		#F += ufl.inner(	   grd(p,m), 	   r*SUPG)
 		F += ufl.inner(nu*(grd(u,m)+
 					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
+		F += ufl.inner(    div(u,m),    self.grd_div)
 		return F*ufl.dx
 		
 	# Pseudo-heat equation
