@@ -7,19 +7,19 @@ Created on Wed Oct  13 17:07:00 2021
 import numpy as np
 from setup import *
 from spyp import SPYP
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 
 # Gains
 n=50
 gains=np.empty(n)
-#Sts=np.linspace(.1,1,n)
-Sts=[.3]
+Sts=np.linspace(.1,1,n)
+#Sts=[.3]
 
-spyp=SPYP(params,datapath,lambda _: 1e3,nutf,direction_map,0,0,forcingIndicator)
+spyp=SPYP(params,datapath,lambda _: 1e3,1000,nutf,direction_map,0,0,forcingIndicator)
 spyp.npyToDatAll()
 boundaryConditionsPerturbations(spyp,0)
 # For efficiency, matrices assembled only once
-spyp.assembleJNMatrices(1000)
+spyp.assembleJNMatrices()
 spyp.assembleMRMatrices()
 spyp.resolvent(1,Sts)
 """

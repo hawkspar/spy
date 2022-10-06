@@ -55,6 +55,14 @@ def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
 
+	# Fixing boundary conditions
+	n = ufl.FacetNormal(spy.mesh)
+	u,_=ufl.split(spy.trial)
+	v,_=ufl.split(spy.test)
+	r = ufl.SpatialCoordinate(spy.mesh)[1]
+	spy.weak_bcs=ufl.inner((1/spy.Re+spy.nut)*spy.grd(u,m).T*ufl.as_vector([n[0],n[1],0]),r*v)*ufl.ds
+	#spy.weak_bcs=ufl.inner((1/spy.Re+spy.nut)*r*u,r*v)*ufl.ds
+
 def boundaryConditionsBaseflow(spy:SPY) -> None:
 	# Compute DoFs
 	sub_space_x=spy.TH.sub(0).sub(0)
@@ -85,6 +93,12 @@ def boundaryConditionsBaseflow(spy:SPY) -> None:
 
 	# Handle homogeneous boundary conditions
 	spy.applyHomogeneousBCs([(nozzle,['x','r','th']),(spy.symmetry,['r','th'])])
+
+	# Fixing boundary conditions
+	n = ufl.FacetNormal(spy.mesh)
+	U,_=ufl.split(spy.Q)
+	v,_=ufl.split(spy.test)
+	spy.weak_bcs=ufl.inner((1/spy.Re+spy.nut)*(spy.grd(U,0).T)*n,v)*ufl.ds
 
 class InletAzimuthalVelocity():
 	def __init__(self, S): self.S = 0

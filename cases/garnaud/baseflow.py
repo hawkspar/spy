@@ -12,10 +12,11 @@ from mpi4py.MPI import COMM_WORLD as comm
 spyb=SPYB(params,datapath,lambda _: 10,nutf,direction_map)
 # Baseflow calculation
 boundaryConditionsBaseflow(spyb)
-for Re in [10]:#, 50, 250, 1000]:
+spyb.Re=10
+spyb.baseflow(10,0,False,baseflowInit=baseflowInit)
+for Re in [50, 250, 1000]:
 	spyb.Re=Re
-	spyb.nut=0
-	spyb.baseflow(Re,0,False,baseflowInit=baseflowInit)
+	spyb.baseflow(Re,0,True)
 
 # Purge Re<1000
 if comm.rank==0:

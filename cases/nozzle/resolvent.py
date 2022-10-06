@@ -19,6 +19,7 @@ for m in ms:
 	spyp.loadBaseflow(S,Re) # Don't load pressure
 	boundaryConditionsPerturbations(spyp,m)
 	spyp.stabilise(m)
+	spyp.sanityCheck()
 	# For efficiency, matrices assembled once per Sts
 	spyp.assembleJNMatrices()
 	spyp.assembleMRMatrices()

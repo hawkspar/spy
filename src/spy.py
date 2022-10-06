@@ -136,6 +136,7 @@ class SPY:
 		# BCs essentials
 		self.dofs = np.empty(0,dtype=np.int32)
 		self.bcs=[]
+		self.weak_bcs=0
 
 	# Jet geometry
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray:
@@ -230,7 +231,7 @@ class SPY:
 		Pe=ufl.real(n*h/2/nu)
 		z=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
 		tau=z*h/2/n
-		tau=1/ufl.sqrt((2*n/h)**2+(4*nu/h**2)**2)
+		#tau=1/ufl.sqrt((2*n/h)**2+(4*nu/h**2)**2)
 		self.SUPG = tau*grd(v,m)*U # Streamline Upwind Petrov Galerkin
 		gamma=(h/2)**2/4/3/tau
 		self.grd_div=gamma*div(v,m,1)
@@ -255,14 +256,14 @@ class SPY:
 		F += ufl.inner(nu*(grd(U,0)+
 					   	   grd(U,0).T),grd(v,0,1)) # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(  r2vis(U),		   SUPG)
-		return F*ufl.dx
+		return F*ufl.dx+self.weak_bcs
 		
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		r2vis,SUPG=self.r2vis,self.SUPG
+		#r2vis,SUPG=self.r2vis,self.SUPG
 		
 		# Functions
 		u, p = ufl.split(self.trial)
@@ -271,15 +272,15 @@ class SPY:
 		# Mass (variational formulation)
 		F  = ufl.inner(	   div(u,m),     r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,   r*v)#+SUPG) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v)#+SUPG)
+		F += ufl.inner(	   grd(U,0)*u,   r*v)#+SUPG)) # Convection
+		F += ufl.inner(	   grd(u,m)*U,   r*v)#+SUPG))
 		F -= ufl.inner(	     r*p,      div(v,m,1)) # Pressure
 		#F += ufl.inner(	   grd(p,m), 	   r*SUPG)
 		F += ufl.inner(nu*(grd(u,m)+
 					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
 		F += ufl.inner(    div(u,m),    self.grd_div)
-		return F*ufl.dx
+		return F*ufl.dx+self.weak_bcs
 		
 	# Pseudo-heat equation
 	def smoothen(self, e:float, fun:Function, space:FunctionSpace):

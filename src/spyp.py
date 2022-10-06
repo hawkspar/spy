@@ -68,8 +68,8 @@ class SPYP(SPY):
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(self.m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		#N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
-		N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
+		#N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
@@ -86,8 +86,8 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.TH0)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		#B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
+		B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
+		#B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
