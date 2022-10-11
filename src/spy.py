@@ -5,10 +5,8 @@ Created on Fri Dec 10 12:00:00 2021
 @author: hawkspar
 """
 import numpy as np
-import PetscBinaryIO
 import dolfinx as dfx
 import os, ufl, shutil, re
-from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm
 from dolfinx.fem import FunctionSpace, Function
 
@@ -38,9 +36,9 @@ def meshConvert(path:str,out:str,cell_type:str) -> None:
 	print("Mesh "+path+".msh converted to "+out+".xdmf !",flush=True)
 
 # Memoisation routine - find closest in param
-def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) -> None:
+def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
 	closest_file_name=path
-	file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
+	file_names = [f for f in os.listdir(path) if f[-3:]=="npy"]
 	d=np.infty
 	for file_name in file_names:
 		if checkComm(file_name):
@@ -51,34 +49,20 @@ def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) ->
 				fd += abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
 
-	vector[...] = io.readBinaryFile(closest_file_name)[0]
-	vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
+	fun.x.array.real=np.load(closest_file_name,allow_pickle=True)
 	# Loading eddy viscosity too
 	if p0: print("Loaded "+closest_file_name,flush=True)
 
 # Naive save with dir creation
-def saveStuff(dir:str,name:str,vec:pet.Vec,io:PetscBinaryIO) -> None:
+def saveStuff(dir:str,name:str,fun:Function) -> None:
 	dirCreator(dir)
-	io_vec = vec.array_w.view(PetscBinaryIO.Vec)
-	proc_name=dir+name+f"_n={comm.size:d}_p={comm.rank:d}.dat"
-	comm.barrier()
-	io.writeBinaryFile(proc_name, [io_vec])
+	proc_name=dir+name+f"_n={comm.size:d}_p={comm.rank:d}"
+	np.save(proc_name,fun.x.array)
 	if p0: print("Saved "+proc_name,flush=True)
-
-# Converters
-def datToNpy(fi:str,fo:str,fun:Function,io:PetscBinaryIO) -> None:
-	fun.vector[...] = io.readBinaryFile(fi)[0]
-	fun.x.scatter_forward()
-	np.save(fo,fun.x.array)
-
-def npyToDat(fi:str,fo:str,fun:Function,io:PetscBinaryIO) -> None:
-	fun.x.array.real=np.load(fi,allow_pickle=True)
-	io_vec = fun.vector.array_w.view(PetscBinaryIO.Vec)
-	io.writeBinaryFile(fo+".dat", [io_vec])
 
 # Swirling Parallel Yaj
 class SPY:
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, C:bool, forcingIndicator=None) -> None:
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, forcingIndicator=None) -> None:
 		# Direction dependant
 		self.direction_map=direction_map
 		# Solver parameters (Newton mostly, but also eig)
@@ -93,10 +77,6 @@ class SPY:
 		self.print_path	   =self.baseflow_path+'print/'
 		self.resolvent_path=self.case_path+'resolvent/'
 		self.eig_path	   =self.case_path+'eigenvalues/'
-
-		# File handler & complex mode
-		self.io = PetscBinaryIO.PetscBinaryIO(complexscalars=C)
-		self.C=C
 
 		# Mesh from file
 		meshpath=self.case_path+datapath[:-1]+".xdmf"
@@ -206,24 +186,22 @@ class SPY:
 
 	# Helper
 	def loadBaseflow(self,S,Re,p=False):
-		typ=self.C*"complex/"+(1-self.C)*"real/"
 		# Load separately
-		loadStuff(self.u_path+typ,['S','Re'],[S,Re],self.U.vector,self.io)
-		if p: loadStuff(self.p_path+typ,['S','Re'],[S,Re],self.P.vector,self.io)
+		loadStuff(self.u_path,['S','Re'],[S,Re],self.U)
+		if p: loadStuff(self.p_path,['S','Re'],[S,Re],self.P)
 		self.nutf(self,S,Re)
 		# Write inside MixedElement
 		self.Q.x.array[self.TH0_to_TH]=self.U.x.array
 		if p: self.Q.x.array[self.TH1_to_TH]=self.P.x.array
 
 	def saveBaseflow(self,str):
-		typ=self.C*"complex/"+(1-self.C)*"real/"
 		# Write inside MixedElement
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
 		dirCreator(self.u_path)
 		dirCreator(self.p_path)
-		saveStuff(self.u_path+typ,"u"+str,self.U.vector,self.io)
-		saveStuff(self.p_path+typ,"p"+str,self.P.vector,self.io)
+		saveStuff(self.u_path,"u"+str,self.U)
+		saveStuff(self.p_path,"p"+str,self.P)
 
 	def stabilise(self,m):
 		# Important ! Otherwise n is nonsense
@@ -264,10 +242,10 @@ class SPY:
 		v, s = ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(U,0),     r*s)
+		F  = ufl.inner(div(U,0),  r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(    grd(U,0)*U,   r*v)#+SUPG)) # Convection
-		F -= ufl.inner(	  	 r*P,    div(v,0,1)) # Pressure
+		F += ufl.inner(grd(U,0)*U,r*v)#+SUPG)) # Convection
+		F -= ufl.inner(	 r*P,   div(v,0,1)) # Pressure
 		#F += ufl.inner(	   grd(P),	     r*SUPG)
 		F += ufl.inner(grd(U,0),grd(v,0,1))*nu # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(  r2vis(U),		   SUPG)
@@ -340,36 +318,6 @@ class SPY:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(fun)
 		if p0: print("Printed "+dir+name+".xdmf",flush=True)
-
-	def convertAllWrapper(self,dir_in:str,dir_out:str,convert,flags:dict) -> None:
-		pairs=[]
-		try:
-			if flags["u"]: pairs.append((self.U,self.u_path))
-		except KeyError: pass
-		try:
-			if flags["p"]: pairs.append((self.P,self.p_path))
-		except KeyError: pass
-		try:
-			if flags["nut"]: pairs.append((self.nut,self.nut_path))
-		except KeyError: pass
-		for fun,path in pairs:
-			if os.path.isdir(path+dir_in):
-				file_names = [f for f in os.listdir(path+dir_in)]
-				dirCreator(path+dir_out)
-				for file_name in file_names:
-					if checkComm(file_name):
-						# Required in case nut is scalar
-						try:
-							convert(path+dir_in +file_name,
-									path+dir_out+file_name[:-4],fun,self.io)
-						except TypeError: pass
-				if p0:
-					print("Conversion of",path+dir_in,"over !",flush=True)
-					#shutil.rmtree(path+dir_in)
-	
-	def datToNpyAll(self,flags:dict) -> None: self.convertAllWrapper("real/","npy/",datToNpy,flags)
-	
-	def npyToDatAll(self,flags:dict) -> None: self.convertAllWrapper("npy/","complex/",npyToDat,flags)
 	
 	# Quick check functions
 	def sanityCheckU(self):

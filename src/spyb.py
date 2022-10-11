@@ -19,8 +19,8 @@ p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, C:bool=False) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map, C)
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict) -> None:
+		super().__init__(params, datapath, Ref, nutf, direction_map)
 		dirCreator(self.baseflow_path)
 
 	def smoothenBaseflow(self):

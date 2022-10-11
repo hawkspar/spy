@@ -17,9 +17,9 @@ gains=np.empty(n)
 Sts=[.3]
 
 spyp=SPYP(params,datapath,lambda _: 1e3,1000,nutf,direction_map,0,0,forcingIndicator)
-spyp.npyToDatAll({"u":True})
-spyp.Q.x.array[spyp.TH0_to_TH]=spyp.U.x.array
 boundaryConditionsPerturbations(spyp,0)
+spyp.loadBaseflow(S,Re)
+spyp.sanityCheckU()
 # For efficiency, matrices assembled only once
 spyp.assembleJNMatrices()
 spyp.assembleMRMatrices()

@@ -18,6 +18,8 @@ from spyb import SPYB
 x_max=40; r_max=10
 x_p=-5;   R=1
 
+S,Re=0,1000
+
 # Numerical parameters
 params = {"rp":.99,    #relaxation_parameter
 		  "atol":1e-6, #absolute_tolerance

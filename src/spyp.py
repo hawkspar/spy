@@ -54,7 +54,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
 	def __init__(self, params:dict, datapath:str, Ref, Re, nutf, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map, True, forcingIndicator)
+		super().__init__(params, datapath, Ref, nutf, direction_map, forcingIndicator)
 		self.S=S; self.m=m
 		self.save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		dirCreator(self.resolvent_path)
@@ -159,7 +159,7 @@ class SPYP(SPY):
 			KSP = ST.getKSP()
 			configureKSP(KSP,self.params)
 			EPS.setFromOptions()
-			if p0: print("Solver launch...")
+			if p0: print("Solver launch...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0: continue
