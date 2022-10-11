@@ -20,8 +20,8 @@ def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
 	form = dfx.fem.form(form, jit_params={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
 					  					  "cffi_libraries": ["m"]})
-	# Default is already fully local
 	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag)
+	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1)
 	A.setOption(A.Option.SYMMETRIC,sym)
 	A.assemble()
 	return A
@@ -49,7 +49,7 @@ def configureKSP(KSP:pet.KSP,params:dict) -> None:
 def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
-	EPS.setTrueResidual(True)
+	#EPS.setTrueResidual(True)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -68,12 +68,12 @@ class SPYP(SPY):
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(self.m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
-		#N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
+		#N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
-		self.N = assembleForm(N_form,self.bcs)#,True)
+		self.N = assembleForm(N_form,self.bcs,True)
 
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
@@ -86,8 +86,8 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.TH0)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		#B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
+		#B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
+		B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
@@ -144,7 +144,7 @@ class SPYP(SPY):
 			EPS = slp.EPS(); EPS.create(comm)
 			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 
-			# Useful solver
+			# Useful solvers (here to put options for computing a smart R)
 			self.KSP = pet.KSP().create(comm)
 			self.KSP.setOperators(L)
 			configureKSP(self.KSP,self.params)
@@ -153,10 +153,13 @@ class SPYP(SPY):
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			EPS.setProblemType(slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			configureEPS(EPS,k,self.params)
-			# Spectral transform (by default shift of 0) & Krylov subspace
-			ST = EPS.getST(); KSP = ST.getKSP()
+			# Spectral transform (by default shift of 0)
+			ST = EPS.getST()
+			# Krylov subspace
+			KSP = ST.getKSP()
 			configureKSP(KSP,self.params)
 			EPS.setFromOptions()
+			if p0: print("Solver launch...")
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0: continue
@@ -178,8 +181,8 @@ class SPYP(SPY):
 
 			# Write eigenvectors
 			for i in range(min(n,k)):
-				# Obtain forcings as eigenvectors
 				forcing_i=Function(self.TH0)
+				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				self.printStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
 

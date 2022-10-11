@@ -89,7 +89,7 @@ def boundaryConditionsBaseflow(spy:SPY) -> None:
 	u_inlet_th.interpolate(spy.inlet_azimuthal_velocity)
 	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
 	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM
-	spy.applyBCs(dofs_inlet_th,[bcs_inlet_th])
+	spy.applyBCs(dofs_inlet_th[0],[bcs_inlet_th])
 
 	# Handle homogeneous boundary conditions
 	spy.applyHomogeneousBCs([(nozzle,['x','r','th']),(spy.symmetry,['r','th'])])

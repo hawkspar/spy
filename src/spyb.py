@@ -8,7 +8,6 @@ import shutil, ufl
 import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
-import dolfinx as dfx
 from dolfinx.fem import FunctionSpace
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
@@ -41,7 +40,7 @@ class SPYB(SPY):
 			U,P=self.Q.split()
 			U.interpolate(baseflowInit)
 		# Memoisation
-		elif hot_start:	self.loadBaseflow(S,Re,True)
+		elif hot_start:	self.loadBaseflow(S,Re)
 
 		# Compute form
 		base_form  = self.navierStokes() #no azimuthal decomposition for base flow

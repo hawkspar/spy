@@ -14,11 +14,17 @@ from dolfinx.fem import FunctionSpace, Function
 
 p0=comm.rank==0
 
+def checkComm(f:str):
+	match = re.search(r'_n=(\d*)',f)
+	if int(match.group(1))!=comm.size: return False
+	match = re.search(r'_p=([0-9]*)',f)
+	if int(match.group(1))!=comm.rank: return False
+	return True
+
 def dirCreator(path:str):
 	if not os.path.isdir(path):
-		comm.barrier() # Wait for all other processors
 		if p0: os.mkdir(path)
-		return True
+	comm.barrier() # Wait for all other processors
 
 # Simple handler
 def meshConvert(path:str,out:str,cell_type:str) -> None:
@@ -37,24 +43,18 @@ def loadStuff(path:str,keys:list,params:list,vector:pet.Vec,io:PetscBinaryIO) ->
 	file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
 	d=np.infty
 	for file_name in file_names:
-		match = re.search(r'_n=(\d*)',file_name)
-		n = int(match.group(1))
-		if n!=comm.size: continue # Don't read if != proc nb
-		fd=0 # Compute distance according to all params
-		for param,key in zip(params,keys):
-			match = re.search(r'_'+key+r'=(\d*\.?\d*)',file_name)
-			param_file = float(match.group(1)) # Take advantage of file format
-			fd += abs(param-param_file)
-		if fd<d: d,closest_file_name=fd,path+file_name
+		if checkComm(file_name):
+			fd=0 # Compute distance according to all params
+			for param,key in zip(params,keys):
+				match = re.search(r'_'+key+r'=(\d*\.?\d*)',file_name)
+				param_file = float(match.group(1)) # Take advantage of file format
+				fd += abs(param-param_file)
+			if fd<d: d,closest_file_name=fd,path+file_name
 
-	proc_name = closest_file_name.split("_p=")
-	proc_name = proc_name[0]+f"_p={comm.rank:d}.dat"
-	
-	input_vector = io.readBinaryFile(proc_name)[0]
-	vector[...] = input_vector
+	vector[...] = io.readBinaryFile(closest_file_name)[0]
 	vector.ghostUpdate(addv=pet.InsertMode.INSERT, mode=pet.ScatterMode.FORWARD)
 	# Loading eddy viscosity too
-	if p0: print("Loaded "+proc_name,flush=True)
+	if p0: print("Loaded "+closest_file_name,flush=True)
 
 # Naive save with dir creation
 def saveStuff(dir:str,name:str,vec:pet.Vec,io:PetscBinaryIO) -> None:
@@ -64,6 +64,17 @@ def saveStuff(dir:str,name:str,vec:pet.Vec,io:PetscBinaryIO) -> None:
 	comm.barrier()
 	io.writeBinaryFile(proc_name, [io_vec])
 	if p0: print("Saved "+proc_name,flush=True)
+
+# Converters
+def datToNpy(fi:str,fo:str,fun:Function,io:PetscBinaryIO) -> None:
+	fun.vector[...] = io.readBinaryFile(fi)[0]
+	fun.x.scatter_forward()
+	np.save(fo,fun.x.array)
+
+def npyToDat(fi:str,fo:str,fun:Function,io:PetscBinaryIO) -> None:
+	fun.x.array.real=np.load(fi,allow_pickle=True)
+	io_vec = fun.vector.array_w.view(PetscBinaryIO.Vec)
+	io.writeBinaryFile(fo+".dat", [io_vec])
 
 # Swirling Parallel Yaj
 class SPY:
@@ -83,15 +94,15 @@ class SPY:
 		self.resolvent_path=self.case_path+'resolvent/'
 		self.eig_path	   =self.case_path+'eigenvalues/'
 
+		# File handler & complex mode
+		self.io = PetscBinaryIO.PetscBinaryIO(complexscalars=C)
+		self.C=C
+
 		# Mesh from file
 		meshpath=self.case_path+datapath[:-1]+".xdmf"
 		with dfx.io.XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		if p0: print("Loaded "+meshpath,flush=True)
-
-		# file handler and complex mode
-		self.io = PetscBinaryIO.PetscBinaryIO(complexscalars=C)
-		self.C=C
 
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[direction_map['r']]
@@ -130,7 +141,7 @@ class SPY:
 		# Forcing localisation
 		if forcingIndicator==None: self.indic=1
 		else:
-			self.indic = Function(V)
+			self.indic = Function(W)
 			self.indic.interpolate(forcingIndicator)
 
 		# BCs essentials
@@ -231,10 +242,15 @@ class SPY:
 		Pe=ufl.real(n*h/2/nu)
 		z=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
 		tau=z*h/2/n
+
+		n=.5*ufl.sqrt(ufl.inner(U,U))
+		Pe=ufl.real(n*h*self.Re)
+		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
+		t=cPe*h/2/n
 		#tau=1/ufl.sqrt((2*n/h)**2+(4*nu/h**2)**2)
-		self.SUPG = tau*grd(v,m)*U # Streamline Upwind Petrov Galerkin
-		gamma=(h/2)**2/4/3/tau
-		self.grd_div=gamma*div(v,m,1)
+		self.SUPG = t*grd(v,m)*U # Streamline Upwind Petrov Galerkin
+		"""gamma=(h/2)**2/4/3/tau
+		self.grd_div=gamma*div(v,m,1)"""
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -253,10 +269,9 @@ class SPY:
 		F += ufl.inner(    grd(U,0)*U,   r*v)#+SUPG)) # Convection
 		F -= ufl.inner(	  	 r*P,    div(v,0,1)) # Pressure
 		#F += ufl.inner(	   grd(P),	     r*SUPG)
-		F += ufl.inner(nu*(grd(U,0)+
-					   	   grd(U,0).T),grd(v,0,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(grd(U,0),grd(v,0,1))*nu # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(  r2vis(U),		   SUPG)
-		return F*ufl.dx+self.weak_bcs
+		return F*ufl.dx#+self.weak_bcs
 		
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
@@ -270,17 +285,18 @@ class SPY:
 		U, _ = ufl.split(self.Q) # Baseflow
 		v, s = ufl.split(self.test)
 		# Mass (variational formulation)
-		F  = ufl.inner(	   div(u,m),     r*s)
+		F  = ufl.inner(div(u,m),  r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(	   grd(U,0)*u,   r*v)#+SUPG)) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v)#+SUPG))
-		F -= ufl.inner(	     r*p,      div(v,m,1)) # Pressure
-		#F += ufl.inner(	   grd(p,m), 	   r*SUPG)
-		F += ufl.inner(nu*(grd(u,m)+
-					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(grd(U,0)*u,r*v) # Convection
+		F += ufl.inner(grd(u,m)*U,r*v)
+		F -= ufl.inner(  r*p,   div(v,m,1)) # Pressure
+		#F += ufl.inner(grd(p,m), 		SUPG)
+		F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
+		#F += ufl.inner(grd(u,m)+
+		#			   grd(u,m).T,grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
-		F += ufl.inner(    div(u,m),    self.grd_div)
-		return F*ufl.dx+self.weak_bcs
+		#F += ufl.inner(div(u,m),self.grd_div)
+		return F*ufl.dx#+self.weak_bcs
 		
 	# Pseudo-heat equation
 	def smoothen(self, e:float, fun:Function, space:FunctionSpace):
@@ -299,62 +315,61 @@ class SPY:
 		sub_space=self.TH.sub(0).sub(self.direction_map[direction])
 		sub_space_collapsed,_=sub_space.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)
-		dofs,_ = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
+		dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
+		cst = Function(sub_space_collapsed)
+		cst.interpolate(lambda x: np.ones_like(x[0])*value)
+		#cst.x.array[:]=value
 		# Actual BCs
-		bcs = dfx.fem.dirichletbc(pet.ScalarType(value), dofs, sub_space) # u_i=value at boundary
-		return dofs,bcs
+		bcs = dfx.fem.dirichletbc(cst, dofs, sub_space) # u_i=value at boundary
+		return dofs[0],bcs
 
 	# Encapsulation	
-	def applyBCs(self, dofs:np.ndarray,bcs:list) -> None:
+	def applyBCs(self, dofs:np.ndarray, bcs:list) -> None:
 		self.dofs=np.union1d(dofs,self.dofs)
-		self.bcs.extend(bcs)
+		self.bcs.append(bcs)
 
 	def applyHomogeneousBCs(self, tup:list) -> None:
 		for marker,directions in tup:
 			for direction in directions:
 				dofs,bcs=self.constantBC(direction,marker)
-				self.applyBCs(dofs,[bcs])
+				self.applyBCs(dofs,bcs)
 
 	def printStuff(self,dir:str,name:str,fun:Function) -> None:
 		dirCreator(dir)
 		with dfx.io.XDMFFile(comm, dir+name+".xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(fun)
-		if p0: print(dir+name+".xdmf saved !",flush=True)
+		if p0: print("Printed "+dir+name+".xdmf",flush=True)
 
-	# Converters
-	def datToNpy(self,fi:str,fo:str,fun:Function) -> None:
-		fun.vector = self.io.readBinaryFile(fi)[0]
-		fun.x.scatter_forward()
-		np.save(fo,fun.x.array)
-
-	def datToNpyAll(self) -> None:
-		for fun,path in [(self.U,self.u_path),(self.P,self.p_path),(self.nut,self.nut_path)]:
-			if os.path.isdir(path+"real/"):
-				file_names = [f for f in os.listdir(path) if f[-3:]=="dat"]
-				dirCreator(path+"npy/")
+	def convertAllWrapper(self,dir_in:str,dir_out:str,convert,flags:dict) -> None:
+		pairs=[]
+		try:
+			if flags["u"]: pairs.append((self.U,self.u_path))
+		except KeyError: pass
+		try:
+			if flags["p"]: pairs.append((self.P,self.p_path))
+		except KeyError: pass
+		try:
+			if flags["nut"]: pairs.append((self.nut,self.nut_path))
+		except KeyError: pass
+		for fun,path in pairs:
+			if os.path.isdir(path+dir_in):
+				file_names = [f for f in os.listdir(path+dir_in)]
+				dirCreator(path+dir_out)
 				for file_name in file_names:
-					self.datToNpy(path+"real/"+file_name,
-								  path+"npy/"+file_name[:-4]+".npy",fun)
-				if p0: shutil.rmtree(path+"real/")
-
-	def npyToDat(self,fi:str,fo:str,fun:Function) -> None:
-		fun.x.array.real=np.load(fi,allow_pickle=True)
-		fun.x.scatter_forward()
-		solnAsPetscBiIOVec = fun.vector.array_w.view(PetscBinaryIO.Vec)
-		self.io.writeBinaryFile(fo, [solnAsPetscBiIOVec])
+					if checkComm(file_name):
+						# Required in case nut is scalar
+						try:
+							convert(path+dir_in +file_name,
+									path+dir_out+file_name[:-4],fun,self.io)
+						except TypeError: pass
+				if p0:
+					print("Conversion of",path+dir_in,"over !",flush=True)
+					#shutil.rmtree(path+dir_in)
 	
-	def npyToDatAll(self) -> None:
-		for fun,path in [(self.U,self.u_path),(self.P,self.p_path),(self.nut,self.nut_path)]:
-			if os.path.isdir(path+"npy/"):
-				file_names = [f for f in os.listdir(path+"npy/")]
-				dirCreator(path+"complex/")
-				for file_name in file_names:
-					match = re.search(r'_p=([0-9]*)',file_name)
-					if comm.rank==int(match.group(1)):
-						self.npyToDat(path+"npy/"+file_name,
-									  path+"complex/"+file_name[:-4]+".dat",fun)
-				if p0: shutil.rmtree(path+"npy/")
+	def datToNpyAll(self,flags:dict) -> None: self.convertAllWrapper("real/","npy/",datToNpy,flags)
+	
+	def npyToDatAll(self,flags:dict) -> None: self.convertAllWrapper("npy/","complex/",npyToDat,flags)
 	
 	# Quick check functions
 	def sanityCheckU(self):
@@ -374,7 +389,9 @@ class SPY:
 		
 		self.printStuff("./","sanity_check_u",  self.U)
 		self.printStuff("./","sanity_check_p",  self.P)
-		self.printStuff("./","sanity_check_nut",self.nut)
+		# nut may not be a Function
+		try: self.printStuff("./","sanity_check_nut",self.nut)
+		except TypeError: pass
 
 	def sanityCheckBCs(self):
 		v=Function(self.TH)

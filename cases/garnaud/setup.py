@@ -20,8 +20,8 @@ x_p=-5;   R=1
 
 # Numerical parameters
 params = {"rp":.99,    #relaxation_parameter
-		  "atol":1e-12, #absolute_tolerance
-		  "rtol":1e-6, #DOLFIN_EPS does not work well
+		  "atol":1e-6, #absolute_tolerance
+		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":1000}
 datapath='garnaud/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
@@ -38,10 +38,10 @@ def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],r_max,
 def wall(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[0]<params['atol'])*(x[1]>R-params['atol']) # Walls
 
 # Restriction on forcing area
-def forcingIndicator(x): return x[0]<0
+def forcingIndicator(x): return x[0]<-params['atol']
 
 # No turbulent visosity for this case
-def nutf(spy:SPY,S:float): spy.nut=0
+def nutf(spy:SPY,S:float, Re:float): spy.nut=0
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u_x=1, u_r=0 & u_th=gb at inlet (velocity control)
@@ -66,7 +66,7 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 	bcs_inlet_x = dfx.fem.dirichletbc(u_inlet_x, dofs_inlet_x, sub_space_x) # u_x=tanh(5*(1-r)) at x=0
 
 	# Actual BCs
-	spyb.applyBCs(dofs_inlet_x[0],[bcs_inlet_x]) # x=X entirely handled by implicit Neumann
+	spyb.applyBCs(dofs_inlet_x[0],bcs_inlet_x) # x=X entirely handled by implicit Neumann
 	
 	# Handle homogeneous boundary conditions
 	spyb.applyHomogeneousBCs([(inlet,['r','th']),(wall,['x','r','th']),(spyb.symmetry,['r','th'])])
@@ -91,6 +91,6 @@ def boundaryConditionsPerturbations(spy:SPY, m:int) -> None:
 	# Handle homogeneous boundary conditions
 	homogeneous_boundaries=[(inlet,['x','r','th']),(wall,['x','r','th'])]
 	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
-	#elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
+	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
