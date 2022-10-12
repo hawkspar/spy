@@ -139,9 +139,9 @@ class SPYP(SPY):
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_class,comm)
 
 	def resolvent(self,k:int,St_list) -> None:
+		# Solver
+		EPS = slp.EPS(); EPS.create(comm)
 		for St in St_list:
-			# Solver
-			EPS = slp.EPS(); EPS.create(comm)
 			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 
 			# Useful solvers (here to put options for computing a smart R)
@@ -158,6 +158,8 @@ class SPYP(SPY):
 			# Krylov subspace
 			KSP = ST.getKSP()
 			configureKSP(KSP,self.params)
+			
+			# Heavy lifting
 			EPS.setFromOptions()
 			if p0: print("Solver launch...",flush=True)
 			EPS.solve()
@@ -168,12 +170,12 @@ class SPYP(SPY):
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
 				# Write gains
-				dirCreator(self.resolvent_path)
+				if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
 				np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.txt",gains)
 				# Pretty print
-				print("# of CV eigenvalues : "+str(n))
-				print("# of iterations : "+str(EPS.getIterationNumber()))
-				print("Error estimate : "+str(EPS.getErrorEstimate(0)))
+				print("# of CV eigenvalues : "+str(n),flush=True)
+				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
+				print("Error estimate : "+str(EPS.getErrorEstimate(0)),flush=True)
 				# Get a list of all the file paths with the same parameters
 				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+self.save_string+f"_St={St:00.3f}_i=*.*")
 				# Iterate over the list of filepaths & remove each file

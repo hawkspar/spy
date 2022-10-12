@@ -1,11 +1,9 @@
 import re, os
 import numpy as np
-import PetscBinaryIO #export PYTHONPATH=/usr/local/petsc/lib/petsc/bin/:$PYTHONPATH
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
-from setup import Re, S, params
+from setup import Re, S
 from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
-from scipy.spatial.distance import cdist
 from mpi4py.MPI import COMM_WORLD as comm
 from dolfinx.fem import FunctionSpace, Function
 
@@ -15,7 +13,6 @@ from spy import dirCreator, meshConvert
 
 p0=comm.rank==0
 
-real_mode=False
 interpolate=True
 sanity_check=False
 cell_type="triangle"
@@ -60,23 +57,15 @@ with XDMFFile(comm, "nozzle.xdmf", "r") as file:
     mesh = file.read_mesh(name="Grid")
 
 # Create FiniteElement, FunctionSpace & Functions
-FE_vector  =ufl.VectorElement("CG",mesh.ufl_cell(),1,3)
-FE_vector_2=ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
-FE_scalar  =ufl.FiniteElement("CG",mesh.ufl_cell(),1)
+FE_vector=ufl.VectorElement("DG",mesh.ufl_cell(),2,3)
+FE_scalar=ufl.FiniteElement("DG",mesh.ufl_cell(),1)
 V =FunctionSpace(mesh, FE_vector)
-V2=FunctionSpace(mesh, FE_vector_2)
 W =FunctionSpace(mesh, FE_scalar)
-u, U   = Function(V), Function(V2)
-P, nut = Function(W), Function(W)
+U, P, nut = Function(V), Function(W), Function(W)
 
 # Handlers (still useful when !interpolate)
 fine_xy=openfoam_data.points[:,:2]
-coarse_xy=mesh.geometry.x[:,:2]
-
-def interp(v,reshape=False):
-    v=griddata(fine_xy,v,coarse_xy,'cubic')
-    if reshape: return v.reshape((-1,1))
-    return v
+def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'cubic')
 
 # Reducing problem size (coarse mesh is also smaller)
 msk = np.logical_and(fine_xy[:,0]<L,fine_xy[:,1]<H)
@@ -94,14 +83,11 @@ if S==0: uthv[:]=0
 nutv[nutv<0] = 0
 
 # Map data onto dolfinx vectors
-u.x.array[:]=np.hstack((interp(uxv, 1),
-                        interp(urv, 1),
-                        interp(uthv,1))).flatten()
-P.x.array[:]  =interp(pv, 0)
-nut.x.array[:]=interp(nutv, 0)
-
-# BAD because interpolation in wrong order
-U.interpolate(u)
+U.sub(0).interpolate(lambda x: interp(uxv, x))
+U.sub(1).interpolate(lambda x: interp(urv, x))
+U.sub(2).interpolate(lambda x: interp(uthv,x))
+P.interpolate(lambda x: interp(pv, x))
+nut.interpolate(lambda x: interp(nutv, x))
 
 # Save pretty graphs
 if sanity_check:
@@ -112,24 +98,14 @@ if sanity_check:
 
 # Write all functions separately
 pre="./baseflow"
-typ=real_mode*"real"+(1-real_mode)*"complex"
 dirCreator(pre)
 dirCreator(pre+"/u/")
 dirCreator(pre+"/p/")
 dirCreator(pre+"/nut/")
-dirCreator(pre+"/u/"  +typ)
-dirCreator(pre+"/p/"  +typ)
-dirCreator(pre+"/nut/"+typ)
 
-app=f"_S={S:.3f}_Re={Re:d}_n={comm.size:d}_p={comm.rank:d}.dat"
+app=f"_S={S:.3f}_Re={Re:d}_n={comm.size:d}_p={comm.rank:d}"
 
-# Binary IO ; parallel
-io = PetscBinaryIO.PetscBinaryIO(complexscalars=not real_mode)
-U_vec = U.vector.array_w.view(PetscBinaryIO.Vec)
-P_vec = P.vector.array_w.view(PetscBinaryIO.Vec)
-nut_vec = nut.vector.array_w.view(PetscBinaryIO.Vec)
-comm.barrier() # Important otherwise file corrupted
-
-io.writeBinaryFile(pre+"/u/"  +typ+"/u"  +app, [U_vec])
-io.writeBinaryFile(pre+"/p/"  +typ+"/p"  +app, [P_vec])
-io.writeBinaryFile(pre+"/nut/"+typ+"/nut"+app, [nut_vec])
+# Save
+np.save(pre+"/u/u"+app,    U.x.array)
+np.save(pre+"/p/p"+app,    P.x.array)
+np.save(pre+"/nut/nut"+app,nut.x.array)

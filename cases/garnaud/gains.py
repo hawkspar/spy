@@ -13,8 +13,7 @@ from mpi4py.MPI import COMM_WORLD as comm
 # Gains
 n=50
 gains=np.empty(n)
-#Sts=np.linspace(.1,1,n)
-Sts=[.3]
+Sts=np.linspace(.1,1,n)
 
 spyp=SPYP(params,datapath,lambda _: 1e3,1000,nutf,direction_map,0,0,forcingIndicator)
 boundaryConditionsPerturbations(spyp,0)

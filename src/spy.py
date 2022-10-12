@@ -50,6 +50,7 @@ def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
 			if fd<d: d,closest_file_name=fd,path+file_name
 
 	fun.x.array.real=np.load(closest_file_name,allow_pickle=True)
+	fun.x.scatter_forward()
 	# Loading eddy viscosity too
 	if p0: print("Loaded "+closest_file_name,flush=True)
 
@@ -91,8 +92,8 @@ class SPY:
 		num_cells = self.mesh.topology.index_map(tdim).size_local + self.mesh.topology.index_map(tdim).num_ghosts
 	
 		# Finite elements & function spaces
-		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		FE_vector  =ufl.VectorElement("DG",self.mesh.ufl_cell(),2,3)
+		FE_scalar  =ufl.FiniteElement("DG",self.mesh.ufl_cell(),1)
 		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
 		U = FunctionSpace(self.mesh,FE_vector)
 		V = FunctionSpace(self.mesh,FE_scalar)
@@ -127,7 +128,6 @@ class SPY:
 		# BCs essentials
 		self.dofs = np.empty(0,dtype=np.int32)
 		self.bcs=[]
-		self.weak_bcs=0
 
 	# Jet geometry
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray:
@@ -202,6 +202,18 @@ class SPY:
 		dirCreator(self.p_path)
 		saveStuff(self.u_path,"u"+str,self.U)
 		saveStuff(self.p_path,"p"+str,self.P)
+		
+	# Pseudo-heat equation
+	def smoothen(self, e:float, fun:Function, space:FunctionSpace, weak_bcs):
+		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
+		r=self.r
+		grd=lambda v: self.grd_nor(v,0)
+		a=ufl.inner(u,v)
+		a+=e*ufl.inner(grd(u),grd(v))
+		L=ufl.inner(fun,v)
+		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx+weak_bcs, L*r*ufl.dx, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+		if p0: print("Smoothing started...",flush=True)
+		return pb.solve().x.array
 
 	def stabilise(self,m):
 		# Important ! Otherwise n is nonsense
@@ -231,10 +243,10 @@ class SPY:
 		self.grd_div=gamma*div(v,m,1)"""
 	
 	# Heart of this entire code
-	def navierStokes(self) -> ufl.Form:
+	def navierStokes(self,weak_bcs) -> ufl.Form:
 		# Shortforms
 		r, nu = self.r, 1/self.Re+self.nut
-		div,grd=self.div,self.grd
+		div,grd=lambda v,i=0: self.div(v,0,i), lambda v,i=0: self.grd(v,0,i)
 		#SUPG, r2vis = self.SUPG, lambda v: self.r2vis(v,0)
 		
 		# Functions
@@ -242,17 +254,18 @@ class SPY:
 		v, s = ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(div(U,0),  r*s)
+		F  = ufl.inner(div(U),  		 r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(grd(U,0)*U,r*v)#+SUPG)) # Convection
-		F -= ufl.inner(	 r*P,   div(v,0,1)) # Pressure
-		#F += ufl.inner(	   grd(P),	     r*SUPG)
-		F += ufl.inner(grd(U,0),grd(v,0,1))*nu # Diffusion (grad u.T significant with nut)
-		#F -= ufl.inner(  r2vis(U),		   SUPG)
-		return F*ufl.dx#+self.weak_bcs
+		F += ufl.inner(grd(U)*U,		 r*v)#+SUPG)) # Convection
+		F -= ufl.inner(	 r*P,   	   div(v,1)) # Pressure
+		#F += ufl.inner(grd(P),	     			  r*SUPG)
+		#F += ufl.inner(grd(U),grd(v,1))*nu # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(nu*(grd(U)+grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
+		#F -= ufl.inner(r2vis(U),		   		    SUPG)
+		return F*ufl.dx+weak_bcs(self,U,P)
 		
 	# Not automatic because of convection term
-	def linearisedNavierStokes(self,m:int) -> ufl.Form:
+	def linearisedNavierStokes(self,weak_bcs,m:int) -> ufl.Form:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
@@ -269,24 +282,11 @@ class SPY:
 		F += ufl.inner(grd(u,m)*U,r*v)
 		F -= ufl.inner(  r*p,   div(v,m,1)) # Pressure
 		#F += ufl.inner(grd(p,m), 		SUPG)
-		F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
-		#F += ufl.inner(grd(u,m)+
-		#			   grd(u,m).T,grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
+		#F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)
-		return F*ufl.dx#+self.weak_bcs
-		
-	# Pseudo-heat equation
-	def smoothen(self, e:float, fun:Function, space:FunctionSpace):
-		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
-		r=self.r
-		grd,div=lambda v: self.grd_nor(v,0),lambda v: self.div_nor(v,0)
-		a=ufl.inner(u,v)
-		a+=e*ufl.inner(grd(u),grd(v))
-		L=ufl.inner(fun,v)
-		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx, L*r*ufl.dx, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
-		if p0: print("Smoothing finished !",flush=True)
-		return pb.solve()
+		return F*ufl.dx+weak_bcs(self,u,p)
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
@@ -302,7 +302,7 @@ class SPY:
 		return dofs[0],bcs
 
 	# Encapsulation	
-	def applyBCs(self, dofs:np.ndarray, bcs:list) -> None:
+	def applyBCs(self, dofs:np.ndarray, bcs) -> None:
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.append(bcs)
 
@@ -324,21 +324,36 @@ class SPY:
 		U,P=self.Q.split()
 		self.printStuff("./","sanity_check_u",U)
 
-	def sanityCheck(self):
+	def sanityCheck(self,app=""):
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
 
-		FE = ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+		FE = ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		W = FunctionSpace(self.mesh,FE)
 		expr=dfx.fem.Expression(self.div_nor(self.U,0),W.element.interpolation_points())
 		div = Function(W)
 		div.interpolate(expr)
-		self.printStuff("./","sanity_check_div",div)
+		self.printStuff("./","sanity_check_div"+app,div)
+
+		FE = ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+		W = FunctionSpace(self.mesh,FE)
+		p = Function(W)
+		p.x.array[:]=comm.rank
+		self.printStuff("./","sanity_check_partition"+app,p)
+
+		for i in range(3):
+			for j in range(2):
+				FE = ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+				W = FunctionSpace(self.mesh,FE)
+				expr=dfx.fem.Expression(self.U[i].dx(j),W.element.interpolation_points())
+				Uidj = Function(W)
+				Uidj.interpolate(expr)
+				self.printStuff("./",f"sanity_check_U{i}d{j}"+app,Uidj)
 		
-		self.printStuff("./","sanity_check_u",  self.U)
-		self.printStuff("./","sanity_check_p",  self.P)
+		self.printStuff("./","sanity_check_u"+app,  self.U)
+		self.printStuff("./","sanity_check_p"+app,  self.P)
 		# nut may not be a Function
-		try: self.printStuff("./","sanity_check_nut",self.nut)
+		try: self.printStuff("./","sanity_check_nut"+app,self.nut)
 		except TypeError: pass
 
 	def sanityCheckBCs(self):

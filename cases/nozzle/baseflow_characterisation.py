@@ -7,12 +7,12 @@ from scipy.interpolate import griddata
 # Dimensionalised stuff
 R,U_M=.1,10
 C=np.cos(np.pi/360) # 0.5°
-u_co=.1
+u_co=.05
 Q=(1-u_co)/(1+u_co)
 
 # Read OpenFOAM
 # Read mesh and point data
-openfoam_data = meshio.read("front.xmf")
+openfoam_data = meshio.read("front_Re=400000_S=0.xmf")
 xy=openfoam_data.points[:,:2]/R/C # Scaling & Plane tilted
 
 # Dimensionless
@@ -23,8 +23,7 @@ X = np.linspace(0,60,n)
 target_xy = np.zeros((n,2))
 target_xy[:,0] = X
 
-def interp(v,target_xy):
-    return griddata(xy,v,target_xy,'cubic') 
+def interp(v,target_xy): return griddata(xy,v,target_xy,'cubic') 
 
 u = interp(ud,target_xy)
 

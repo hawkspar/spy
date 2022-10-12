@@ -8,10 +8,10 @@ import shutil, ufl
 import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
-from dolfinx.fem import FunctionSpace
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
 from mpi4py.MPI import COMM_WORLD as comm, MIN
+from dolfinx.fem import Function, FunctionSpace
 
 #pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method
 
@@ -23,16 +23,18 @@ class SPYB(SPY):
 		super().__init__(params, datapath, Ref, nutf, direction_map)
 		dirCreator(self.baseflow_path)
 
-	def smoothenBaseflow(self):
+	def smoothenBaseflow(self,weak_bcs_u,weak_bcs_p):
 		FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
 		FE_scalar=ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		U = FunctionSpace(self.mesh,FE_vector)
 		V = FunctionSpace(self.mesh,FE_scalar)
-		self.Q.x.array[self.TH0_to_TH]=self.smoothen(1e-2,self.U,U).x.array
-		self.Q.x.array[self.TH1_to_TH]=self.smoothen(1e-2,self.P,V).x.array
+		u,v=ufl.TrialFunction(U),ufl.TestFunction(U)
+		p,s=ufl.TrialFunction(V),ufl.TestFunction(V)
+		self.Q.x.array[self.TH0_to_TH]=self.smoothen(1e-2,self.U,U,weak_bcs_u(self,u,v,0))
+		self.Q.x.array[self.TH1_to_TH]=self.smoothen(1e-2,self.P,V,weak_bcs_p(self,p,s))
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,S:float,hot_start:bool,save:bool=True,baseflowInit=None):
+	def baseflow(self,Re:int,S:float,weak_bcs,hot_start:bool=False,save:bool=True,baseflowInit=None):
 		# Apply new BC
 		self.inlet_azimuthal_velocity.S=S
 		# Cold initialisation
@@ -43,11 +45,12 @@ class SPYB(SPY):
 		elif hot_start:	self.loadBaseflow(S,Re)
 
 		# Compute form
-		base_form  = self.navierStokes() #no azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(0) # m=0
+		base_form  = self.navierStokes(weak_bcs) #no azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(weak_bcs,0) # m=0
 		
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
+		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs)#,J=dbase_form+weak_bcs(self,u,p,0)+weak_bcs_p(self,p,s))
+		#problem = NonlinearProblem(base_form+weak_bcs_u(self,U,v,0)+weak_bcs_p(self,P,s),self.Q,bcs=self.bcs)#,J=dbase_form+weak_bcs_u(self,u,v,0)+weak_bcs_p(self,p,s))
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning

@@ -45,6 +45,10 @@ def forcingIndicator(x): return x[0]<-params['atol']
 # No turbulent visosity for this case
 def nutf(spy:SPY,S:float, Re:float): spy.nut=0
 
+class InletAzimuthalVelocity():
+	def __init__(self, S): self.S = 0
+	def __call__(self, x): return self.S*x[0]
+
 # Baseflow (really only need DirichletBC objects) enforces :
 # u_x=1, u_r=0 & u_th=gb at inlet (velocity control)
 # u_r=0, u_th=0 for symmetry axis (derived from mass csv as r->0)
@@ -76,9 +80,33 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 	# Dummy swirl
 	spyb.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
 
-class InletAzimuthalVelocity():
-	def __init__(self, S): self.S = 0
-	def __call__(self, x): return self.S*x[0]
+	# Weak form
+	boundaries = [(1, lambda x: np.logical_or(top(x),outlet(x))), (2, spyb.symmetry)]
+
+	facet_indices, facet_markers = [], []
+	fdim = spyb.mesh.topology.dim - 1
+	for (marker, locator) in boundaries:
+		facets = dfx.mesh.locate_entities(spyb.mesh, fdim, locator)
+		facet_indices.append(facets)
+		facet_markers.append(np.full_like(facets, marker))
+	facet_indices = np.hstack(facet_indices).astype(np.int32)
+	facet_markers = np.hstack(facet_markers).astype(np.int32)
+	sorted_facets = np.argsort(facet_indices)
+	facet_tag = dfx.mesh.meshtags(spyb.mesh, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
+
+	spyb.mesh.topology.create_connectivity(spyb.mesh.topology.dim-1, spyb.mesh.topology.dim)
+	with dfx.io.XDMFFile(spyb.mesh.comm, "facet_tags.xdmf", "w") as xdmf:
+		xdmf.write_mesh(spyb.mesh)
+		xdmf.write_meshtags(facet_tag)
+
+	ds = ufl.Measure("ds", domain=spyb.mesh, subdomain_data=facet_tag)
+
+	n = ufl.FacetNormal(spyb.mesh)
+	U, _ = ufl.split(spyb.Q)
+	v,_=ufl.split(spyb.test)
+	r = ufl.SpatialCoordinate(spyb.mesh)[1]
+	spyb.weak_bcs =ufl.inner((1/spyb.Re+spyb.nut)* spyb.grd(U,0).T*ufl.as_vector([n[0],n[1],0]),    v)*	ds(1)
+	spyb.weak_bcs+=ufl.inner((1/spyb.Re+spyb.nut)*(spyb.grd(U,0).T*ufl.as_vector([n[0],n[1],0]))[0],v[0])*ds(2)
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet (linearise as baseflow)
