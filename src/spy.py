@@ -4,9 +4,9 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
+import os, ufl, re
 import numpy as np
 import dolfinx as dfx
-import os, ufl, shutil, re
 from mpi4py.MPI import COMM_WORLD as comm
 from dolfinx.fem import FunctionSpace, Function
 
@@ -58,6 +58,7 @@ def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
 def saveStuff(dir:str,name:str,fun:Function) -> None:
 	dirCreator(dir)
 	proc_name=dir+name+f"_n={comm.size:d}_p={comm.rank:d}"
+	fun.x.scatter_forward()
 	np.save(proc_name,fun.x.array)
 	if p0: print("Saved "+proc_name,flush=True)
 
@@ -95,12 +96,12 @@ class SPY:
 		FE_vector  =ufl.VectorElement("DG",self.mesh.ufl_cell(),2,3)
 		FE_scalar  =ufl.FiniteElement("DG",self.mesh.ufl_cell(),1)
 		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
-		U = FunctionSpace(self.mesh,FE_vector)
-		V = FunctionSpace(self.mesh,FE_scalar)
+		self.TH0 = FunctionSpace(self.mesh,FE_vector)
+		self.TH1 = FunctionSpace(self.mesh,FE_scalar)
 		W = FunctionSpace(self.mesh,FE_constant)
 		self.TH=FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar)) # Taylor Hodd elements ; stable element pair
-		self.TH0, self.TH0_to_TH = self.TH.sub(0).collapse()
-		self.TH1, self.TH1_to_TH = self.TH.sub(1).collapse()
+		self.TH0c, self.TH0_to_TH = self.TH.sub(0).collapse()
+		self.TH1c, self.TH1_to_TH = self.TH.sub(1).collapse()
 		
 		# Test & trial functions
 		self.trial = ufl.TrialFunction(self.TH)
@@ -111,9 +112,9 @@ class SPY:
 		# Initialisation of baseflow
 		self.Q = Function(self.TH)
 		# Collapsed subspaces
-		self.U,self.P = Function(U), Function(V)
+		self.U,self.P = Function(self.TH0), Function(self.TH1)
 		# Turbulent viscosity
-		self.nut  = Function(V)
+		self.nut  = Function(self.TH1)
 		self.nutf = nutf
 		# Local mesh size
 		self.h = Function(W)
@@ -195,6 +196,7 @@ class SPY:
 		if p: self.Q.x.array[self.TH1_to_TH]=self.P.x.array
 
 	def saveBaseflow(self,str):
+		self.Q.x.scatter_forward()
 		# Write inside MixedElement
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
@@ -202,7 +204,7 @@ class SPY:
 		dirCreator(self.p_path)
 		saveStuff(self.u_path,"u"+str,self.U)
 		saveStuff(self.p_path,"p"+str,self.P)
-		
+	
 	# Pseudo-heat equation
 	def smoothen(self, e:float, fun:Function, space:FunctionSpace, weak_bcs):
 		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
@@ -211,9 +213,11 @@ class SPY:
 		a=ufl.inner(u,v)
 		a+=e*ufl.inner(grd(u),grd(v))
 		L=ufl.inner(fun,v)
-		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx+weak_bcs, L*r*ufl.dx, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx+weak_bcs(self,u,v), L*r*ufl.dx, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
 		if p0: print("Smoothing started...",flush=True)
-		return pb.solve().x.array
+		res=pb.solve()
+		res.x.scatter_forward()
+		return res.x.array
 
 	def stabilise(self,m):
 		# Important ! Otherwise n is nonsense
@@ -269,7 +273,7 @@ class SPY:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		#r2vis,SUPG=self.r2vis,self.SUPG
+		r2vis,SUPG=self.r2vis,self.SUPG
 		
 		# Functions
 		u, p = ufl.split(self.trial)
@@ -278,15 +282,15 @@ class SPY:
 		# Mass (variational formulation)
 		F  = ufl.inner(div(u,m),  r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(grd(U,0)*u,r*v) # Convection
-		F += ufl.inner(grd(u,m)*U,r*v)
+		F += ufl.inner(grd(U,0)*u,r*(v+SUPG)) # Convection
+		F += ufl.inner(grd(u,m)*U,r*(v+SUPG))
 		F -= ufl.inner(  r*p,   div(v,m,1)) # Pressure
-		#F += ufl.inner(grd(p,m), 		SUPG)
-		#F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(grd(p,m), 	r*SUPG)
+		F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
 		F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		#F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
+		F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)
-		return F*ufl.dx+weak_bcs(self,u,p)
+		return F*ufl.dx+weak_bcs(self,u,p,m)
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
@@ -328,10 +332,8 @@ class SPY:
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
 		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
 
-		FE = ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-		W = FunctionSpace(self.mesh,FE)
-		expr=dfx.fem.Expression(self.div_nor(self.U,0),W.element.interpolation_points())
-		div = Function(W)
+		expr=dfx.fem.Expression(self.div_nor(self.U,0),self.TH1.element.interpolation_points())
+		div = Function(self.TH1)
 		div.interpolate(expr)
 		self.printStuff("./","sanity_check_div"+app,div)
 
@@ -340,15 +342,6 @@ class SPY:
 		p = Function(W)
 		p.x.array[:]=comm.rank
 		self.printStuff("./","sanity_check_partition"+app,p)
-
-		for i in range(3):
-			for j in range(2):
-				FE = ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-				W = FunctionSpace(self.mesh,FE)
-				expr=dfx.fem.Expression(self.U[i].dx(j),W.element.interpolation_points())
-				Uidj = Function(W)
-				Uidj.interpolate(expr)
-				self.printStuff("./",f"sanity_check_U{i}d{j}"+app,Uidj)
 		
 		self.printStuff("./","sanity_check_u"+app,  self.U)
 		self.printStuff("./","sanity_check_p"+app,  self.P)

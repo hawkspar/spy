@@ -20,7 +20,7 @@ for m in ms:
 	boundaryConditionsPerturbations(spyp,m)
 	spyp.stabilise(m)
 	# For efficiency, matrices assembled once per Sts
-	spyp.assembleJNMatrices()
+	spyp.assembleJNMatrices(weakBoundaryConditions)
 	spyp.assembleMRMatrices()
 	# Resolvent analysis
 	spyp.resolvent(1,Sts)

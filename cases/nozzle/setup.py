@@ -17,13 +17,13 @@ from spy import SPY,loadStuff
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,Re=0,400000
+S,Re=0,1000
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
-		  "max_iter":1000}
+		  "max_iter":100}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
@@ -52,7 +52,7 @@ def boundaryConditionsBaseflow(spy:SPY) -> None:
 
 	u_inlet_x=Function(sub_space_x_collapsed)
 	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]**2))*(x[1]<1)+
-							  .05*np.tanh(6*(x[1]**2-1))*(x[1]>1))
+							    .05*np.tanh(6*(x[1]**2-1))*(x[1]>1))
 	
 	# Degrees of freedom
 	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
@@ -91,8 +91,19 @@ def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
 
-def NeumannHelper(spy:SPY):
-	boundaries = [(1, lambda x: np.logical_or(top(x),outlet(x))), (2, spy.symmetry), (3, nozzle)]
+def weakBoundaryConditionsPressure(spy:SPY,p,s) -> ufl.Form:
+	fdim = spy.mesh.topology.dim - 1
+	facet_indices = dfx.mesh.locate_entities(spy.mesh, fdim, nozzle).astype(np.int32)
+	facet_markers = np.full_like(facet_indices, 1)	.astype(np.int32)
+	sorted_facets = np.argsort(facet_indices)
+	
+	face_tag = dfx.mesh.meshtags(spy.mesh, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
+	dS =  ufl.Measure("dS", domain=spy.mesh, subdomain_data=face_tag) # dS for internal surfaces
+
+	return ufl.inner((spy.r*p.dx(1))('+'),s('+'))*dS(1)+ufl.inner((spy.r*p.dx(1))('-'),s('-'))*dS(1)
+
+def weakBoundaryConditions(spy:SPY,u,p,m:int=0) -> ufl.Form:
+	boundaries = [(1, lambda x: np.logical_or(top(x),outlet(x))), (2, spy.symmetry)]
 
 	facet_indices, facet_markers = [], []
 	fdim = spy.mesh.topology.dim - 1
@@ -106,15 +117,7 @@ def NeumannHelper(spy:SPY):
 	sorted_facets = np.argsort(facet_indices)
 	
 	face_tag = dfx.mesh.meshtags(spy.mesh, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
-	return ufl.Measure("ds", domain=spy.mesh, subdomain_data=face_tag)
-
-def weakBoundaryConditionsPressure(spy:SPY,p,s) -> ufl.Form:
-	ds = NeumannHelper(spy)
-	n = ufl.FacetNormal(spy.mesh)
-	return ufl.inner(p.dx(1)*spy.r,s*n[1])*ds(3)
-
-def weakBoundaryConditions(spy:SPY,u,p,m:int) -> ufl.Form:
-	ds = NeumannHelper(spy)
+	ds = ufl.Measure("ds", domain=spy.mesh, subdomain_data=face_tag)
 	n = ufl.FacetNormal(spy.mesh)
 	n = ufl.as_vector([n[0],n[1],0])
 
@@ -123,7 +126,7 @@ def weakBoundaryConditions(spy:SPY,u,p,m:int) -> ufl.Form:
 	grd=lambda v: spy.grd(v,m)
 	nu=1/spy.Re+spy.nut
 	
-	weak_bcs =ufl.inner(p.dx(1)*spy.r,s*n[1])*ds(3)
+	weak_bcs =weakBoundaryConditionsPressure(spy,p,s)
 	weak_bcs-=ufl.inner(nu* grd(u).T*n,    v)   *ds(1)
 	weak_bcs-=ufl.inner(nu*(grd(u).T*n)[0],v[0])*ds(2)
 

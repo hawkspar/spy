@@ -5,7 +5,7 @@ from setup import Re, S
 from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
-from dolfinx.fem import FunctionSpace, Function
+from dolfinx.fem import FunctionSpace, Function, Expression
 
 sys.path.append('/home/shared/src')
 
@@ -86,8 +86,11 @@ nutv[nutv<0] = 0
 U.sub(0).interpolate(lambda x: interp(uxv, x))
 U.sub(1).interpolate(lambda x: interp(urv, x))
 U.sub(2).interpolate(lambda x: interp(uthv,x))
+U.x.scatter_forward()
 P.interpolate(lambda x: interp(pv, x))
+P.x.scatter_forward()
 nut.interpolate(lambda x: interp(nutv, x))
+nut.x.scatter_forward()
 
 # Save pretty graphs
 if sanity_check:

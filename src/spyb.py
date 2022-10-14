@@ -8,10 +8,10 @@ import shutil, ufl
 import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
+from dolfinx.fem import FunctionSpace
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
 from mpi4py.MPI import COMM_WORLD as comm, MIN
-from dolfinx.fem import Function, FunctionSpace
 
 #pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method
 
@@ -24,14 +24,11 @@ class SPYB(SPY):
 		dirCreator(self.baseflow_path)
 
 	def smoothenBaseflow(self,weak_bcs_u,weak_bcs_p):
-		FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-		FE_scalar=ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-		U = FunctionSpace(self.mesh,FE_vector)
-		V = FunctionSpace(self.mesh,FE_scalar)
-		u,v=ufl.TrialFunction(U),ufl.TestFunction(U)
-		p,s=ufl.TrialFunction(V),ufl.TestFunction(V)
-		self.Q.x.array[self.TH0_to_TH]=self.smoothen(1e-2,self.U,U,weak_bcs_u(self,u,v,0))
-		self.Q.x.array[self.TH1_to_TH]=self.smoothen(1e-2,self.P,V,weak_bcs_p(self,p,s))
+		u,v=ufl.TrialFunction(self.TH0),ufl.TestFunction(self.TH0)
+		p,s=ufl.TrialFunction(self.TH1),ufl.TestFunction(self.TH1)
+		self.Q.x.array[self.TH0_to_TH]=self.smoothen(1e-4,self.U,self.TH0,weak_bcs_u)
+		self.Q.x.array[self.TH1_to_TH]=self.smoothen(1e-2,self.P,self.TH1,weak_bcs_p)
+		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
 	def baseflow(self,Re:int,S:float,weak_bcs,hot_start:bool=False,save:bool=True,baseflowInit=None):
@@ -49,8 +46,7 @@ class SPYB(SPY):
 		dbase_form = self.linearisedNavierStokes(weak_bcs,0) # m=0
 		
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs)#,J=dbase_form+weak_bcs(self,u,p,0)+weak_bcs_p(self,p,s))
-		#problem = NonlinearProblem(base_form+weak_bcs_u(self,U,v,0)+weak_bcs_p(self,P,s),self.Q,bcs=self.bcs)#,J=dbase_form+weak_bcs_u(self,u,v,0)+weak_bcs_p(self,p,s))
+		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning
@@ -62,8 +58,10 @@ class SPYB(SPY):
 		ksp = solver.krylov_solver
 		opts = pet.Options()
 		option_prefix = ksp.getOptionsPrefix()
-		opts[f"{option_prefix}pc_type"] = "lu"
+		#opts[f"{option_prefix}ksp_type"] = "preonly"
+		opts[f"{option_prefix}pc_type"] = "ksp"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+		#opts[f"{option_prefix}mat_mumps_cntl_1"] = 0.05 
 		ksp.setFromOptions()
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight

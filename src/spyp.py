@@ -60,16 +60,16 @@ class SPYP(SPY):
 		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self) -> None:
+	def assembleJNMatrices(self,weak_bcs) -> None:
 		# Functions
-		u,_ = ufl.split(self.trial)
+		u,p = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(self.m)
+		J_form = self.linearisedNavierStokes(weak_bcs,self.m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		#N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
-		N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
+		#N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
@@ -82,12 +82,12 @@ class SPYP(SPY):
 		# Velocity and full space functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
-		w = ufl.TrialFunction(self.TH0)
-		z = ufl.TestFunction( self.TH0)
+		w = ufl.TrialFunction(self.TH0c)
+		z = ufl.TestFunction( self.TH0c)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		#B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
+		B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
+		#B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
@@ -106,7 +106,7 @@ class SPYP(SPY):
 
 		# Temporary vectors
 		tmp1, tmp2 = Function(self.TH), Function(self.TH)
-		tmp3 = Function(self.TH0)
+		tmp3 = Function(self.TH0c)
 
 		# Resolvent operator
 		class R_class:
@@ -183,7 +183,7 @@ class SPYP(SPY):
 
 			# Write eigenvectors
 			for i in range(min(n,k)):
-				forcing_i=Function(self.TH0)
+				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				self.printStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
