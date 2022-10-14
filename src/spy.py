@@ -93,9 +93,9 @@ class SPY:
 		num_cells = self.mesh.topology.index_map(tdim).size_local + self.mesh.topology.index_map(tdim).num_ghosts
 	
 		# Finite elements & function spaces
-		FE_vector  =ufl.VectorElement("DG",self.mesh.ufl_cell(),2,3)
-		FE_scalar  =ufl.FiniteElement("DG",self.mesh.ufl_cell(),1)
-		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		FE_constant=ufl.FiniteElement("CG",self.mesh.ufl_cell(),0)
 		self.TH0 = FunctionSpace(self.mesh,FE_vector)
 		self.TH1 = FunctionSpace(self.mesh,FE_scalar)
 		W = FunctionSpace(self.mesh,FE_constant)

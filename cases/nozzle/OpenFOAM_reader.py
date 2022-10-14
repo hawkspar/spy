@@ -57,8 +57,8 @@ with XDMFFile(comm, "nozzle.xdmf", "r") as file:
     mesh = file.read_mesh(name="Grid")
 
 # Create FiniteElement, FunctionSpace & Functions
-FE_vector=ufl.VectorElement("DG",mesh.ufl_cell(),2,3)
-FE_scalar=ufl.FiniteElement("DG",mesh.ufl_cell(),1)
+FE_vector=ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
+FE_scalar=ufl.FiniteElement("CG",mesh.ufl_cell(),1)
 V =FunctionSpace(mesh, FE_vector)
 W =FunctionSpace(mesh, FE_scalar)
 U, P, nut = Function(V), Function(W), Function(W)

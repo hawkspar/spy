@@ -17,7 +17,8 @@ from spy import SPY,loadStuff
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,Re=0,1000
+S,Re=0,400000
+hb,hp=5e-10,7e-8
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
@@ -28,10 +29,10 @@ datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
 # Geometry
-def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,		   params['atol']) # Left border
-def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.max(x[0]),params['atol']) # Right border
-def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top (tilded) boundary
-def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],R,		   params['atol'])*(x[0]<R)
+def inlet( x:ufl.SpatialCoordinate)   -> np.ndarray: return np.isclose(x[0],0,		   params['atol']) # Left border
+def outlet(x:ufl.SpatialCoordinate)   -> np.ndarray: return np.isclose(x[0],np.max(x[0]),params['atol']) # Right border
+def top(   x:ufl.SpatialCoordinate)   -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top (tilded) boundary
+def nozzle(x:ufl.SpatialCoordinate,h) -> np.ndarray: return (x[1]<R+h+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
 
 def Ref(spy:SPY): return Re
 
@@ -74,7 +75,7 @@ def boundaryConditionsBaseflow(spy:SPY) -> None:
 	spy.applyBCs(dofs_inlet_th[0],bcs_inlet_th)
 
 	# Handle homogeneous boundary conditions
-	spy.applyHomogeneousBCs([(nozzle,['x','r','th']),(spy.symmetry,['r','th'])])
+	spy.applyHomogeneousBCs([(lambda x: nozzle(x,hb),['x','r','th']),(spy.symmetry,['r','th'])])
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)
@@ -85,25 +86,14 @@ def boundaryConditionsBaseflow(spy:SPY) -> None:
 # d_xu_x/Re=p, d_xu_r=0, d_xu_th=0 at outflow (free flow)
 def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	# Handle homogeneous boundary conditions
-	homogeneous_boundaries=[(inlet,['x','r','th']),(nozzle,['x','r','th']),(top,['x','r','th'])]
+	homogeneous_boundaries=[(inlet,['x','r','th']),(lambda x: nozzle(x,hp),['x','r','th']),(top,['x','r','th'])]
 	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
 	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
 	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
 
-def weakBoundaryConditionsPressure(spy:SPY,p,s) -> ufl.Form:
-	fdim = spy.mesh.topology.dim - 1
-	facet_indices = dfx.mesh.locate_entities(spy.mesh, fdim, nozzle).astype(np.int32)
-	facet_markers = np.full_like(facet_indices, 1)	.astype(np.int32)
-	sorted_facets = np.argsort(facet_indices)
-	
-	face_tag = dfx.mesh.meshtags(spy.mesh, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
-	dS =  ufl.Measure("dS", domain=spy.mesh, subdomain_data=face_tag) # dS for internal surfaces
-
-	return ufl.inner((spy.r*p.dx(1))('+'),s('+'))*dS(1)+ufl.inner((spy.r*p.dx(1))('-'),s('-'))*dS(1)
-
 def weakBoundaryConditions(spy:SPY,u,p,m:int=0) -> ufl.Form:
-	boundaries = [(1, lambda x: np.logical_or(top(x),outlet(x))), (2, spy.symmetry)]
+	boundaries = [(1, lambda x: np.logical_or(top(x),outlet(x))), (2, spy.symmetry), (3, lambda x: nozzle(x,hp))]
 
 	facet_indices, facet_markers = [], []
 	fdim = spy.mesh.topology.dim - 1
@@ -126,8 +116,8 @@ def weakBoundaryConditions(spy:SPY,u,p,m:int=0) -> ufl.Form:
 	grd=lambda v: spy.grd(v,m)
 	nu=1/spy.Re+spy.nut
 	
-	weak_bcs =weakBoundaryConditionsPressure(spy,p,s)
-	weak_bcs-=ufl.inner(nu* grd(u).T*n,    v)   *ds(1)
-	weak_bcs-=ufl.inner(nu*(grd(u).T*n)[0],v[0])*ds(2)
+	weak_bcs=-ufl.inner(nu* grd(u).T*n,    	   v)   *ds(1)
+	weak_bcs-=ufl.inner(nu*(grd(u).T*n)[0],	   v[0])*ds(2)
+	weak_bcs+=ufl.inner(	grd(p),		   	   s*n) *ds(3)
 
 	return weak_bcs
