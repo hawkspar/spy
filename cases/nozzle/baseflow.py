@@ -13,11 +13,15 @@ from spyb import SPYB # Must be after setup
 #meshConvert("/home/shared/cases/garnaud/garnaud",'triangle')
 #def nutf(spy,_): spy.nut=0
 spyb=SPYB(params,datapath,lambda _: Re, nutf,direction_map)
+spyb.loadBaseflow(S,Re,True)
+"""spyb.sanityCheck()
 # Baseflow calculation
+spyb.stabilise(0)
+#nutf(spyb,S,Re)
 boundaryConditionsBaseflow(spyb)
-spyb.baseflow(Re,S,True)#,baseflowInit=baseflowInit)
+spyb.baseflow(Re,S,weakBoundaryConditions,True)#,baseflowInit=baseflowInit)
 
-"""if comm.rank==0:
+if comm.rank==0:
 	file_names = [f for f in os.listdir(spyb.dat_real_path)]
 	for file_name in file_names:
 		match = re.search(r'_Re=(\d*)',file_name)

@@ -14,7 +14,7 @@ from spy import dirCreator, meshConvert
 p0=comm.rank==0
 
 interpolate=True
-sanity_check=False
+sanity_check=True
 cell_type="triangle"
 
 # Dimensionalised stuff
@@ -26,10 +26,10 @@ sin,cos=np.sin(O),np.cos(O)
 # Read OpenFOAM, write mesh
 if p0:
     # Searching closest file with respect to setup parameters
-    file_names = [f for f in os.listdir(".") if f[-3:]=="xmf"]
-    d=np.infty
+    file_names = [f for f in os.listdir(".") if f[:5]=="front" and f[-3:]=="xmf"]
+    d = np.infty
     for file_name in file_names:
-        fd=0
+        fd = 0
         for param,key in zip([Re,S],["Re","S"]):
             match = re.search(r'_'+key+r'=(\d*\.?\d*)',file_name)
             param_file = float(match.group(1)) # Take advantage of file format
@@ -39,19 +39,35 @@ if p0:
     # Read OpenFOAM data
     openfoam_data = meshio.read(closest_file_name)
     print("Loaded "+closest_file_name+" successfully !", flush=True)
-    openfoam_data.points[:,:2]/=R # Scaling & Plane tilted
-    openfoam_data.points[:, 1]/=cos
+
+    # Read cell_centers
+    center_points = openfoam_data.cell_data['CellCenters'][0]
+
+    fine_xy = np.vstack((openfoam_data.points,center_points))
+    fine_xy[:,:2]/=R # Scaling & Plane tilted
+    fine_xy[:, 1]/=cos
+
+    # Reducing problem size (coarse mesh is also smaller)
+    msk = np.logical_and(fine_xy[:,0]<L,fine_xy[:,1]<H)
+    fine_xy=fine_xy[msk,:2]
+
+    # Dimensionless
+    uxv,urv,uthv = np.vstack((openfoam_data.point_data['U'],openfoam_data.cell_data['U'][0]))[msk,:].T/U_M
+    pv   = np.hstack((openfoam_data.point_data['p'],  openfoam_data.cell_data['p'][0])  )[msk]/U_M**2
+    nutv = np.hstack((openfoam_data.point_data['nut'],openfoam_data.cell_data['nut'][0]))[msk]/U_M/R
 
     # Convert mesh
-    if interpolate:
-        # Write it out again in a dolfinx friendly format
-        meshConvert("nozzle_2D_coarse","nozzle",cell_type)
-    else:
-        # Important to ensure consistancy in partioning
-        meshConvert("nozzle_2D","nozzle",cell_type)
-else: openfoam_data=None
+    if interpolate: meshConvert("nozzle_2D_coarse","nozzle",cell_type)
+    # Important to ensure consistancy in partioning
+    else:           meshConvert("nozzle_2D","nozzle",cell_type)
+else: uxv,urv,uthv,pv,nutv,fine_xy=None,None,None,None,None,None
 
-openfoam_data = comm.bcast(openfoam_data, root=0) # data available to all but not distributed
+uxv = comm.bcast(uxv, root=0) # data available to all but not distributed
+urv = comm.bcast(urv, root=0)
+uthv = comm.bcast(uthv, root=0)
+pv = comm.bcast(pv, root=0)
+nutv = comm.bcast(nutv, root=0)
+fine_xy = comm.bcast(fine_xy, root=0)
 # Read it again in dolfinx - now it's a dolfinx object and it's split amongst procs
 with XDMFFile(comm, "nozzle.xdmf", "r") as file:
     mesh = file.read_mesh(name="Grid")
@@ -64,17 +80,7 @@ W =FunctionSpace(mesh, FE_scalar)
 U, P, nut = Function(V), Function(W), Function(W)
 
 # Handlers (still useful when !interpolate)
-fine_xy=openfoam_data.points[:,:2]
 def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'cubic')
-
-# Reducing problem size (coarse mesh is also smaller)
-msk = np.logical_and(fine_xy[:,0]<L,fine_xy[:,1]<H)
-fine_xy=fine_xy[msk]
-
-# Dimensionless
-uxv,urv,uthv = (openfoam_data.point_data['U'].T)[:,msk]/U_M
-pv   = openfoam_data.point_data['p'][msk]/U_M**2
-nutv = openfoam_data.point_data['nut'][msk]/U_M/R
 # Fix orientation
 urv,uthv=cos*urv+sin*uthv,-sin*urv+cos*uthv
 # Fix no swirl edge case
@@ -87,7 +93,7 @@ U.sub(0).interpolate(lambda x: interp(uxv, x))
 U.sub(1).interpolate(lambda x: interp(urv, x))
 U.sub(2).interpolate(lambda x: interp(uthv,x))
 U.x.scatter_forward()
-P.interpolate(lambda x: interp(pv, x))
+P.interpolate(  lambda x: interp(pv,   x))
 P.x.scatter_forward()
 nut.interpolate(lambda x: interp(nutv, x))
 nut.x.scatter_forward()

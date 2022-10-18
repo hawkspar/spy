@@ -95,7 +95,7 @@ class SPY:
 		# Finite elements & function spaces
 		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
 		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-		FE_constant=ufl.FiniteElement("CG",self.mesh.ufl_cell(),0)
+		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
 		self.TH0 = FunctionSpace(self.mesh,FE_vector)
 		self.TH1 = FunctionSpace(self.mesh,FE_scalar)
 		W = FunctionSpace(self.mesh,FE_constant)
@@ -243,29 +243,29 @@ class SPY:
 		t=cPe*h/2/n
 		#tau=1/ufl.sqrt((2*n/h)**2+(4*nu/h**2)**2)
 		self.SUPG = t*grd(v,m)*U # Streamline Upwind Petrov Galerkin
-		"""gamma=(h/2)**2/4/3/tau
-		self.grd_div=gamma*div(v,m,1)"""
+		gamma=(h/2)**2/4/3/t
+		self.grd_div=gamma*div(v,m,1)
 	
 	# Heart of this entire code
 	def navierStokes(self,weak_bcs) -> ufl.Form:
 		# Shortforms
 		r, nu = self.r, 1/self.Re+self.nut
 		div,grd=lambda v,i=0: self.div(v,0,i), lambda v,i=0: self.grd(v,0,i)
-		#SUPG, r2vis = self.SUPG, lambda v: self.r2vis(v,0)
+		SUPG, r2vis = self.SUPG, lambda v: self.r2vis(v,0)
 		
 		# Functions
 		U, P = ufl.split(self.Q)
 		v, s = ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(div(U),  		 r*s)
+		F  = ufl.inner(div(U),  r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(grd(U)*U,		 r*v)#+SUPG)) # Convection
-		F -= ufl.inner(	 r*P,   	   div(v,1)) # Pressure
-		#F += ufl.inner(grd(P),	     			  r*SUPG)
+		F += ufl.inner(grd(U)*U,r*v+SUPG) # Convection
+		F -= ufl.inner(	 r*P, div(v,1)) # Pressure
+		F += ufl.inner(grd(P),	  r*SUPG)
 		#F += ufl.inner(grd(U),grd(v,1))*nu # Diffusion (grad u.T significant with nut)
 		F += ufl.inner(nu*(grd(U)+grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
-		#F -= ufl.inner(r2vis(U),		   		    SUPG)
+		F -= ufl.inner(r2vis(U),    SUPG)
 		return F*ufl.dx+weak_bcs(self,U,P)
 		
 	# Not automatic because of convection term
@@ -282,13 +282,13 @@ class SPY:
 		# Mass (variational formulation)
 		F  = ufl.inner(div(u,m),  r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(grd(U,0)*u,r*(v+SUPG)) # Convection
-		F += ufl.inner(grd(u,m)*U,r*(v+SUPG))
+		F += ufl.inner(grd(U,0)*u,r*v+SUPG) # Convection
+		F += ufl.inner(grd(u,m)*U,r*v+SUPG)
 		F -= ufl.inner(  r*p,   div(v,m,1)) # Pressure
-		F += ufl.inner(grd(p,m), 	r*SUPG)
-		F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(grd(p,m), 	 r*SUPG)
+		#F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
 		F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		F -= ufl.inner(	 r2vis(u,m),   		 SUPG)
+		F -= ufl.inner(	 r2vis(u,m),   SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)
 		return F*ufl.dx+weak_bcs(self,u,p,m)
 

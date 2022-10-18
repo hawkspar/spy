@@ -73,7 +73,7 @@ class SPYP(SPY):
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
-		self.N = assembleForm(N_form,self.bcs,True)
+		self.N = assembleForm(N_form,self.bcs)#,True)
 
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
@@ -191,10 +191,33 @@ class SPYP(SPY):
 				# Obtain response from forcing
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
-				velocity_i,_=response_i.split()
+				velocity_i,pressure_i=response_i.split()
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
 				self.printStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",velocity_i)
+				
+				expr=dfx.fem.Expression(self.div_nor(velocity_i,self.m),self.TH1.element.interpolation_points())
+				div = Function(self.TH1)
+				div.interpolate(expr)
+				self.printStuff("./","sanity_check_div_u",div)
+
+				expr=dfx.fem.Expression(self.grd_nor(pressure_i,self.m),self.TH0.element.interpolation_points())
+				grd = Function(self.TH0)
+				grd.interpolate(expr)
+				self.printStuff("./","sanity_check_grad_p",grd)
+
+				velocity_i,pressure_i=ufl.split(response_i)
+				n = ufl.FacetNormal(self.mesh)
+				n = ufl.as_vector([n[0],n[1],0])
+				I = ufl.as_tensor([[1,0,0],[0,1,0],[0,0,1]])
+				expr=dfx.fem.Expression((self.grd(velocity_i,self.m)*n)[0],self.TH1.element.interpolation_points())
+				bc = Function(self.TH1)
+				bc.interpolate(expr)
+				self.printStuff("./","sanity_check_free_bc_grdu",bc)
+				expr=dfx.fem.Expression(pressure_i*n,self.TH0.element.interpolation_points())
+				bc = Function(self.TH0)
+				bc.interpolate(expr)
+				self.printStuff("./","sanity_check_free_bc_p",bc)
 			if p0: print("Strouhal",St,"handled !",flush=True)
 
 	# Modal analysis

@@ -17,14 +17,14 @@ from spy import SPY,loadStuff
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,Re=0,400000
-hb,hp=5e-10,7e-8
+S,Re=0,1000
+hb,hp=5e-10,1e-8
 
 # Numerical Parameters
-params = {"rp":.95,    #relaxation_parameter
+params = {"rp":.8,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "max_iter":1000}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
@@ -38,9 +38,12 @@ def Ref(spy:SPY): return Re
 
 #def forcingIndicator(x): return np.isclose(x[1],R,.2)*(x[0]<R+.2)
 
-def nutf(spy:SPY,S,Re):
-	loadStuff(spy.nut_path,['S','Re'],[S,Re],spy.nut)
-	spy.nut.x.array[spy.nut.x.array<0]=0 # Enforce positive
+def nutf(spy:SPY,S:float,Re:int): loadStuff(spy.nut_path,['S','Re'],[S,400000],spy.nut)
+
+def baseflowInit(x):
+	u=0*x
+	u[0,x[1]<R]=np.tanh(6*(1-x[1][x[1]<1]))
+	return u
 
 class InletAzimuthalVelocity():
 	def __init__(self, S): self.S = 0
@@ -52,8 +55,8 @@ def boundaryConditionsBaseflow(spy:SPY) -> None:
 	sub_space_x_collapsed,_=sub_space_x.collapse()
 
 	u_inlet_x=Function(sub_space_x_collapsed)
-	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]**2))*(x[1]<1)+
-							    .05*np.tanh(6*(x[1]**2-1))*(x[1]>1))
+	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]))*(x[1]<1)+
+							    .05*np.tanh(6*(x[1]-1))*(x[1]>1))
 	
 	# Degrees of freedom
 	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
@@ -113,11 +116,11 @@ def weakBoundaryConditions(spy:SPY,u,p,m:int=0) -> ufl.Form:
 
 	v,s=ufl.split(spy.test)
 
-	grd=lambda v: spy.grd(v,m)
+	grd,r=lambda v: spy.grd(v,m),spy.r
 	nu=1/spy.Re+spy.nut
 	
-	weak_bcs=-ufl.inner(nu* grd(u).T*n,    	   v)   *ds(1)
-	weak_bcs-=ufl.inner(nu*(grd(u).T*n)[0],	   v[0])*ds(2)
-	weak_bcs+=ufl.inner(	grd(p),		   	   s*n) *ds(3)
+	weak_bcs=-ufl.inner(nu* grd(u).T*n,    v)     *ds(1)
+	weak_bcs-=ufl.inner(nu*(grd(u).T*n)[0],v[0])*r*ds(2)
+	weak_bcs+=ufl.inner(	grd(p),		   s*n) *r*ds(3)
 
 	return weak_bcs
