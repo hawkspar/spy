@@ -191,7 +191,10 @@ class SPY:
 		if p: loadStuff(self.p_path,['S','Re'],[S,Re],self.P)
 		# Write inside MixedElement
 		self.Q.x.array[self.TH0_to_TH]=self.U.x.array
-		if p: self.Q.x.array[self.TH1_to_TH]=self.P.x.array
+		self.Q.x.scatter_forward()
+		if p:
+			self.Q.x.array[self.TH1_to_TH]=self.P.x.array
+			self.Q.x.scatter_forward()
 
 	def saveBaseflow(self,str):
 		self.Q.x.scatter_forward()

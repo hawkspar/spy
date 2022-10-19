@@ -49,7 +49,7 @@ def configureKSP(KSP:pet.KSP,params:dict) -> None:
 def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
-	EPS.setTrueResidual(True)
+	#EPS.setTrueResidual(True)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -184,11 +184,13 @@ class SPYP(SPY):
 				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
+				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
+				response_i.x.scatter_forward()
 				velocity_i,pressure_i=response_i.split()
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
@@ -198,15 +200,6 @@ class SPYP(SPY):
 				div = Function(self.TH1)
 				div.interpolate(expr)
 				self.printStuff("./","sanity_check_div_u",div)
-
-				"""velocity_i,pressure_i=ufl.split(response_i)
-				n = ufl.FacetNormal(self.mesh)
-				n = ufl.as_vector([n[0],n[1],0])
-				I = ufl.as_tensor([[1,0,0],[0,1,0],[0,0,1]])
-				expr=dfx.fem.Expression((self.grd(velocity_i,self.m)*n)[0],self.TH1.element.interpolation_points())
-				bc = Function(self.TH1)
-				bc.interpolate(expr)
-				self.printStuff("./","sanity_check_free_bc_grdu",bc)"""
 			if p0: print("Strouhal",St,"handled !",flush=True)
 
 	# Modal analysis

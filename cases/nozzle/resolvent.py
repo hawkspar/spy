@@ -19,7 +19,6 @@ for m in ms:
 	Ref(spyp)
 	nutf(spyp,S,Re)
 	spyp.loadBaseflow(S,Re) # Don't load pressure
-	spyp.sanityCheck()
 	boundaryConditionsPerturbations(spyp,m)
 	spyp.stabilise(m)
 	# For efficiency, matrices assembled once per Sts
