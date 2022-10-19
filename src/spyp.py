@@ -49,36 +49,35 @@ def configureKSP(KSP:pet.KSP,params:dict) -> None:
 def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
-	#EPS.setTrueResidual(True)
+	EPS.setTrueResidual(True)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, Re, nutf, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map, forcingIndicator)
+	def __init__(self, params:dict, datapath:str, Re, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
+		super().__init__(params, datapath, direction_map, forcingIndicator)
 		self.S=S; self.m=m
 		self.save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,weak_bcs) -> None:
+	def assembleJNMatrices(self,weak_bcs,stab=False) -> None:
 		# Functions
 		u,p = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(weak_bcs,self.m)
+		J_form = self.linearisedNavierStokes(weak_bcs,self.m,stab)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,v+self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
-		#N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v+stab*self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
-		self.N = assembleForm(N_form,self.bcs)#,True)
+		self.N = assembleForm(N_form,self.bcs,not stab)
 
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self) -> None:
+	def assembleMRMatrices(self,stab=False) -> None:
 		# Velocity and full space functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
@@ -86,8 +85,7 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.TH0c)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form = ufl.inner(w,v+self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		#B_form  = ufl.inner(w,v)*self.r**2*self.indic*ufl.dx
+		B_form = ufl.inner(w,v+stab*self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
@@ -175,7 +173,7 @@ class SPYP(SPY):
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
-				print("Error estimate : "+str(EPS.getErrorEstimate(0)),flush=True)
+				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
 				# Get a list of all the file paths with the same parameters
 				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+self.save_string+f"_St={St:00.3f}_i=*.*")
 				# Iterate over the list of filepaths & remove each file
@@ -201,23 +199,14 @@ class SPYP(SPY):
 				div.interpolate(expr)
 				self.printStuff("./","sanity_check_div_u",div)
 
-				expr=dfx.fem.Expression(self.grd_nor(pressure_i,self.m),self.TH0.element.interpolation_points())
-				grd = Function(self.TH0)
-				grd.interpolate(expr)
-				self.printStuff("./","sanity_check_grad_p",grd)
-
-				velocity_i,pressure_i=ufl.split(response_i)
+				"""velocity_i,pressure_i=ufl.split(response_i)
 				n = ufl.FacetNormal(self.mesh)
 				n = ufl.as_vector([n[0],n[1],0])
 				I = ufl.as_tensor([[1,0,0],[0,1,0],[0,0,1]])
 				expr=dfx.fem.Expression((self.grd(velocity_i,self.m)*n)[0],self.TH1.element.interpolation_points())
 				bc = Function(self.TH1)
 				bc.interpolate(expr)
-				self.printStuff("./","sanity_check_free_bc_grdu",bc)
-				expr=dfx.fem.Expression(pressure_i*n,self.TH0.element.interpolation_points())
-				bc = Function(self.TH0)
-				bc.interpolate(expr)
-				self.printStuff("./","sanity_check_free_bc_p",bc)
+				self.printStuff("./","sanity_check_free_bc_grdu",bc)"""
 			if p0: print("Strouhal",St,"handled !",flush=True)
 
 	# Modal analysis

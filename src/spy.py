@@ -13,10 +13,12 @@ from dolfinx.fem import FunctionSpace, Function
 p0=comm.rank==0
 
 def checkComm(f:str):
-	match = re.search(r'_n=(\d*)',f)
-	if int(match.group(1))!=comm.size: return False
-	match = re.search(r'_p=([0-9]*)',f)
-	if int(match.group(1))!=comm.rank: return False
+	try:
+		match = re.search(r'_n=(\d*)',f)
+		if int(match.group(1))!=comm.size: return False
+		match = re.search(r'_p=([0-9]*)',f)
+		if int(match.group(1))!=comm.rank: return False
+	except AttributeError: pass
 	return True
 
 def dirCreator(path:str):
@@ -36,9 +38,9 @@ def meshConvert(path:str,out:str,cell_type:str) -> None:
 	print("Mesh "+path+".msh converted to "+out+".xdmf !",flush=True)
 
 # Memoisation routine - find closest in param
-def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
+def findStuff(path:str,keys:list,params:list,format):
 	closest_file_name=path
-	file_names = [f for f in os.listdir(path) if f[-3:]=="npy"]
+	file_names = [f for f in os.listdir(path) if format(f)]
 	d=np.infty
 	for file_name in file_names:
 		if checkComm(file_name):
@@ -48,7 +50,10 @@ def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
 				param_file = float(match.group(1)) # Take advantage of file format
 				fd += abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
+	return closest_file_name
 
+def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
+	closest_file_name=findStuff(path,keys,params,lambda f: f[-3:]=="npy")
 	fun.x.array.real=np.load(closest_file_name,allow_pickle=True)
 	fun.x.scatter_forward()
 	# Loading eddy viscosity too
@@ -64,7 +69,7 @@ def saveStuff(dir:str,name:str,fun:Function) -> None:
 
 # Swirling Parallel Yaj
 class SPY:
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, forcingIndicator=None) -> None:
+	def __init__(self, params:dict, datapath:str, direction_map:dict, forcingIndicator=None) -> None:
 		# Direction dependant
 		self.direction_map=direction_map
 		# Solver parameters (Newton mostly, but also eig)
@@ -98,8 +103,8 @@ class SPY:
 		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
 		self.TH0 = FunctionSpace(self.mesh,FE_vector)
 		self.TH1 = FunctionSpace(self.mesh,FE_scalar)
+		self.TH  = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar)) # Taylor Hodd elements ; stable element pair
 		W = FunctionSpace(self.mesh,FE_constant)
-		self.TH=FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar)) # Taylor Hodd elements ; stable element pair
 		self.TH0c, self.TH0_to_TH = self.TH.sub(0).collapse()
 		self.TH1c, self.TH1_to_TH = self.TH.sub(1).collapse()
 		
@@ -107,15 +112,10 @@ class SPY:
 		self.trial = ufl.TrialFunction(self.TH)
 		self.test  = ufl.TestFunction( self.TH)
 		
-		# Re computation
-		self.Re = Ref(self)
 		# Initialisation of baseflow
 		self.Q = Function(self.TH)
 		# Collapsed subspaces
 		self.U,self.P = Function(self.TH0), Function(self.TH1)
-		# Turbulent viscosity
-		self.nut  = Function(self.TH1)
-		self.nutf = nutf
 		# Local mesh size
 		self.h = Function(W)
 		self.h.x.array[:]=dfx.cpp.mesh.h(self.mesh, tdim, range(num_cells))
@@ -128,7 +128,7 @@ class SPY:
 
 		# BCs essentials
 		self.dofs = np.empty(0,dtype=np.int32)
-		self.bcs=[]
+		self.bcs  = []
 
 	# Jet geometry
 	def symmetry(self, x:ufl.SpatialCoordinate) -> np.ndarray:
@@ -158,8 +158,7 @@ class SPY:
 	def grd(self,v,m,i=0):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		if len(v.ufl_shape)==0:
-			return ufl.as_vector([r*v.dx(dx), i*v+r*v.dx(dr), m*1j*v])
+		if len(v.ufl_shape)==0: return ufl.as_vector([r*v.dx(dx), i*v+r*v.dx(dr), m*1j*v])
 		return ufl.as_tensor([[r*v[dx].dx(dx), i*v[dx]+r*v[dx].dx(dr), m*1j*v[dx]],
 							  [r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
 							  [r*v[dt].dx(dx), i*v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
@@ -190,7 +189,6 @@ class SPY:
 		# Load separately
 		loadStuff(self.u_path,['S','Re'],[S,Re],self.U)
 		if p: loadStuff(self.p_path,['S','Re'],[S,Re],self.P)
-		self.nutf(self,S,Re)
 		# Write inside MixedElement
 		self.Q.x.array[self.TH0_to_TH]=self.U.x.array
 		if p: self.Q.x.array[self.TH1_to_TH]=self.P.x.array
@@ -206,14 +204,14 @@ class SPY:
 		saveStuff(self.p_path,"p"+str,self.P)
 	
 	# Pseudo-heat equation
-	def smoothen(self, e:float, fun:Function, space:FunctionSpace, weak_bcs):
+	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs):
 		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
 		r=self.r
 		grd=lambda v: self.grd_nor(v,0)
 		a=ufl.inner(u,v)
 		a+=e*ufl.inner(grd(u),grd(v))
 		L=ufl.inner(fun,v)
-		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx+weak_bcs(self,u,v), L*r*ufl.dx, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx+weak_bcs(self,u,v), L*r*ufl.dx, bcs=bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
 		if p0: print("Smoothing started...",flush=True)
 		res=pb.solve()
 		res.x.scatter_forward()
@@ -237,43 +235,43 @@ class SPY:
 		z=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
 		tau=z*h/2/n
 
-		n=.5*ufl.sqrt(ufl.inner(U,U))
+		"""n=.5*ufl.sqrt(ufl.inner(U,U))
 		Pe=ufl.real(n*h*self.Re)
 		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
-		t=cPe*h/2/n
+		t=cPe*h/2/n"""
 		#tau=1/ufl.sqrt((2*n/h)**2+(4*nu/h**2)**2)
-		self.SUPG = t*grd(v,m)*U # Streamline Upwind Petrov Galerkin
-		gamma=(h/2)**2/4/3/t
-		self.grd_div=gamma*div(v,m,1)
+		self.SUPG = tau*grd(v,m)*U # Streamline Upwind Petrov Galerkin
+		"""gamma=(h/2)**2/4/3/t
+		self.grd_div=gamma*div(v,m,1)"""
 	
 	# Heart of this entire code
-	def navierStokes(self,weak_bcs) -> ufl.Form:
+	def navierStokes(self,weak_bcs,stab=False) -> ufl.Form:
 		# Shortforms
 		r, nu = self.r, 1/self.Re+self.nut
 		div,grd=lambda v,i=0: self.div(v,0,i), lambda v,i=0: self.grd(v,0,i)
-		SUPG, r2vis = self.SUPG, lambda v: self.r2vis(v,0)
+		r2vis, SUPG = lambda v: self.r2vis(v,0), stab*self.SUPG
 		
 		# Functions
 		U, P = ufl.split(self.Q)
 		v, s = ufl.split(self.test)
 		
 		# Mass (variational formulation)
-		F  = ufl.inner(div(U),  r*s)
+		F  = ufl.inner(div(U),   r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(grd(U)*U,r*v+SUPG) # Convection
-		F -= ufl.inner(	 r*P, div(v,1)) # Pressure
-		F += ufl.inner(grd(P),	  r*SUPG)
-		#F += ufl.inner(grd(U),grd(v,1))*nu # Diffusion (grad u.T significant with nut)
-		F += ufl.inner(nu*(grd(U)+grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
-		F -= ufl.inner(r2vis(U),    SUPG)
-		return F*ufl.dx+weak_bcs(self,U,P)
+		F += ufl.inner(grd(U)*U,r*(v+SUPG)) # Convection
+		F -= ufl.inner(	 r*P,  div(v,1)) # Pressure
+		if stab: F += ufl.inner(grd(P),r*SUPG)
+		#F += ufl.inner(nu*(grd(U)+grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(nu*grd(U),grd(v,1))
+		if stab: F -= ufl.inner(r2vis(U),SUPG)
+		return F*ufl.dx#+weak_bcs(self,U,P)
 		
 	# Not automatic because of convection term
-	def linearisedNavierStokes(self,weak_bcs,m:int) -> ufl.Form:
+	def linearisedNavierStokes(self,weak_bcs,m:int,stab=False) -> ufl.Form:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		r2vis,SUPG=self.r2vis,self.SUPG
+		r2vis,SUPG=self.r2vis,self.SUPG*stab
 		
 		# Functions
 		u, p = ufl.split(self.trial)
@@ -282,15 +280,15 @@ class SPY:
 		# Mass (variational formulation)
 		F  = ufl.inner(div(u,m),  r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(grd(U,0)*u,r*v+SUPG) # Convection
-		F += ufl.inner(grd(u,m)*U,r*v+SUPG)
-		F -= ufl.inner(  r*p,   div(v,m,1)) # Pressure
-		F += ufl.inner(grd(p,m), 	 r*SUPG)
-		#F += ufl.inner(grd(u,m),grd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
-		F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		F -= ufl.inner(	 r2vis(u,m),   SUPG)
+		F += ufl.inner(grd(U,0)*u,r*(v+SUPG)) # Convection
+		F += ufl.inner(grd(u,m)*U,r*(v+SUPG))
+		F -= ufl.inner(  r*p,    div(v,m,1)) # Pressure
+		if stab: F += ufl.inner(grd(p,m),r*SUPG)
+		#F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(nu*grd(u,m),grd(v,m,1))
+		if stab: F -= ufl.inner(r2vis(u,m),SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)
-		return F*ufl.dx+weak_bcs(self,u,p,m)
+		return F*ufl.dx#+weak_bcs(self,u,p,m)
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
@@ -300,7 +298,6 @@ class SPY:
 		dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
 		cst = Function(sub_space_collapsed)
 		cst.interpolate(lambda x: np.ones_like(x[0])*value)
-		#cst.x.array[:]=value
 		# Actual BCs
 		bcs = dfx.fem.dirichletbc(cst, dofs, sub_space) # u_i=value at boundary
 		return dofs[0],bcs

@@ -19,31 +19,28 @@ p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
-	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict) -> None:
-		super().__init__(params, datapath, Ref, nutf, direction_map)
+	def __init__(self, params:dict, datapath:str, direction_map:dict) -> None:
+		super().__init__(params, datapath, direction_map)
 		dirCreator(self.baseflow_path)
 
-	def smoothenBaseflow(self,weak_bcs_u,weak_bcs_p):
-		u,v=ufl.TrialFunction(self.TH0),ufl.TestFunction(self.TH0)
-		p,s=ufl.TrialFunction(self.TH1),ufl.TestFunction(self.TH1)
-		self.Q.x.array[self.TH0_to_TH]=self.smoothen(1e-4,self.U,self.TH0,weak_bcs_u)
-		self.Q.x.array[self.TH1_to_TH]=self.smoothen(1e-2,self.P,self.TH1,weak_bcs_p)
+	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
+		self.Q.x.array[self.TH0_to_TH]=self.smoothen(5e-3,self.U,self.TH0,bcs_u,weak_bcs_u)
+		self.Q.x.array[self.TH1_to_TH]=self.smoothen(5e-2,self.P,self.TH1,[],lambda spy,p,s:0)
 		self.Q.x.scatter_forward()
+		self.nut.x.array[:]=self.smoothen(1,self.nut,self.TH1,[],lambda spy,p,s:0)
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,S:float,weak_bcs,hot_start:bool=False,save:bool=True,baseflowInit=None):
+	def baseflow(self,Re:int,S:float,weak_bcs,save:bool=True,baseflowInit=None,stab=False):
 		# Apply new BC
 		self.inlet_azimuthal_velocity.S=S
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,P=self.Q.split()
 			U.interpolate(baseflowInit)
-		# Memoisation
-		elif hot_start:	self.loadBaseflow(S,Re)
 
 		# Compute form
-		base_form  = self.navierStokes(weak_bcs) #no azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(weak_bcs,0) # m=0
+		base_form  = self.navierStokes(weak_bcs,stab) # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(weak_bcs,0,stab) # m=0
 		
 		# Encapsulations
 		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
@@ -58,10 +55,9 @@ class SPYB(SPY):
 		ksp = solver.krylov_solver
 		opts = pet.Options()
 		option_prefix = ksp.getOptionsPrefix()
-		#opts[f"{option_prefix}ksp_type"] = "preonly"
-		opts[f"{option_prefix}pc_type"] = "ksp"
+		opts[f"{option_prefix}ksp_type"] = "preonly"
+		opts[f"{option_prefix}pc_type"] = "lu"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-		#opts[f"{option_prefix}mat_mumps_cntl_1"] = 0.05 
 		ksp.setFromOptions()
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight

@@ -11,17 +11,24 @@ from spyb import SPYB # Must be after setup
 #from mpi4py.MPI import COMM_WORLD as comm
 
 #meshConvert("/home/shared/cases/garnaud/garnaud",'triangle')
-#def nutf(spy,_): spy.nut=0
-spyb=SPYB(params,datapath,lambda _: Re, nutf,direction_map)
+spyb=SPYB(params,datapath,direction_map)
 spyb.loadBaseflow(S,Re,True)
-"""spyb.sanityCheck()
+Ref(spyb)
+spyb.nut=0
+#nutf(spyb,S,Re)
 # Baseflow calculation
 spyb.stabilise(0)
-#nutf(spyb,S,Re)
 boundaryConditionsBaseflow(spyb)
-spyb.baseflow(Re,S,weakBoundaryConditions,True)#,baseflowInit=baseflowInit)
+"""U,P=spyb.Q.split()
+def P_init(x):
+	x,r=x[0],x[1]
+	p=0*r
+	p[r<1]=-x[r<1]
+	return p
+P.interpolate(P_init)"""
+spyb.baseflow(Re,S,weakBoundaryConditions)#,baseflowInit=baseflowInit)
 
-if comm.rank==0:
+"""if comm.rank==0:
 	file_names = [f for f in os.listdir(spyb.dat_real_path)]
 	for file_name in file_names:
 		match = re.search(r'_Re=(\d*)',file_name)

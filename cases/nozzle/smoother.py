@@ -8,13 +8,12 @@ from setup import *
 from spyb import SPYB
 from mpi4py.MPI import COMM_WORLD as comm
 
-spyb=SPYB(params,datapath,Ref,nutf,direction_map)
+spyb=SPYB(params,datapath,direction_map)
 spyb.loadBaseflow(S,Re,True)
-spyb.sanityCheck()
+Ref(spyb)
+nutf(spyb,S,Re)
 boundaryConditionsBaseflow(spyb)
 if comm.rank==0: print("BCs fixed",flush=True)
-#spyb.smoothenBaseflow(lambda spy,u,v: 0,weakBoundaryConditionsPressure) # No additionnal constraints on u during smoothing, wall still present for p though
-#spyb.sanityCheck("_smooth")
-#spyb.stabilise(0)
-spyb.baseflow(Re,S,weak_bcs=lambda spy,u,p: weakBoundaryConditions(spy,u,p,0))
-#spyb.saveBaseflow(f"_S={S:00.3f}_Re={Re:d}")
+spyb.smoothenBaseflow(boundaryConditionsU(spyb),lambda spy,u,v: 0) # No additionnal constraints on u during smoothing, no constraint ever for p or nut
+spyb.stabilise(0)
+spyb.baseflow(Re,S,lambda spy,u,p: weakBoundaryConditions(spy,u,p,0),baseflowInit=baseflowInit)
