@@ -1,38 +1,25 @@
 # coding: utf-8
 """
-Created on Wed Oct  13 17:07:00 2021
+Created on Wed Sept  28 09:28:00 2022
 
 @author: hawkspar
 """
-#import os, re
 from setup import *
-from spyb import SPYB # Must be after setup
-#from spy  import meshConvert
-#from mpi4py.MPI import COMM_WORLD as comm
+from spyb import SPYB
 
-#meshConvert("/home/shared/cases/garnaud/garnaud",'triangle')
+def weakBoundaryConditions(spy,u,p,m=0): return 0
+
 spyb=SPYB(params,datapath,direction_map)
-spyb.loadBaseflow(S,Re,True)
-Ref(spyb)
-spyb.nut=0
-#nutf(spyb,S,Re)
-# Baseflow calculation
-spyb.stabilise(0)
 boundaryConditionsBaseflow(spyb)
-"""U,P=spyb.Q.split()
-def P_init(x):
-	x,r=x[0],x[1]
-	p=0*r
-	p[r<1]=-x[r<1]
-	return p
-P.interpolate(P_init)"""
-spyb.baseflow(Re,S,weakBoundaryConditions)#,baseflowInit=baseflowInit)
-
-"""if comm.rank==0:
-	file_names = [f for f in os.listdir(spyb.dat_real_path)]
-	for file_name in file_names:
-		match = re.search(r'_Re=(\d*)',file_name)
-		if 1000 != int(match.group(1)): os.remove(spyb.dat_real_path+file_name)
-comm.barrier()
-
-spyb.datToNpyAll()"""
+spyb.loadBaseflow(1000,S,True)
+Ref(spyb,1000)
+nutf(spyb,1000,S)
+spyb.sanityCheck("_load")
+spyb.smoothen()
+spyb.sanityCheckU("_smooth")
+spyb.stabilise(0)
+spyb.baseflow2(Re,S,weakBoundaryConditions)
+for Re in [10000, 100000, 400000]:
+	nutf(spyb,Re,S)
+	spyb.baseflow(Re,S,weakBoundaryConditions)
+spyb.baseflow(400000,.1,weakBoundaryConditions)

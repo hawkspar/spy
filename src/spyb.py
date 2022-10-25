@@ -4,14 +4,16 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import shutil, ufl
+import shutil
 import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
-from dolfinx.fem import FunctionSpace
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
 from mpi4py.MPI import COMM_WORLD as comm, MIN
+
+from dolfinx.fem import Function, form
+from dolfinx.fem.petsc import create_matrix, create_vector, assemble_matrix, assemble_vector, apply_lifting, set_bc
 
 #pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method
 
@@ -22,12 +24,6 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, direction_map)
 		dirCreator(self.baseflow_path)
-
-	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
-		self.Q.x.array[self.TH0_to_TH]=self.smoothen(5e-3,self.U,self.TH0,bcs_u,weak_bcs_u)
-		self.Q.x.array[self.TH1_to_TH]=self.smoothen(5e-2,self.P,self.TH1,[],lambda spy,p,s:0)
-		self.Q.x.scatter_forward()
-		self.nut.x.array[:]=self.smoothen(1,self.nut,self.TH1,[],lambda spy,p,s:0)
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
 	def baseflow(self,Re:int,S:float,weak_bcs,save:bool=True,baseflowInit=None,stab=False):
@@ -62,6 +58,71 @@ class SPYB(SPY):
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
 		solver.solve(self.Q)
+
+		if save:  # Memoisation
+			self.saveBaseflow(f"_S={S:00.3f}_Re={Re:d}")
+			U,P=self.Q.split()
+			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",U)
+
+	# Careful here Re is only for printing purposes ; self.Re is a more involved function
+	def baseflow2(self,Re:int,S:float,weak_bcs,save:bool=True,baseflowInit=None,stab=False):
+		# Apply new BC
+		self.inlet_azimuthal_velocity.S=S
+		# Cold initialisation
+		if baseflowInit!=None:
+			U,P=self.Q.split()
+			U.interpolate(baseflowInit)
+
+		# Compute form
+		base_form  = form(self.navierStokes(weak_bcs,stab)) # No azimuthal decomposition for base flow
+		dbase_form = form(self.linearisedNavierStokes(weak_bcs,0,stab)) # m=0
+
+		A = create_matrix(dbase_form)
+		L = create_vector(base_form)
+
+		solver = pet.KSP().create(comm)
+		solver.setOperators(A)
+		solver.setTolerances(rtol=self.params['rtol'], atol=self.params['atol'], max_it=self.params['max_iter'])
+		# Krylov subspace
+		solver.setType('preonly')
+		# Preconditioner
+		PC = solver.getPC(); PC.setType('lu')
+		PC.setFactorSolverType('mumps')
+		solver.setFromOptions()
+		dx = Function(self.TH)
+		
+		for i in range(self.params["max_iter"]):
+			# Assemble Jacobian and residual
+			with L.localForm() as loc_L: loc_L.set(0)
+			A.zeroEntries()
+			assemble_matrix(A, dbase_form)
+			A.assemble()
+			assemble_vector(L, base_form)
+			L.ghostUpdate(addv=pet.InsertMode.ADD_VALUES, mode=pet.ScatterMode.REVERSE)
+			
+			# Scale residual by -1
+			L.scale(-1)
+			# Compute b - J(u_D-u_(i-1))
+			apply_lifting(L, [dbase_form], [self.bcs], x0=[self.Q.vector], scale=1) 
+			# Set dx|_bc = u_{i-1}-u_D
+			set_bc(L, self.bcs, self.Q.vector, 1.0)
+			L.ghostUpdate(addv=pet.InsertMode.INSERT_VALUES, mode=pet.ScatterMode.FORWARD)
+
+			# Solve linear problem
+			solver.solve(L, dx.vector)
+			dx.x.scatter_forward()
+			# Update u_{i+1} = u_i + delta x_i
+			self.Q.x.array[:] += self.params['rp']*dx.x.array
+
+			# Compute norm of update
+			correction_norm = dx.vector.norm(0)
+			if p0: print(f"Iteration {i}: Correction norm {correction_norm}",flush=True)
+			if correction_norm < self.params['atol']: break
+			
+			self.sanityCheckU(f"_Newton_{i}")
+
+		assemble_vector(L, base_form)
+		print(f"Final residual {L.norm(0)}")
 
 		if save:  # Memoisation
 			self.saveBaseflow(f"_S={S:00.3f}_Re={Re:d}")

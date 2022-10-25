@@ -191,7 +191,7 @@ class SPYP(SPY):
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
 				response_i.x.scatter_forward()
-				velocity_i,pressure_i=response_i.split()
+				velocity_i,_=response_i.split()
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
 				self.printStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",velocity_i)

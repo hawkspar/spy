@@ -46,8 +46,8 @@ def findStuff(path:str,keys:list,params:list,format):
 		if checkComm(file_name):
 			fd=0 # Compute distance according to all params
 			for param,key in zip(params,keys):
-				match = re.search(r'_'+key+r'=(\d*\.?\d*)',file_name)
-				param_file = float(match.group(1)) # Take advantage of file format
+				match = re.search(r'_'+key+r'=(\d*(\.|,|e|-)?\d*)',file_name)
+				param_file = float(match.group(1).replace(',','.')) # Take advantage of file format
 				fd += abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
 	return closest_file_name
@@ -185,7 +185,7 @@ class SPY:
 							  r   *m*1j*(nu*v[dx]).dx(dx)  +r*m*1j*(nu*v[dr]).dx(dr)	-m**2*nu*v[dt]		   +m*1j*nu*v[dr]])
 
 	# Helper
-	def loadBaseflow(self,S,Re,p=False):
+	def loadBaseflow(self,Re,S,p=False):
 		# Load separately
 		loadStuff(self.u_path,['S','Re'],[S,Re],self.U)
 		if p: loadStuff(self.p_path,['S','Re'],[S,Re],self.P)
@@ -207,18 +207,18 @@ class SPY:
 		saveStuff(self.p_path,"p"+str,self.P)
 	
 	# Pseudo-heat equation
-	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs):
-		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
-		r=self.r
-		grd=lambda v: self.grd_nor(v,0)
-		a=ufl.inner(u,v)
-		a+=e*ufl.inner(grd(u),grd(v))
-		L=ufl.inner(fun,v)
-		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx+weak_bcs(self,u,v), L*r*ufl.dx, bcs=bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+	def smoothen(self):
+		u,p=ufl.split(self.trial)
+		v,s=ufl.split(self.test)
+		U,P=ufl.split(self.Q)
+		r,grd=self.r,lambda v: self.grd_nor(v,0)
+		a =ufl.inner(u,v)+5e-3*ufl.inner(grd(u),grd(v))
+		a+=ufl.inner(p,s)+5e-2*ufl.inner(grd(p),grd(s))
+		L=ufl.inner(U,v)+ufl.inner(P,s)
+		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
 		if p0: print("Smoothing started...",flush=True)
-		res=pb.solve()
-		res.x.scatter_forward()
-		return res.x.array
+		self.Q=pb.solve()
+		self.Q.x.scatter_forward()
 
 	def stabilise(self,m):
 		# Important ! Otherwise n is nonsense
@@ -263,11 +263,12 @@ class SPY:
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(grd(U)*U,r*(v+SUPG)) # Convection
 		F -= ufl.inner(	 r*P,  div(v,1)) # Pressure
-		if stab: F += ufl.inner(grd(P),r*SUPG)
 		#F += ufl.inner(nu*(grd(U)+grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
 		F += ufl.inner(nu*grd(U),grd(v,1))
-		if stab: F -= ufl.inner(r2vis(U),SUPG)
-		return F*ufl.dx#+weak_bcs(self,U,P)
+		if stab:
+			F += ufl.inner(  grd(P),r*SUPG)
+			F -= ufl.inner(r2vis(U),  SUPG)
+		return F*ufl.dx+weak_bcs(self,U,P)
 		
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,weak_bcs,m:int,stab=False) -> ufl.Form:
@@ -286,12 +287,13 @@ class SPY:
 		F += ufl.inner(grd(U,0)*u,r*(v+SUPG)) # Convection
 		F += ufl.inner(grd(u,m)*U,r*(v+SUPG))
 		F -= ufl.inner(  r*p,    div(v,m,1)) # Pressure
-		if stab: F += ufl.inner(grd(p,m),r*SUPG)
 		#F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
 		F += ufl.inner(nu*grd(u,m),grd(v,m,1))
-		if stab: F -= ufl.inner(r2vis(u,m),SUPG)
+		if stab:
+			F += ufl.inner(  grd(p,m),r*SUPG)
+			F -= ufl.inner(r2vis(u,m),  SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)
-		return F*ufl.dx#+weak_bcs(self,u,p,m)
+		return F*ufl.dx+weak_bcs(self,u,p,m)
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
@@ -318,15 +320,15 @@ class SPY:
 
 	def printStuff(self,dir:str,name:str,fun:Function) -> None:
 		dirCreator(dir)
-		with dfx.io.XDMFFile(comm, dir+name+".xdmf", "w") as xdmf:
+		with dfx.io.XDMFFile(comm, dir+name.replace('.',',')+".xdmf", "w") as xdmf:
 			xdmf.write_mesh(self.mesh)
 			xdmf.write_function(fun)
-		if p0: print("Printed "+dir+name+".xdmf",flush=True)
+		if p0: print("Printed "+dir+name.replace('.',',')+".xdmf",flush=True)
 	
 	# Quick check functions
-	def sanityCheckU(self):
+	def sanityCheckU(self,app=""):
 		U,P=self.Q.split()
-		self.printStuff("./","sanity_check_u",U)
+		self.printStuff("./","sanity_check_u"+app,U)
 
 	def sanityCheck(self,app=""):
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]

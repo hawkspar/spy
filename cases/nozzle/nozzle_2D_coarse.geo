@@ -2,7 +2,7 @@
 Mesh.MshFileVersion = 2.2;
 R=1;
 L=35*R; H=4*R;
-r=1e-3; h = 1e-5*R;
+r=5e-4; h = 2.5e-4;
 
 // Base 'rectangle'
 Point(1) = {0, 0, 0,  20*r};
@@ -20,7 +20,7 @@ Point(10) = {.95*R,  .99*R,   0, r};
 Point(11) = {1.1*R,  .99*R,   0, r};
 Point(12) = {1.1*R, 1.01*R,   0, r};
 Point(13) = {.95*R, 1.01*R,   0, r};
-// Less refined area 2
+// Less refined area
 Point(14) = { .3*R,     R,   0,     r};
 Point(15) = { .3*R,     R+h, 0,     r};
 Point(16) = { .3*R,  .7*R,   0,   5*r};
