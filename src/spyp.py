@@ -53,20 +53,18 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, Re, direction_map:dict, S:float, m:int, forcingIndicator=None) -> None:
+	def __init__(self, params:dict, datapath:str, direction_map:dict, forcingIndicator=None) -> None:
 		super().__init__(params, datapath, direction_map, forcingIndicator)
-		self.S=S; self.m=m
-		self.save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,weak_bcs,stab=False) -> None:
+	def assembleJNMatrices(self,weak_bcs,m:int,stab=False) -> None:
 		# Functions
 		u,p = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(weak_bcs,self.m,stab)
+		J_form = self.linearisedNavierStokes(weak_bcs,m,stab)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		N_form = ufl.inner(u,v+stab*self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
 		
@@ -136,7 +134,7 @@ class SPYP(SPY):
 		self.R   = pythonMatrix([[m_local,m],[n_local,n]],  R_class,comm)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_class,comm)
 
-	def resolvent(self,k:int,St_list) -> None:
+	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
 		for St in St_list:
@@ -156,7 +154,6 @@ class SPYP(SPY):
 			# Krylov subspace
 			KSP = ST.getKSP()
 			configureKSP(KSP,self.params)
-			
 			# Heavy lifting
 			EPS.setFromOptions()
 			if p0: print("Solver launch...",flush=True)
@@ -164,28 +161,28 @@ class SPYP(SPY):
 			n=EPS.getConverged()
 			if n==0: continue
 			
+			save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}"
 			if p0:
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
 				# Write gains
 				if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
-				np.savetxt(self.resolvent_path+"gains"+self.save_string+f"_St={St:00.3f}.txt",gains)
+				np.savetxt(self.resolvent_path+"gains"+save_string+".txt",gains)
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
 				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
 				# Get a list of all the file paths with the same parameters
-				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+self.save_string+f"_St={St:00.3f}_i=*.*")
+				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: os.remove(filePath)
-
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				forcing_i.x.scatter_forward()
-				self.printStuff(self.resolvent_path+"forcing/","forcing"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",forcing_i)
+				self.printStuff(self.resolvent_path+"forcing/","forcing"+save_string+f"_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
 				response_i=Function(self.TH)
@@ -194,16 +191,11 @@ class SPYP(SPY):
 				velocity_i,_=response_i.split()
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
-				self.printStuff(self.resolvent_path+"response/","response"+self.save_string+f"_St={St:00.3f}_i={i+1:d}",velocity_i)
-				
-				expr=dfx.fem.Expression(self.div_nor(velocity_i,self.m),self.TH1.element.interpolation_points())
-				div = Function(self.TH1)
-				div.interpolate(expr)
-				self.printStuff("./","sanity_check_div_u",div)
+				self.printStuff(self.resolvent_path+"response/","response"+save_string+f"_i={i+1:d}",velocity_i)
 			if p0: print("Strouhal",St,"handled !",flush=True)
 
 	# Modal analysis
-	def eigenvalues(self,sigma:complex,k:int) -> None:
+	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
@@ -223,12 +215,13 @@ class SPYP(SPY):
 		# Conversion back into numpy 
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		dirCreator(self.eig_path)
+		save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		# write eigenvalues
-		np.savetxt(self.eig_path+"evals"+self.save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+"evals"+save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
 			u,p = q.split()
-			self.printStuff(self.eig_path+"u/","evec_"+self.save_string+f"_l={vals[i]:00.3f}",u)
+			self.printStuff(self.eig_path+"u/","evec_"+save_string+f"_l={vals[i]:00.3f}",u)
 		if p0: print("Eigenpairs written !",flush=True)

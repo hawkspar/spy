@@ -24,7 +24,7 @@ h=2.5e-4
 params = {"rp":.9,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
-		  "max_iter":5}
+		  "max_iter":100}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
@@ -52,11 +52,46 @@ def baseflowInit(x):
 	u[0,x[1]<R]=np.tanh(6*(1-x[1][x[1]<1]))
 	return u
 
-class InletAzimuthalVelocity():
-	def __init__(self, S): self.S = 0
-	def __call__(self, x): return self.S*x[0]
+# Code factorisation
+def boundaryConditionsU(spy:SPY,S) -> None:
+	bcs=[]
+	# Compute DoFs
+	sub_space_x=spy.TH0.sub(0)
+	sub_space_x_collapsed,_=sub_space_x.collapse()
 
-def boundaryConditionsBaseflow(spy:SPY) -> None:
+	u_inlet_x=Function(sub_space_x_collapsed)
+	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]))*(x[1]<1)+
+							    .05*np.tanh(6*(x[1]-1))*(x[1]>1))
+	
+	# Degrees of freedom
+	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
+	bcs.append(dfx.fem.dirichletbc(u_inlet_x, dofs_inlet_x, sub_space_x)) # Same as OpenFOAM
+
+	# Same for tangential
+	sub_space_th=spy.TH0.sub(2)
+	sub_space_th_collapsed,_=sub_space_th.collapse()
+
+	# Modified vortex that goes to zero at top boundary
+	u_inlet_th=Function(sub_space_th_collapsed)
+	u_inlet_th.interpolate(lambda x: S*x[1]*np.tanh(6*(1-x[1]))*(x[1]<1))
+	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
+	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM
+	bcs.append(bcs_inlet_th)
+
+	# Handle homogeneous boundary conditions
+	for boundary, directions in [(inlet,['r']),(nozzle,['x','r','th']),(spy.symmetry,['r','th'])]:
+		for direction in directions:
+			sub_space=spy.TH0.sub(direction_map[direction])
+			sub_space_collapsed,_=sub_space.collapse()
+			# Compute unflattened DoFs (don't care for flattened ones)
+			dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
+			cst = Function(sub_space_collapsed)
+			cst.interpolate(lambda x: np.zeros_like(x[0]))
+			# Actual BCs
+			bcs.append(dfx.fem.dirichletbc(cst, dofs, sub_space))
+	return bcs
+
+def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	# Compute DoFs
 	sub_space_x=spy.TH.sub(0).sub(0)
 	sub_space_x_collapsed,_=sub_space_x.collapse()
@@ -78,8 +113,7 @@ def boundaryConditionsBaseflow(spy:SPY) -> None:
 
 	# Modified vortex that goes to zero at top boundary
 	u_inlet_th=Function(sub_space_th_collapsed)
-	spy.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
-	u_inlet_th.interpolate(spy.inlet_azimuthal_velocity)
+	u_inlet_th.interpolate(lambda x: S*x[1]*np.tanh(6*(1-x[1]))*(x[1]<1))
 	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
 	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM
 	spy.applyBCs(dofs_inlet_th[0],bcs_inlet_th)

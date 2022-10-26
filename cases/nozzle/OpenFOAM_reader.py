@@ -11,7 +11,7 @@ sys.path.append('/home/shared/src')
 from spy import dirCreator, meshConvert, findStuff, saveStuff
 
 p0=comm.rank==0
-sanity_check=True
+sanity_check=False
 cell_type="triangle"
 
 # Dimensionalised stuff
@@ -83,11 +83,7 @@ nut.x.array[nut.x.array<0] = 0
 
 # Save pretty graphs
 if sanity_check:
-    FE = ufl.FiniteElement("DG",mesh.ufl_cell(),0)
-    W = FunctionSpace(mesh,FE)
-    partition = Function(W)
-    partition.x.array[:]=comm.rank
-    for f in ['U','P','nut','partition']:
+    for f in ['U','P','nut']:
         with XDMFFile(comm, "sanity_check_"+f+"_reader.xdmf", "w") as xdmf:
             xdmf.write_mesh(mesh)
             eval("xdmf.write_function("+f+")")

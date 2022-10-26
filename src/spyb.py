@@ -24,11 +24,14 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, direction_map)
 		dirCreator(self.baseflow_path)
+	
+	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
+		self.Q.x.array[self.TH0_to_TH]=self.smoothen(5e-3,self.U,self.TH0,bcs_u,weak_bcs_u)
+		self.Q.x.array[self.TH1_to_TH]=self.smoothen(5e-2,self.P,self.TH1,[],lambda spy,p,s:0)
+		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
 	def baseflow(self,Re:int,S:float,weak_bcs,save:bool=True,baseflowInit=None,stab=False):
-		# Apply new BC
-		self.inlet_azimuthal_velocity.S=S
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,P=self.Q.split()
@@ -122,7 +125,7 @@ class SPYB(SPY):
 			self.sanityCheckU(f"_Newton_{i}")
 
 		assemble_vector(L, base_form)
-		print(f"Final residual {L.norm(0)}")
+		if p0: print(f"Final residual {L.norm(0)}")
 
 		if save:  # Memoisation
 			self.saveBaseflow(f"_S={S:00.3f}_Re={Re:d}")

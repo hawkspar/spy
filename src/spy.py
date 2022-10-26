@@ -7,6 +7,7 @@ Created on Fri Dec 10 12:00:00 2021
 import os, ufl, re
 import numpy as np
 import dolfinx as dfx
+from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm
 from dolfinx.fem import FunctionSpace, Function
 
@@ -207,18 +208,18 @@ class SPY:
 		saveStuff(self.p_path,"p"+str,self.P)
 	
 	# Pseudo-heat equation
-	def smoothen(self):
-		u,p=ufl.split(self.trial)
-		v,s=ufl.split(self.test)
-		U,P=ufl.split(self.Q)
-		r,grd=self.r,lambda v: self.grd_nor(v,0)
-		a =ufl.inner(u,v)+5e-3*ufl.inner(grd(u),grd(v))
-		a+=ufl.inner(p,s)+5e-2*ufl.inner(grd(p),grd(s))
-		L=ufl.inner(U,v)+ufl.inner(P,s)
-		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs):
+		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
+		r=self.r
+		grd=lambda v,i=0: self.grd(v,0,i)
+		a=ufl.inner(u,v)*r**2
+		a+=e*ufl.inner(grd(u),grd(v,1))
+		L=ufl.inner(fun,v)
+		pb = dfx.fem.petsc.LinearProblem(a*ufl.dx+weak_bcs(self,u,v), L*r**2*ufl.dx, bcs=bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
 		if p0: print("Smoothing started...",flush=True)
-		self.Q=pb.solve()
-		self.Q.x.scatter_forward()
+		res=pb.solve()
+		res.x.scatter_forward()
+		return res.x.array
 
 	def stabilise(self,m):
 		# Important ! Otherwise n is nonsense
@@ -327,8 +328,8 @@ class SPY:
 	
 	# Quick check functions
 	def sanityCheckU(self,app=""):
-		U,P=self.Q.split()
-		self.printStuff("./","sanity_check_u"+app,U)
+		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
+		self.printStuff("./","sanity_check_u"+app,self.U)
 
 	def sanityCheck(self,app=""):
 		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
