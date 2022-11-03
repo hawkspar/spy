@@ -30,7 +30,7 @@ direction_map={'x':0,'r':1,'th':2}
 
 def nozzle_top(x):
 	y=np.ones_like(x)*(R+h)
-	y[x>.95*R]=R+h-(x[x>.95*R]-.95*R)*h/.05/R
+	y[x>.95]=1+h-(x[x>.95]-.95)*h/.05
 	return y
 
 # Geometry
@@ -41,7 +41,7 @@ def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])
 
 def Ref(spy:SPY,Re): spy.Re=Re
 
-#def forcingIndicator(x): return np.isclose(x[1],R,.2)*(x[0]<R+.2)
+def forcingIndicator(x): return x[1]<3
 
 def nutf(spy:SPY,Re:int,S:float):
 	spy.nut=Function(spy.TH1)
@@ -49,7 +49,7 @@ def nutf(spy:SPY,Re:int,S:float):
 
 def baseflowInit(x):
 	u=0*x
-	u[0,x[1]<R]=np.tanh(6*(1-x[1][x[1]<1]))
+	u[0,x[1]<1]=np.tanh(6*(1-x[1][x[1]<1]))
 	return u
 
 # Code factorisation
@@ -60,8 +60,8 @@ def boundaryConditionsU(spy:SPY,S) -> None:
 	sub_space_x_collapsed,_=sub_space_x.collapse()
 
 	u_inlet_x=Function(sub_space_x_collapsed)
-	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]))*(x[1]<1)+
-							    .05*np.tanh(6*(x[1]-1))*(x[1]>1))
+	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]**2))*(x[1]<1)+
+							    .05*np.tanh(6*(x[1]**2-1))*(x[1]>1))
 	
 	# Degrees of freedom
 	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
@@ -73,7 +73,7 @@ def boundaryConditionsU(spy:SPY,S) -> None:
 
 	# Modified vortex that goes to zero at top boundary
 	u_inlet_th=Function(sub_space_th_collapsed)
-	u_inlet_th.interpolate(lambda x: S*x[1]*np.tanh(6*(1-x[1]))*(x[1]<1))
+	u_inlet_th.interpolate(lambda x: S*x[1]*np.tanh(6*(1-x[1]**2))*(x[1]<1))
 	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
 	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM
 	bcs.append(bcs_inlet_th)
@@ -97,8 +97,8 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	sub_space_x_collapsed,_=sub_space_x.collapse()
 
 	u_inlet_x=Function(sub_space_x_collapsed)
-	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]))*(x[1]<1)+
-							    .05*np.tanh(6*(x[1]-1))*(x[1]>1))
+	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]**2))*(x[1]<1)+
+							    .05*np.tanh(6*(x[1]**2-1))*(x[1]>1))
 	
 	# Degrees of freedom
 	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
@@ -113,7 +113,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 
 	# Modified vortex that goes to zero at top boundary
 	u_inlet_th=Function(sub_space_th_collapsed)
-	u_inlet_th.interpolate(lambda x: S*x[1]*np.tanh(6*(1-x[1]))*(x[1]<1))
+	u_inlet_th.interpolate(lambda x: S*x[1]*np.tanh(6*(1-x[1]**2))*(x[1]<1))
 	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
 	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM
 	spy.applyBCs(dofs_inlet_th[0],bcs_inlet_th)

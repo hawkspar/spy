@@ -12,11 +12,11 @@ from spy import dirCreator, meshConvert, findStuff, saveStuff
 
 p0=comm.rank==0
 sanity_check=False
+convert=False
 cell_type="triangle"
 
 # Dimensionalised stuff
-R,U_M=1,1
-L,H=36,5
+L,H=36,7
 O=np.pi/360 # 0.5°
 sin,cos=np.sin(O),np.cos(O)
 
@@ -31,20 +31,19 @@ if p0:
     # Read cell_centers
     center_points = openfoam_data.cell_data['CellCenters'][0]
     fine_xy = np.vstack((openfoam_data.points,center_points)) # Regroup all data coordinates
-    fine_xy[:,:2]/=R # Scaling & Plane tilted
-    fine_xy[:, 1]/=cos
+    fine_xy[:,1]/=cos # Plane tilted
 
     # Reducing problem size (coarse mesh is also smaller)
     msk = (fine_xy[:,0]<L)*(fine_xy[:,1]<H)
     fine_xy=fine_xy[msk,:2]
 
     # Dimensionless
-    uxv,urv,uthv = np.vstack((openfoam_data.point_data['U'],openfoam_data.cell_data['U'][0]))[msk,:].T/U_M
-    pv   = np.hstack((openfoam_data.point_data['p'],  openfoam_data.cell_data['p'][0])  )[msk]/U_M**2
-    nutv = np.hstack((openfoam_data.point_data['nut'],openfoam_data.cell_data['nut'][0]))[msk]/U_M/R
+    uxv,urv,uthv = np.vstack((openfoam_data.point_data['U'],openfoam_data.cell_data['U'][0]))[msk,:].T
+    pv   = np.hstack((openfoam_data.point_data['p'],  openfoam_data.cell_data['p'][0])  )[msk]
+    nutv = np.hstack((openfoam_data.point_data['nut'],openfoam_data.cell_data['nut'][0]))[msk]
 
     # Convert mesh
-    meshConvert("nozzle_2D_coarse","nozzle",cell_type)
+    if convert: meshConvert("nozzle_2D_coarse","nozzle",cell_type)
 else: uxv,urv,uthv,pv,nutv,fine_xy=None,None,None,None,None,None
 
 # Data available to all but not distributed
@@ -92,8 +91,7 @@ if sanity_check:
 pre="./baseflow"
 dirCreator(pre)
 
-#app=f"_S={S:.3f}_Re={Re:d}"
-app=f"_S={S:.3f}_Re={Re:d}"
+app=f"_S={S:.3f}_Re={Re:d}_nut={Re:d}"
 
 # Save
 saveStuff(pre+"/u/",  "u"+app,  U)

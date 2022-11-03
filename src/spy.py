@@ -55,7 +55,7 @@ def findStuff(path:str,keys:list,params:list,format):
 
 def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
 	closest_file_name=findStuff(path,keys,params,lambda f: f[-3:]=="npy")
-	fun.x.array.real=np.load(closest_file_name,allow_pickle=True)
+	fun.x.array[:]=np.load(closest_file_name,allow_pickle=True)
 	fun.x.scatter_forward()
 	# Loading eddy viscosity too
 	if p0: print("Loaded "+closest_file_name,flush=True)
@@ -186,10 +186,10 @@ class SPY:
 							  r   *m*1j*(nu*v[dx]).dx(dx)  +r*m*1j*(nu*v[dr]).dx(dr)	-m**2*nu*v[dt]		   +m*1j*nu*v[dr]])
 
 	# Helper
-	def loadBaseflow(self,Re,S,p=False):
+	def loadBaseflow(self,Re,nut,S,p=False):
 		# Load separately
-		loadStuff(self.u_path,['S','Re'],[S,Re],self.U)
-		if p: loadStuff(self.p_path,['S','Re'],[S,Re],self.P)
+		loadStuff(self.u_path,['S','nut','Re'],[S,nut,Re],self.U)
+		if p: loadStuff(self.p_path,['S','nut','Re'],[S,nut,Re],self.P)
 		# Write inside MixedElement
 		self.Q.x.array[self.TH0_to_TH]=self.U.x.array
 		self.Q.x.scatter_forward()
@@ -249,11 +249,11 @@ class SPY:
 		self.grd_div=gamma*div(v,m,1)"""
 	
 	# Heart of this entire code
-	def navierStokes(self,weak_bcs,stab=False) -> ufl.Form:
+	def navierStokes(self,weak_bcs,stabilise=False) -> ufl.Form:
 		# Shortforms
 		r, nu = self.r, 1/self.Re+self.nut
 		div,grd=lambda v,i=0: self.div(v,0,i), lambda v,i=0: self.grd(v,0,i)
-		r2vis, SUPG = lambda v: self.r2vis(v,0), stab*self.SUPG
+		r2vis, SUPG = lambda v: self.r2vis2(v,0), stabilise*self.SUPG
 		
 		# Functions
 		U, P = ufl.split(self.Q)
@@ -266,17 +266,17 @@ class SPY:
 		F -= ufl.inner(	 r*P,  div(v,1)) # Pressure
 		#F += ufl.inner(nu*(grd(U)+grd(U).T),grd(v,1)) # Diffusion (grad u.T significant with nut)
 		F += ufl.inner(nu*grd(U),grd(v,1))
-		if stab:
+		if stabilise:
 			F += ufl.inner(  grd(P),r*SUPG)
 			F -= ufl.inner(r2vis(U),  SUPG)
 		return F*ufl.dx+weak_bcs(self,U,P)
 		
 	# Not automatic because of convection term
-	def linearisedNavierStokes(self,weak_bcs,m:int,stab=False) -> ufl.Form:
+	def linearisedNavierStokes(self,weak_bcs,m:int,stabilise=False) -> ufl.Form:
 		# Shortforms
 		r,nu=self.r,1/self.Re+self.nut
 		div,grd=self.div,self.grd
-		r2vis,SUPG=self.r2vis,self.SUPG*stab
+		r2vis,SUPG=self.r2vis2,stabilise*self.SUPG
 		
 		# Functions
 		u, p = ufl.split(self.trial)
@@ -290,7 +290,7 @@ class SPY:
 		F -= ufl.inner(  r*p,    div(v,m,1)) # Pressure
 		#F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
 		F += ufl.inner(nu*grd(u,m),grd(v,m,1))
-		if stab:
+		if stabilise:
 			F += ufl.inner(  grd(p,m),r*SUPG)
 			F -= ufl.inner(r2vis(u,m),  SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)

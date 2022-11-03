@@ -5,7 +5,6 @@ from matplotlib import pyplot as plt
 from scipy.interpolate import griddata
 
 # Dimensionalised stuff
-R,U_M=.1,10
 C=np.cos(np.pi/360) # 0.5°
 u_co=.05
 Q=(1-u_co)/(1+u_co)
@@ -13,10 +12,10 @@ Q=(1-u_co)/(1+u_co)
 # Read OpenFOAM
 # Read mesh and point data
 openfoam_data = meshio.read("front_Re=400000_S=0.xmf")
-xy=openfoam_data.points[:,:2]/R/C # Scaling & Plane tilted
+xy=openfoam_data.points[:,:2]/C # Scaling & Plane tilted
 
 # Dimensionless
-ud,_,_ = openfoam_data.point_data['U'].T/U_M
+ud,_,_ = openfoam_data.point_data['U'].T
 
 n = 100
 X = np.linspace(0,60,n)
@@ -33,7 +32,6 @@ plt.ylabel(r'$U_{x,r=0}$')
 plt.savefig("Ur0(x).png")
 plt.close()
 
-ths = np.empty(n)
 R = np.linspace(0,15,n)
 target_xy = np.array(list(product(X,R)))
 

@@ -12,11 +12,6 @@ from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
 from mpi4py.MPI import COMM_WORLD as comm, MIN
 
-from dolfinx.fem import Function, form
-from dolfinx.fem.petsc import create_matrix, create_vector, assemble_matrix, assemble_vector, apply_lifting, set_bc
-
-#pet.Options().setValue('-snes_linesearch_type', 'basic') # classical Newton method
-
 p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
@@ -31,15 +26,15 @@ class SPYB(SPY):
 		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,S:float,weak_bcs,save:bool=True,baseflowInit=None,stab=False):
+	def baseflow(self,Re:int,nut:int,S:float,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,baseflowInit=None,stabilise=False):
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,P=self.Q.split()
 			U.interpolate(baseflowInit)
 
 		# Compute form
-		base_form  = self.navierStokes(weak_bcs,stab) # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(weak_bcs,0,stab) # m=0
+		base_form  = self.navierStokes(weak_bcs,stabilise) # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(weak_bcs,0,stabilise) # m=0
 		
 		# Encapsulations
 		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
@@ -63,74 +58,11 @@ class SPYB(SPY):
 		solver.solve(self.Q)
 
 		if save:  # Memoisation
-			self.saveBaseflow(f"_S={S:00.3f}_Re={Re:d}")
+			if S==0: app=f"_S={S:d}_Re={Re:d}_nut={nut:d}"
+			else: 	 app=f"_S={S:00.3f}_Re={Re:d}_nut={nut:d}"
+			self.saveBaseflow(app)
 			U,P=self.Q.split()
-			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",U)
-
-	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow2(self,Re:int,S:float,weak_bcs,save:bool=True,baseflowInit=None,stab=False):
-		# Apply new BC
-		self.inlet_azimuthal_velocity.S=S
-		# Cold initialisation
-		if baseflowInit!=None:
-			U,P=self.Q.split()
-			U.interpolate(baseflowInit)
-
-		# Compute form
-		base_form  = form(self.navierStokes(weak_bcs,stab)) # No azimuthal decomposition for base flow
-		dbase_form = form(self.linearisedNavierStokes(weak_bcs,0,stab)) # m=0
-
-		A = create_matrix(dbase_form)
-		L = create_vector(base_form)
-
-		solver = pet.KSP().create(comm)
-		solver.setOperators(A)
-		solver.setTolerances(rtol=self.params['rtol'], atol=self.params['atol'], max_it=self.params['max_iter'])
-		# Krylov subspace
-		solver.setType('preonly')
-		# Preconditioner
-		PC = solver.getPC(); PC.setType('lu')
-		PC.setFactorSolverType('mumps')
-		solver.setFromOptions()
-		dx = Function(self.TH)
-		
-		for i in range(self.params["max_iter"]):
-			# Assemble Jacobian and residual
-			with L.localForm() as loc_L: loc_L.set(0)
-			A.zeroEntries()
-			assemble_matrix(A, dbase_form)
-			A.assemble()
-			assemble_vector(L, base_form)
-			L.ghostUpdate(addv=pet.InsertMode.ADD_VALUES, mode=pet.ScatterMode.REVERSE)
-			
-			# Scale residual by -1
-			L.scale(-1)
-			# Compute b - J(u_D-u_(i-1))
-			apply_lifting(L, [dbase_form], [self.bcs], x0=[self.Q.vector], scale=1) 
-			# Set dx|_bc = u_{i-1}-u_D
-			set_bc(L, self.bcs, self.Q.vector, 1.0)
-			L.ghostUpdate(addv=pet.InsertMode.INSERT_VALUES, mode=pet.ScatterMode.FORWARD)
-
-			# Solve linear problem
-			solver.solve(L, dx.vector)
-			dx.x.scatter_forward()
-			# Update u_{i+1} = u_i + delta x_i
-			self.Q.x.array[:] += self.params['rp']*dx.x.array
-
-			# Compute norm of update
-			correction_norm = dx.vector.norm(0)
-			if p0: print(f"Iteration {i}: Correction norm {correction_norm}",flush=True)
-			if correction_norm < self.params['atol']: break
-			
-			self.sanityCheckU(f"_Newton_{i}")
-
-		assemble_vector(L, base_form)
-		if p0: print(f"Final residual {L.norm(0)}")
-
-		if save:  # Memoisation
-			self.saveBaseflow(f"_S={S:00.3f}_Re={Re:d}")
-			U,P=self.Q.split()
-			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",U)
+			self.printStuff(self.print_path,"u"+app,U)
 
 	# To be run in real mode
 	# DESTRUCTIVE !

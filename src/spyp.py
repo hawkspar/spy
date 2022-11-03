@@ -7,11 +7,11 @@ Created on Fri Dec 10 12:00:00 2021
 import numpy as np #source /usr/local/bin/dolfinx-complex-mode
 import os, ufl, glob
 import dolfinx as dfx
-from spy import SPY, dirCreator
 from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
+from spy import SPY, dirCreator, loadStuff, saveStuff
 
 p0=comm.rank==0
 
@@ -55,10 +55,9 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 class SPYP(SPY):
 	def __init__(self, params:dict, datapath:str, direction_map:dict, forcingIndicator=None) -> None:
 		super().__init__(params, datapath, direction_map, forcingIndicator)
-		dirCreator(self.resolvent_path)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,weak_bcs,m:int,stab=False) -> None:
+	def assembleJNMatrices(self,m:int,stab=False,weak_bcs=lambda spy,u,p,m=0: 0) -> None:
 		# Functions
 		u,p = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
@@ -134,7 +133,7 @@ class SPYP(SPY):
 		self.R   = pythonMatrix([[m_local,m],[n_local,n]],  R_class,comm)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_class,comm)
 
-	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
+	def resolvent(self,k:int,St_list,Re:int,nut:int,S:float,m:int,hotStart:bool=False) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
 		for St in St_list:
@@ -144,6 +143,11 @@ class SPYP(SPY):
 			self.KSP = pet.KSP().create(comm)
 			self.KSP.setOperators(L)
 			configureKSP(self.KSP,self.params)
+
+			if hotStart:
+				forcing_0=Function(self.TH0c)
+				loadStuff(self.resolvent_path+"forcing/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],forcing_0)
+				EPS.setInitialSpace(forcing_0.vector)
 
 			# Eigensolver
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
@@ -160,14 +164,16 @@ class SPYP(SPY):
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0: continue
-			
-			save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}"
+
+			dirCreator(self.resolvent_path)
+			dirCreator(self.resolvent_path+"gains/")
+			dirCreator(self.resolvent_path+"forcing/")
+			save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}"
 			if p0:
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
 				# Write gains
-				if not os.path.isdir(self.resolvent_path): os.mkdir(self.resolvent_path)
-				np.savetxt(self.resolvent_path+"gains"+save_string+".txt",gains)
+				np.savetxt(self.resolvent_path+"gains/gains"+save_string+".txt",gains)
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
@@ -182,7 +188,8 @@ class SPYP(SPY):
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				forcing_i.x.scatter_forward()
-				self.printStuff(self.resolvent_path+"forcing/","forcing"+save_string+f"_i={i+1:d}",forcing_i)
+				self.printStuff(self.resolvent_path+"forcing/print/","forcing"+save_string+f"_i={i+1:d}",forcing_i)
+				saveStuff(self.resolvent_path+"forcing/npy/","forcing"+save_string+f"_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
 				response_i=Function(self.TH)
@@ -192,7 +199,6 @@ class SPYP(SPY):
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
 				self.printStuff(self.resolvent_path+"response/","response"+save_string+f"_i={i+1:d}",velocity_i)
-			if p0: print("Strouhal",St,"handled !",flush=True)
 
 	# Modal analysis
 	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
