@@ -10,6 +10,7 @@ import dolfinx as dfx
 from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
+from matplotlib import pyplot as plt
 from mpi4py.MPI import COMM_WORLD as comm
 from spy import SPY, dirCreator, loadStuff, saveStuff
 
@@ -168,18 +169,19 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path)
 			dirCreator(self.resolvent_path+"gains/")
 			dirCreator(self.resolvent_path+"forcing/")
+			dirCreator(self.resolvent_path+"print/")
 			save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}"
 			if p0:
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
 				# Write gains
-				np.savetxt(self.resolvent_path+"gains/gains"+save_string+".txt",gains)
+				np.savetxt(self.resolvent_path+"gains/"+save_string+".txt",gains)
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
 				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
 				# Get a list of all the file paths with the same parameters
-				fileList = glob.glob(self.resolvent_path+"(forcing/forcing|response/response)"+save_string+"_i=*.*")
+				fileList = glob.glob(self.resolvent_path+"(forcing/print|forcing/npy|response/print|response/npy)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: os.remove(filePath)
 			# Write eigenvectors
@@ -188,8 +190,8 @@ class SPYP(SPY):
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				forcing_i.x.scatter_forward()
-				self.printStuff(self.resolvent_path+"forcing/print/","forcing"+save_string+f"_i={i+1:d}",forcing_i)
-				saveStuff(self.resolvent_path+"forcing/npy/","forcing"+save_string+f"_i={i+1:d}",forcing_i)
+				self.printStuff(self.resolvent_path+"forcing/print/",save_string+f"_i={i+1:d}",forcing_i)
+				saveStuff(self.resolvent_path+"forcing/npy/",save_string+f"_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
 				response_i=Function(self.TH)
@@ -198,7 +200,8 @@ class SPYP(SPY):
 				velocity_i,_=response_i.split()
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]/=gain_i
-				self.printStuff(self.resolvent_path+"response/","response"+save_string+f"_i={i+1:d}",velocity_i)
+				self.printStuff(self.resolvent_path+"response/print",save_string+f"_i={i+1:d}",velocity_i)
+				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
 
 	# Modal analysis
 	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
@@ -223,11 +226,58 @@ class SPYP(SPY):
 		dirCreator(self.eig_path)
 		save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
 		# write eigenvalues
-		np.savetxt(self.eig_path+"evals"+save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
 		for i in range(min(n,3)):
 			q=Function(self.TH)
 			EPS.getEigenvector(i,q.vector)
 			u,p = q.split()
-			self.printStuff(self.eig_path+"u/","evec_"+save_string+f"_l={vals[i]:00.3f}",u)
+			self.printStuff(self.eig_path+"u/",save_string+f"_l={vals[i]:00.3f}",u)
 		if p0: print("Eigenpairs written !",flush=True)
+
+	def visualiseRolls(self,Re,nut,S,m,St,x):
+		forcing_0 = Function(self.TH0c)
+		loadStuff(self.resolvent_path+"forcing/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],forcing_0)
+		
+		expr = dfx.fem.Expression(self.crl(forcing_0,m)[0],self.TH1.element.interpolation_points())
+		crl = Function(self.TH1)
+		crl.interpolate(expr)
+
+		n = 1000
+		rs = np.linspace(0,1,n)
+		points = np.array([[x,r,0] for r in rs])
+		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
+		cells, points_on_proc = [], []
+		
+		# Find cells whose bounding-box collide with the the points
+		cell_candidates = dfx.geometry.compute_collisions(bbtree, points)
+		# Choose one of the cells that contains the point
+		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, points)
+		for i, point in enumerate(points):
+			if len(colliding_cells.links(i))>0:
+				points_on_proc.append(point)
+				cells.append(colliding_cells.links(i)[0])
+		
+		if len(points_on_proc)!=0:
+			rs_on_proc = np.array(points_on_proc, dtype=np.float64)[:,1]
+			crls = crl.eval(points_on_proc, cells)
+		else: rs_on_proc, crls = None, None
+		rs   = comm.gather(rs_on_proc, root=0)
+		crls = comm.gather(crls, 	   root=0)
+
+		if p0:
+			rs, crls = np.hstack([r for r in rs if r is not None]), np.hstack([crl.flatten() for crl in crls if crl is not None])
+			crls=crls[np.argsort(rs)]
+			rs.sort()
+			thetas = np.linspace(0,2*np.pi,n//10)
+			crls=np.real(np.outer(crls,np.exp(m*1j*thetas)))
+			print(crls)
+			print(rs)
+			print(thetas)
+
+			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
+			c=ax.contourf(thetas,rs,crls)
+			plt.colorbar(c)
+			plt.title("Forcing vorticity at plane r-"+r"$\theta$"+f" at x={x}")
+			plt.savefig(f"rolls_Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
+			plt.close()

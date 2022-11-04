@@ -169,6 +169,13 @@ class SPY:
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		return r*v[dx].dx(dx) + (1+i)*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
 
+	def crl(self,v,m,i=0):
+		r=self.r
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(self.mesh, 1j)*v[dr],
+							   m*1j*v[dx]		-  v[dt].dx(dx),
+							  		v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
+
 	def r2vis(self,v,m):
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
@@ -204,8 +211,8 @@ class SPY:
 		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
 		dirCreator(self.u_path)
 		dirCreator(self.p_path)
-		saveStuff(self.u_path,"u"+str,self.U)
-		saveStuff(self.p_path,"p"+str,self.P)
+		saveStuff(self.u_path,str,self.U)
+		saveStuff(self.p_path,str,self.P)
 	
 	# Pseudo-heat equation
 	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs):
@@ -230,7 +237,7 @@ class SPY:
 
 		# Shorthands
 		h,nu=self.h,1/self.Re+self.nut
-		grd,div=self.grd,self.div
+		grd=self.grd
 
 		# Weird Johann local tau (SUPG stabilisation)
 		i=ufl.Index()
@@ -238,15 +245,7 @@ class SPY:
 		Pe=ufl.real(n*h/2/nu)
 		z=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
 		tau=z*h/2/n
-
-		"""n=.5*ufl.sqrt(ufl.inner(U,U))
-		Pe=ufl.real(n*h*self.Re)
-		cPe=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
-		t=cPe*h/2/n"""
-		#tau=1/ufl.sqrt((2*n/h)**2+(4*nu/h**2)**2)
 		self.SUPG = tau*grd(v,m)*U # Streamline Upwind Petrov Galerkin
-		"""gamma=(h/2)**2/4/3/t
-		self.grd_div=gamma*div(v,m,1)"""
 	
 	# Heart of this entire code
 	def navierStokes(self,weak_bcs,stabilise=False) -> ufl.Form:

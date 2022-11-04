@@ -2,7 +2,7 @@ import re, os
 import numpy as np
 from matplotlib import pyplot as plt
 
-color_code={'0':'blue','1':'red','2':'yellow','3':'violet'}
+color_code={'0':'blue','1':'red','2':'orange','3':'violet'}
 
 dat={}
 dir="/home/shared/cases/nozzle/resolvent/gains/"

@@ -9,7 +9,7 @@ from setup import *
 from spyp import SPYP # Must be after setup
 
 ms=range(3)
-Sts=np.linspace(.1,.2,10,endpoint=False)
+Sts=np.hstack((np.linspace(.1,.2,20,endpoint=False),np.linspace(.2,1,30)))
 Ss=[0,.1]
 Res=[1000]
 nut=400000
@@ -28,4 +28,4 @@ for Re in Res:
 			spyp.assembleJNMatrices(m,stab)
 			spyp.assembleMRMatrices(stab)
 			# Resolvent analysis
-			spyp.resolvent(4,Sts,Re,nut,S,m,True)
+			spyp.resolvent(1,Sts,Re,nut,S,m,True)
