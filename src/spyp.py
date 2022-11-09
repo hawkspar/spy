@@ -7,11 +7,12 @@ Created on Fri Dec 10 12:00:00 2021
 import numpy as np #source /usr/local/bin/dolfinx-complex-mode
 import os, ufl, glob
 import dolfinx as dfx
-from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
+import plotly.graph_objects as go
 from matplotlib import pyplot as plt
 from mpi4py.MPI import COMM_WORLD as comm
+from dolfinx.fem import Function, FunctionSpace
 from spy import SPY, dirCreator, loadStuff, saveStuff
 
 p0=comm.rank==0
@@ -169,8 +170,7 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path)
 			dirCreator(self.resolvent_path+"gains/")
 			dirCreator(self.resolvent_path+"forcing/")
-			dirCreator(self.resolvent_path+"print/")
-			save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}"
+			save_string=f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}"
 			if p0:
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
@@ -186,6 +186,7 @@ class SPYP(SPY):
 				for filePath in fileList: os.remove(filePath)
 			# Write eigenvectors
 			for i in range(min(n,k)):
+				# Save on a proper compressed space
 				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
@@ -197,10 +198,11 @@ class SPYP(SPY):
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
 				response_i.x.scatter_forward()
-				velocity_i,_=response_i.split()
+				# Save on a proper compressed space
+				velocity_i=Function(self.TH0c)
 				# Scale response so that it is still unitary
-				velocity_i.x.array[:]/=gain_i
-				self.printStuff(self.resolvent_path+"response/print",save_string+f"_i={i+1:d}",velocity_i)
+				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
+				self.printStuff(self.resolvent_path+"response/print/",save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
 
 	# Modal analysis
@@ -224,7 +226,7 @@ class SPYP(SPY):
 		# Conversion back into numpy 
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		dirCreator(self.eig_path)
-		save_string=f"_Re={Re:d}_S={S:00.3f}_m={m:d}"
+		save_string=f"Re={Re:d}_S={S:00.3f}_m={m:d}"
 		# write eigenvalues
 		np.savetxt(self.eig_path+save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
 		# Write eigenvectors back in xdmf (but not too many of them)
@@ -235,11 +237,12 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"u/",save_string+f"_l={vals[i]:00.3f}",u)
 		if p0: print("Eigenpairs written !",flush=True)
 
-	def visualiseRolls(self,Re,nut,S,m,St,x):
-		forcing_0 = Function(self.TH0c)
-		loadStuff(self.resolvent_path+"forcing/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],forcing_0)
+	def visualiseCurls(self,str,Re,nut,S,m,St,x):
+		data = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
 		
-		expr = dfx.fem.Expression(self.crl(forcing_0,m)[0],self.TH1.element.interpolation_points())
+		# Compute vorticity (curl)
+		expr = dfx.fem.Expression(self.crl(data,m)[0],self.TH1.element.interpolation_points())
 		crl = Function(self.TH1)
 		crl.interpolate(expr)
 
@@ -265,19 +268,122 @@ class SPYP(SPY):
 		rs   = comm.gather(rs_on_proc, root=0)
 		crls = comm.gather(crls, 	   root=0)
 
+		# Actual plotting
+		dir=self.resolvent_path+str+"/rolls/"
+		dirCreator(dir)
 		if p0:
 			rs, crls = np.hstack([r for r in rs if r is not None]), np.hstack([crl.flatten() for crl in crls if crl is not None])
-			crls=crls[np.argsort(rs)]
-			rs.sort()
+			ids=np.argsort(rs)
+			crls,rs=crls[ids],rs[ids]
 			thetas = np.linspace(0,2*np.pi,n//10)
 			crls=np.real(np.outer(crls,np.exp(m*1j*thetas)))
-			print(crls)
-			print(rs)
-			print(thetas)
 
 			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			c=ax.contourf(thetas,rs,crls)
+			ax.set_rorigin(0)
+
 			plt.colorbar(c)
-			plt.title("Forcing vorticity at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(f"rolls_Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
+			plt.title("Rotational of "+str+" at plane r-"+r"$\theta$"+f" at x={x}")
+			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
 			plt.close()
+
+	def visualiseStreaks(self,str,Re,nut,S,m,St,x):
+		data = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
+		u = Function(self.TH0c)
+		loadStuff(self.resolvent_path+"response/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],u)
+		
+		expr = dfx.fem.Expression(data[1],self.TH1.element.interpolation_points())
+		dr = Function(self.TH1)
+		dr.interpolate(expr)
+		expr = dfx.fem.Expression(data[2],self.TH1.element.interpolation_points())
+		dt = Function(self.TH1)
+		dt.interpolate(expr)
+		
+		expr = dfx.fem.Expression(u[0],self.TH1.element.interpolation_points())
+		u = Function(self.TH1)
+		u.interpolate(expr)
+
+		n = 1000
+		rs = np.linspace(0,1,n)
+		points = np.array([[x,r,0] for r in rs])
+		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
+		cells, points_on_proc = [], []
+		
+		# Find cells whose bounding-box collide with the the points
+		cell_candidates = dfx.geometry.compute_collisions(bbtree, points)
+		# Choose one of the cells that contains the point
+		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, points)
+		for i, point in enumerate(points):
+			if len(colliding_cells.links(i))>0:
+				points_on_proc.append(point)
+				cells.append(colliding_cells.links(i)[0])
+		
+		if len(points_on_proc)!=0:
+			rs_on_proc = np.array(points_on_proc, dtype=np.float64)[:,1]
+			us = u.eval(points_on_proc, cells)
+			drs = dr.eval(points_on_proc, cells)
+			dts = dt.eval(points_on_proc, cells)
+		else: rs_on_proc, us, drs, dts = None, None, None, None
+		rs  = comm.gather(rs_on_proc, root=0)
+		us  = comm.gather(us, 	   	 root=0)
+		drs = comm.gather(drs, 	   	 root=0)
+		dts = comm.gather(dts, 	   	 root=0)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/streaks/"
+		dirCreator(dir)
+		if p0:
+			rs,  us  = np.hstack([r for r in rs if r is not None]), np.hstack([u.flatten() for u in us if u is not None])
+			drs, dts = np.hstack([dr for dr in drs if dr is not None]), np.hstack([dt for dt in dts if dt is not None])
+			ids=np.argsort(rs)
+			rs,us,drs,dts=rs[ids],us[ids],drs[ids],dts[ids]
+			thetas = np.linspace(0,2*np.pi,n//10)
+			us=np.real(np.outer(us,np.exp(m*1j*thetas)))
+			drs=np.real(np.outer(drs,np.exp(m*1j*thetas)))
+			dts=np.real(np.outer(dts,np.exp(m*1j*thetas)))
+
+			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
+			c=ax.contourf(thetas,rs,us)
+			ax.quiver(rs,thetas,drs,dts)
+
+			plt.colorbar(c)
+			plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
+			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
+			plt.close()
+
+	def visualise3dModes(self,str,Re,nut,S,m,St,coord=0):
+		data = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
+
+		# Go 3D !
+		X,R = self.mesh.geometry.x[:,:2].T
+		D = data.x.array[coord::3]
+
+		n = 100
+		thetas = np.linspace(0,2*np.pi,n,endpoint=False)
+		X = np.tile(X,n)
+		Y = np.outer(R,np.sin(thetas)).flatten()
+		Z = np.outer(R,np.cos(thetas)).flatten()
+		D = np.real(np.outer(D,np.exp(m*1j*thetas))).flatten()
+		
+		# One node to gather them all and in darkness bind them
+		X = comm.gather(X, root=0)
+		Y = comm.gather(Y, root=0)
+		Z = comm.gather(Z, root=0)
+		D = comm.gather(D, root=0)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/3d/"
+		dirCreator(dir)
+		if p0:
+			X, Y, Z, D = np.hstack(X), np.hstack(Y), np.hstack(Z), np.hstack(D)
+			
+			chc=np.random.randint(X.size,size=100000)
+			fig = go.Figure(data=[go.Scatter3d(x=X[chc], y=Y[chc], z=Z[chc])])
+			fig.write_html("test.html")
+
+			fig = go.Figure(data=go.Isosurface(x=X[chc],y=Y[chc],z=Z[chc],value=D[chc],
+											   isomin=.75*np.min(D),isomax=.75*np.max(D),
+											   caps=dict(x_show=False, y_show=False)))
+			fig.write_html(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.html")

@@ -17,7 +17,7 @@ from spy import SPY,loadStuff
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,Re=0,1000
+S,Re=.5,1000
 h=2.5e-4
 
 # Numerical Parameters
@@ -41,7 +41,7 @@ def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])
 
 def Ref(spy:SPY,Re): spy.Re=Re
 
-def forcingIndicator(x): return x[1]<3
+def forcingIndicator(x): return (x[1]<2+x[0]*(2-1.5)/7)*(x[0]>=7)+(x[1]<2)*(x[0]<7)
 
 def nutf(spy:SPY,Re:int,S:float):
 	spy.nut=Function(spy.TH1)

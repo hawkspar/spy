@@ -15,9 +15,9 @@ p0=comm.rank==0
 
 def checkComm(f:str):
 	try:
-		match = re.search(r'_n=(\d*)',f)
+		match = re.search(r'n=(\d*)',f)
 		if int(match.group(1))!=comm.size: return False
-		match = re.search(r'_p=([0-9]*)',f)
+		match = re.search(r'p=([0-9]*)',f)
 		if int(match.group(1))!=comm.rank: return False
 	except AttributeError: pass
 	return True
@@ -47,7 +47,7 @@ def findStuff(path:str,keys:list,params:list,format):
 		if checkComm(file_name):
 			fd=0 # Compute distance according to all params
 			for param,key in zip(params,keys):
-				match = re.search(r'_'+key+r'=(\d*(\.|,|e|-)?\d*)',file_name)
+				match = re.search(key+r'=(\d*(\.|,|e|-)?\d*)',file_name)
 				param_file = float(match.group(1).replace(',','.')) # Take advantage of file format
 				fd += abs(param-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
@@ -106,8 +106,8 @@ class SPY:
 		self.TH1 = FunctionSpace(self.mesh,FE_scalar)
 		self.TH  = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar)) # Taylor Hodd elements ; stable element pair
 		W = FunctionSpace(self.mesh,FE_constant)
-		self.TH0c, self.TH0_to_TH = self.TH.sub(0).collapse()
-		self.TH1c, self.TH1_to_TH = self.TH.sub(1).collapse()
+		self.TH0c, self.TH_to_TH0 = self.TH.sub(0).collapse()
+		self.TH1c, self.TH_to_TH1 = self.TH.sub(1).collapse()
 		
 		# Test & trial functions
 		self.trial = ufl.TrialFunction(self.TH)
@@ -198,17 +198,17 @@ class SPY:
 		loadStuff(self.u_path,['S','nut','Re'],[S,nut,Re],self.U)
 		if p: loadStuff(self.p_path,['S','nut','Re'],[S,nut,Re],self.P)
 		# Write inside MixedElement
-		self.Q.x.array[self.TH0_to_TH]=self.U.x.array
+		self.Q.x.array[self.TH_to_TH0]=self.U.x.array
 		self.Q.x.scatter_forward()
 		if p:
-			self.Q.x.array[self.TH1_to_TH]=self.P.x.array
+			self.Q.x.array[self.TH_to_TH1]=self.P.x.array
 			self.Q.x.scatter_forward()
 
 	def saveBaseflow(self,str):
 		self.Q.x.scatter_forward()
 		# Write inside MixedElement
-		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
-		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
+		self.U.x.array[:]=self.Q.x.array[self.TH_to_TH0]
+		self.P.x.array[:]=self.Q.x.array[self.TH_to_TH1]
 		dirCreator(self.u_path)
 		dirCreator(self.p_path)
 		saveStuff(self.u_path,str,self.U)
@@ -230,7 +230,7 @@ class SPY:
 
 	def stabilise(self,m):
 		# Important ! Otherwise n is nonsense
-		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
+		self.U.x.array[:]=self.Q.x.array[self.TH_to_TH0]
 		# Split arguments
 		U,_ = ufl.split(self.Q)
 		v,_ = ufl.split(self.test)
@@ -327,12 +327,12 @@ class SPY:
 	
 	# Quick check functions
 	def sanityCheckU(self,app=""):
-		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
+		self.U.x.array[:]=self.Q.x.array[self.TH_to_TH0]
 		self.printStuff("./","sanity_check_u"+app,self.U)
 
 	def sanityCheck(self,app=""):
-		self.U.x.array[:]=self.Q.x.array[self.TH0_to_TH]
-		self.P.x.array[:]=self.Q.x.array[self.TH1_to_TH]
+		self.U.x.array[:]=self.Q.x.array[self.TH_to_TH0]
+		self.P.x.array[:]=self.Q.x.array[self.TH_to_TH1]
 
 		expr=dfx.fem.Expression(self.div_nor(self.U,0),self.TH1.element.interpolation_points())
 		div = Function(self.TH1)
