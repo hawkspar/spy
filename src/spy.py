@@ -14,12 +14,10 @@ from dolfinx.fem import FunctionSpace, Function
 p0=comm.rank==0
 
 def checkComm(f:str):
-	try:
-		match = re.search(r'n=(\d*)',f)
-		if int(match.group(1))!=comm.size: return False
-		match = re.search(r'p=([0-9]*)',f)
-		if int(match.group(1))!=comm.rank: return False
-	except AttributeError: pass
+	match = re.search(r'n=(\d*)',f)
+	if int(match.group(1))!=comm.size: return False
+	match = re.search(r'p=([0-9]*)',f)
+	if int(match.group(1))!=comm.rank: return False
 	return True
 
 def dirCreator(path:str):
@@ -149,7 +147,7 @@ class SPY:
 		r=self.r
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		if len(v.ufl_shape)==1:
-			return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
+			return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*dfx.fem.Constant(self.mesh, 1j)*v[dt]/r
 		else:
 			return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+(v[dr,dx]+m*1j*v[dt,dx])/r,
 								  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+(v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt])/r,

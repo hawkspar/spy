@@ -205,6 +205,11 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/",save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
 
+				"""expr=dfx.fem.Expression(self.div_nor(velocity_i,m),self.TH1.element.interpolation_points(),dtype=pet.ScalarType)
+				div = Function(self.TH1)
+				div.interpolate(expr)
+				self.printStuff("./","sanity_check_div",div)"""
+
 	# Modal analysis
 	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
 		# Solver
@@ -284,12 +289,12 @@ class SPYP(SPY):
 
 			plt.colorbar(c)
 			plt.title("Rotational of "+str+" at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
+			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
 			plt.close()
 
 	def visualiseStreaks(self,str,Re,nut,S,m,St,x):
 		data = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
+		loadStuff(self.resolvent_path+str+"/npy/",    ["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
 		u = Function(self.TH0c)
 		loadStuff(self.resolvent_path+"response/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],u)
 		
@@ -304,8 +309,10 @@ class SPYP(SPY):
 		u = Function(self.TH1)
 		u.interpolate(expr)
 
-		n = 1000
-		rs = np.linspace(0,1,n)
+		n = 500
+		sr,st = 50, 1
+		a = 5e5
+		rs = np.linspace(0,1.6,n)
 		points = np.array([[x,r,0] for r in rs])
 		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
 		cells, points_on_proc = [], []
@@ -321,44 +328,62 @@ class SPYP(SPY):
 		
 		if len(points_on_proc)!=0:
 			rs_on_proc = np.array(points_on_proc, dtype=np.float64)[:,1]
-			us = u.eval(points_on_proc, cells)
+			us  =  u.eval(points_on_proc, cells)
 			drs = dr.eval(points_on_proc, cells)
 			dts = dt.eval(points_on_proc, cells)
 		else: rs_on_proc, us, drs, dts = None, None, None, None
 		rs  = comm.gather(rs_on_proc, root=0)
-		us  = comm.gather(us, 	   	 root=0)
-		drs = comm.gather(drs, 	   	 root=0)
-		dts = comm.gather(dts, 	   	 root=0)
+		us  = comm.gather(us, 	   	  root=0)
+		drs = comm.gather(drs, 	   	  root=0)
+		dts = comm.gather(dts, 	   	  root=0)
 
 		# Actual plotting
 		dir=self.resolvent_path+str+"/streaks/"
 		dirCreator(dir)
 		if p0:
-			rs,  us  = np.hstack([r for r in rs if r is not None]), np.hstack([u.flatten() for u in us if u is not None])
-			drs, dts = np.hstack([dr for dr in drs if dr is not None]), np.hstack([dt for dt in dts if dt is not None])
+			rs,  us  = np.hstack([r 		   for r  in rs  if r  is not None]), np.hstack([u.flatten()  for u  in us  if u  is not None])
+			drs, dts = np.hstack([dr.flatten() for dr in drs if dr is not None]), np.hstack([dt.flatten() for dt in dts if dt is not None])
 			ids=np.argsort(rs)
 			rs,us,drs,dts=rs[ids],us[ids],drs[ids],dts[ids]
 			thetas = np.linspace(0,2*np.pi,n//10)
-			us=np.real(np.outer(us,np.exp(m*1j*thetas)))
-			drs=np.real(np.outer(drs,np.exp(m*1j*thetas)))
-			dts=np.real(np.outer(dts,np.exp(m*1j*thetas)))
+			rss,thetass = rs[::sr],thetas[::st]
+			drs,dts=drs[::sr],dts [::sr]
+			us  = np.real(np.outer(us, np.exp(m*1j*thetas)))
+			drs = np.real(np.outer(drs,np.exp(m*1j*thetass)))*a
+			dts = np.real(np.outer(dts,np.exp(m*1j*thetass)))*a
 
-			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
-			c=ax.contourf(thetas,rs,us)
-			ax.quiver(rs,thetas,drs,dts)
+			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
+			fig.set_size_inches(10,10)
+			plt.rcParams.update({'font.size': 20})
+			fig.set_dpi(200)
+			c=ax.contourf(thetas,rs,us,cmap='bwr')
+			ax.quiver(thetass,rss,drs*np.cos(thetass)-dts*np.sin(thetass),drs*np.sin(thetass)+dts*np.cos(thetass))
+			ax.set_rorigin(0)
 
 			plt.colorbar(c)
-			plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
+			#plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
+			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
 			plt.close()
 
 	def visualise3dModes(self,str,Re,nut,S,m,St,coord=0):
 		data = Function(self.TH0c)
 		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
+		datas=data.split()
+		
+		# Coarser mesh
+		with dfx.io.XDMFFile(comm, "nozzle_coarser.xdmf", "r") as file:
+			mesh_coarser = file.read_mesh(name="Grid")
+		# Interpolation
+		FE = ufl.FiniteElement("CG",mesh_coarser.ufl_cell(),2)
+		V = FunctionSpace(mesh_coarser,FE)
+		fun = Function(V)
+		if p0: print("Begin interpolation...",flush=True)
+		fun.interpolate(datas[coord])
+		if p0: print("Interpolation done !",flush=True)
 
 		# Go 3D !
-		X,R = self.mesh.geometry.x[:,:2].T
-		D = data.x.array[coord::3]
+		X,R = mesh_coarser.geometry.x[:,:2].T
+		D = fun.x.array
 
 		n = 100
 		thetas = np.linspace(0,2*np.pi,n,endpoint=False)
@@ -379,11 +404,12 @@ class SPYP(SPY):
 		if p0:
 			X, Y, Z, D = np.hstack(X), np.hstack(Y), np.hstack(Z), np.hstack(D)
 			
-			chc=np.random.randint(X.size,size=100000)
+			"""chc=np.random.randint(X.size,size=100000)
 			fig = go.Figure(data=[go.Scatter3d(x=X[chc], y=Y[chc], z=Z[chc])])
-			fig.write_html("test.html")
+			fig.write_html("test.html")"""
+			print("Begin figure...",flush=True)
 
-			fig = go.Figure(data=go.Isosurface(x=X[chc],y=Y[chc],z=Z[chc],value=D[chc],
+			fig = go.Figure(data=go.Isosurface(x=X,y=Y,z=Z,value=D,
 											   isomin=.75*np.min(D),isomax=.75*np.max(D),
 											   caps=dict(x_show=False, y_show=False)))
 			fig.write_html(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.html")

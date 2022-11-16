@@ -8,12 +8,12 @@ import numpy as np
 from setup import *
 from spyp import SPYP # Must be after setup
 
-ms=range(5)
-Sts=np.hstack((np.linspace(1,.2,50,endpoint=False),np.linspace(.2,.1,20,endpoint=False),np.linspace(.1,.01,20)))
-Ss=[0,.5]
+ms=range(-3,-1)
+Sts=np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.01,10)))
+Ss=[0,1]
 Res=[1000]
 nut=400000
-stab=True
+stab=False
 
 spyp=SPYP(params,datapath,direction_map,forcingIndicator)
 for Re in Res:
