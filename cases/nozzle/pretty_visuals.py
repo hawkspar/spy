@@ -9,11 +9,11 @@ from spyp import SPYP # Must be after setup
 from spy import meshConvert
 from mpi4py.MPI import COMM_WORLD as comm
 
-if comm.rank==0:
-	meshConvert("nozzle_2D_coarser","nozzle_coarser","quad")
+"""if comm.rank==0:
+	meshConvert("nozzle_2D_coarser","nozzle_coarser","quad",False)
 comm.barrier()
 
-"""ms=range(6)
+ms=range(6)
 Sts=np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.01,10)))
 Ss=[0,1]"""
 ms=[3]

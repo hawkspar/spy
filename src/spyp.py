@@ -7,6 +7,7 @@ Created on Fri Dec 10 12:00:00 2021
 import numpy as np #source /usr/local/bin/dolfinx-complex-mode
 import os, ufl, glob
 import dolfinx as dfx
+from mayavi import mlab
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 import plotly.graph_objects as go
@@ -372,26 +373,26 @@ class SPYP(SPY):
 		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
 		datas=data.split()
 		
-		# Coarser mesh
+		# Coarser mesh (also loaded in parallel !)
 		with dfx.io.XDMFFile(comm, "nozzle_coarser.xdmf", "r") as file:
 			mesh_coarser = file.read_mesh(name="Grid")
-		# Interpolation
-		FE = ufl.FiniteElement("CG",mesh_coarser.ufl_cell(),2)
+
+		# Interpolate on nodes, isolate wanted coordinate
+		FE = ufl.FiniteElement("CG",mesh_coarser.ufl_cell(),1)
 		V = FunctionSpace(mesh_coarser,FE)
 		fun = Function(V)
 		fun.interpolate(datas[coord])
-
-		# Go 3D !
 		X,R = mesh_coarser.geometry.x[:,:2].T
 		D = fun.x.array
 
+		# Go 3D !
 		n = 50
 		thetas = np.linspace(0,2*np.pi,n,endpoint=False)
 		X = np.tile(X,n)
 		Y = np.outer(R,np.sin(thetas)).flatten()
 		Z = np.outer(R,np.cos(thetas)).flatten()
 		D = np.real(np.outer(D,np.exp(m*1j*thetas))).flatten()
-		
+
 		# One node to gather them all and in darkness bind them
 		X = comm.gather(X, root=0)
 		Y = comm.gather(Y, root=0)
@@ -403,23 +404,25 @@ class SPYP(SPY):
 		dirCreator(dir)
 		if p0:
 			X, Y, Z, D = np.hstack(X), np.hstack(Y), np.hstack(Z), np.hstack(D)
+			"""id=np.argsort(X)
+			X,Y,Z,D=X[id],Y[id],Z[id],D[id]"""
+
+			mlab.contour3d(X, Y, Z, D)
+			mlab.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
 			
-			chc=np.random.randint(X.size,size=10000)
-			fig = go.Figure(data=[go.Scatter3d(x=X[chc], y=Y[chc], z=Z[chc],
-											   mode='markers', marker=dict(size=4,opacity=.4,
-											   color=D[chc],                # set color to an array/list of desired values
-											   colorscale='Viridis'))])
+			"""fig = go.Figure(data=go.Scatter3d(x=X,y=Y,z=Z,
+							mode='markers',
+							marker=dict(
+								size=6,
+								color=D,                # set color to an array/list of desired values
+								colorscale='balance',   # choose a colorscale
+								opacity=.1
+							)))
 			fig.write_html("test.html")
 			
-			fig = go.Figure(data=go.Isosurface(x=X[chc],y=Y[chc],z=Z[chc],value=Y[chc]**2+Z[chc]**2,
-											   isomin=1,isomax=2,
-											   opacity=0.6,
-											   caps=dict(x_show=False, y_show=False)))
-			fig.write_html("test_cylinder.html")
-			
-			fig = go.Figure(data=go.Isosurface(x=X,y=Y,z=Z,value=D,
+			fig = go.Figure(data=go.Isosurface(x=X.flatten(),y=Y.flatten(),z=Z.flatten(),value=D.flatten(),
 											   isomin=.75*np.min(D),isomax=.75*np.max(D),
 											   opacity=0.6,
 											   surface_count=5, colorbar_nticks=5,
 											   caps=dict(x_show=False, y_show=False)))
-			fig.write_html(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.html")
+			fig.write_html(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.html")"""

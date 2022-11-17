@@ -26,11 +26,11 @@ def dirCreator(path:str):
 	comm.barrier() # Wait for all other processors
 
 # Simple handler
-def meshConvert(path:str,out:str,cell_type:str) -> None:
+def meshConvert(path:str,out:str,cell_type:str,prune=True) -> None:
 	import meshio #pip3 install --no-binary=h5py h5py meshio
 	gmsh_mesh = meshio.read(path+".msh")
 	# Write it out again
-	ps = gmsh_mesh.points[:,:2]
+	ps = gmsh_mesh.points[:,:(3-prune)]
 	cs = gmsh_mesh.get_cells_type(cell_type)
 	dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
 	meshio.write(out+".xdmf", dolfinx_mesh)
