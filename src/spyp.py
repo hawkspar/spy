@@ -22,8 +22,8 @@ def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
 	form = dfx.fem.form(form, jit_params={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
 					  					  "cffi_libraries": ["m"]})
-	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag)
-	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1)
+	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag) 
+	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1) # Probably useless after assemble
 	A.setOption(A.Option.SYMMETRIC,sym)
 	A.assemble()
 	return A
@@ -138,13 +138,15 @@ class SPYP(SPY):
 	def resolvent(self,k:int,St_list,Re:int,nut:int,S:float,m:int,hotStart:bool=False) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
+
+		# Useful solvers (here to put options for computing a smart R)
+		L=self.J-1j*np.pi*St_list[0]*self.N
+		self.KSP = pet.KSP().create(comm)
+		self.KSP.setOperators(L)
+		configureKSP(self.KSP,self.params)
+		
 		for St in St_list:
 			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
-
-			# Useful solvers (here to put options for computing a smart R)
-			self.KSP = pet.KSP().create(comm)
-			self.KSP.setOperators(L)
-			configureKSP(self.KSP,self.params)
 
 			if hotStart:
 				forcing_0=Function(self.TH0c)
@@ -377,15 +379,13 @@ class SPYP(SPY):
 		FE = ufl.FiniteElement("CG",mesh_coarser.ufl_cell(),2)
 		V = FunctionSpace(mesh_coarser,FE)
 		fun = Function(V)
-		if p0: print("Begin interpolation...",flush=True)
 		fun.interpolate(datas[coord])
-		if p0: print("Interpolation done !",flush=True)
 
 		# Go 3D !
 		X,R = mesh_coarser.geometry.x[:,:2].T
 		D = fun.x.array
 
-		n = 100
+		n = 50
 		thetas = np.linspace(0,2*np.pi,n,endpoint=False)
 		X = np.tile(X,n)
 		Y = np.outer(R,np.sin(thetas)).flatten()
@@ -404,12 +404,22 @@ class SPYP(SPY):
 		if p0:
 			X, Y, Z, D = np.hstack(X), np.hstack(Y), np.hstack(Z), np.hstack(D)
 			
-			"""chc=np.random.randint(X.size,size=100000)
-			fig = go.Figure(data=[go.Scatter3d(x=X[chc], y=Y[chc], z=Z[chc])])
-			fig.write_html("test.html")"""
-			print("Begin figure...",flush=True)
-
+			chc=np.random.randint(X.size,size=10000)
+			fig = go.Figure(data=[go.Scatter3d(x=X[chc], y=Y[chc], z=Z[chc],
+											   mode='markers', marker=dict(size=4,opacity=.4,
+											   color=D[chc],                # set color to an array/list of desired values
+											   colorscale='Viridis'))])
+			fig.write_html("test.html")
+			
+			fig = go.Figure(data=go.Isosurface(x=X[chc],y=Y[chc],z=Z[chc],value=Y[chc]**2+Z[chc]**2,
+											   isomin=1,isomax=2,
+											   opacity=0.6,
+											   caps=dict(x_show=False, y_show=False)))
+			fig.write_html("test_cylinder.html")
+			
 			fig = go.Figure(data=go.Isosurface(x=X,y=Y,z=Z,value=D,
 											   isomin=.75*np.min(D),isomax=.75*np.max(D),
+											   opacity=0.6,
+											   surface_count=5, colorbar_nticks=5,
 											   caps=dict(x_show=False, y_show=False)))
 			fig.write_html(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.html")

@@ -37,12 +37,12 @@ def meshConvert(path:str,out:str,cell_type:str) -> None:
 	print("Mesh "+path+".msh converted to "+out+".xdmf !",flush=True)
 
 # Memoisation routine - find closest in param
-def findStuff(path:str,keys:list,params:list,format):
+def findStuff(path:str,keys:list,params:list,format,distributed=True):
 	closest_file_name=path
 	file_names = [f for f in os.listdir(path) if format(f)]
 	d=np.infty
 	for file_name in file_names:
-		if checkComm(file_name):
+		if not distributed or checkComm(file_name): # Lazy evaluation !
 			fd=0 # Compute distance according to all params
 			for param,key in zip(params,keys):
 				match = re.search(key+r'=(\d*(\.|,|e|-)?\d*)',file_name)
@@ -69,6 +69,7 @@ def saveStuff(dir:str,name:str,fun:Function) -> None:
 # Swirling Parallel Yaj
 class SPY:
 	def __init__(self, params:dict, datapath:str, direction_map:dict, forcingIndicator=None) -> None:
+
 		# Direction dependant
 		self.direction_map=direction_map
 		# Solver parameters (Newton mostly, but also eig)

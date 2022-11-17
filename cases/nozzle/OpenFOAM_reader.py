@@ -12,7 +12,7 @@ from spy import dirCreator, meshConvert, findStuff, saveStuff
 
 p0=comm.rank==0
 sanity_check=False
-convert=False
+convert=True
 cell_type="triangle"
 
 # Dimensionalised stuff
@@ -23,7 +23,7 @@ sin,cos=np.sin(O),np.cos(O)
 # Read OpenFOAM, write mesh
 if p0:
     # Searching closest file with respect to setup parameters
-    closest_file_name=findStuff("./baseflow/OpenFOAM/",['S','Re'],[S,Re], lambda f: f[-3:]=="xmf")
+    closest_file_name=findStuff("./baseflow/OpenFOAM/",['S','Re'],[S,Re], lambda f: f[-3:]=="xmf",False)
     # Read OpenFOAM data
     openfoam_data = meshio.read(closest_file_name)
     print("Loaded "+closest_file_name+" successfully !", flush=True)
