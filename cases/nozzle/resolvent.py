@@ -8,9 +8,12 @@ import numpy as np
 from setup import *
 from spyp import SPYP # Must be after setup
 
-ms=range(-3,-1)
+ms=range(-5,-3)
 Sts=np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.01,10)))
 Ss=[0,1]
+"""ms=[3]
+Sts=[.01]
+Ss=[1]"""
 Res=[1000]
 nut=400000
 stab=False

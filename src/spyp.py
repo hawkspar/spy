@@ -7,13 +7,12 @@ Created on Fri Dec 10 12:00:00 2021
 import numpy as np #source /usr/local/bin/dolfinx-complex-mode
 import os, ufl, glob
 import dolfinx as dfx
-from mayavi import mlab
+from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 import plotly.graph_objects as go
 from matplotlib import pyplot as plt
 from mpi4py.MPI import COMM_WORLD as comm
-from dolfinx.fem import Function, FunctionSpace
 from spy import SPY, dirCreator, loadStuff, saveStuff
 
 p0=comm.rank==0
@@ -56,8 +55,8 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, direction_map:dict, forcingIndicator=None) -> None:
-		super().__init__(params, datapath, direction_map, forcingIndicator)
+	def __init__(self, params:dict, datapath:str, direction_map:dict, forcing_indicator=None) -> None:
+		super().__init__(params, datapath, direction_map, forcing_indicator)
 
 	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self,m:int,stab=False,weak_bcs=lambda spy,u,p,m=0: 0) -> None:
@@ -75,6 +74,45 @@ class SPYP(SPY):
 		self.N = assembleForm(N_form,self.bcs,not stab)
 
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
+
+	# Modal analysis
+	def eigenvalues(self,sigma:complex,k:int,Re:int,nut:int,S:float,m:int,hot_start:bool=False) -> None:
+		# Solver
+		EPS = slp.EPS().create(comm)
+		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
+		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is not hermitian, but M is semi-definite
+		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
+		EPS.setTarget(sigma)
+		configureEPS(EPS,k,self.params)
+		if hot_start:
+			q_0=Function(self.TH)
+			loadStuff(self.eig_path+"q/",["Re","nut","S","m","l"],[Re,nut,S,m,sigma],q_0)
+			EPS.setInitialSpace(q_0.vector)
+		# Spectral transform
+		ST = EPS.getST(); ST.setType('sinvert')
+		# Krylov subspace
+		KSP = ST.getKSP()
+		configureKSP(KSP,self.params)
+		EPS.setFromOptions()
+		EPS.solve()
+		n=EPS.getConverged()
+		if n==0: return
+		# Conversion back into numpy 
+		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
+		dirCreator(self.eig_path)
+		save_string=f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}".replace('.',',')
+		# Write eigenvalues
+		np.savetxt(self.eig_path+save_string+"_sig={:.2f}".format(sigma).replace('.',',')+".txt",np.column_stack([vals.real, vals.imag]))
+		# Memoisation of first eigenvector
+		q=Function(self.TH)
+		EPS.getEigenvector(0,q.vector)
+		saveStuff(self.eig_path+"q/",save_string+"_l={:.2f}".format(vals[i]).replace('.',','),q)
+		# Write eigenvectors back in xdmf (but not too many of them)
+		for i in range(min(n,3)):
+			EPS.getEigenvector(i,q.vector)
+			u,p = q.split()
+			self.printStuff(self.eig_path+"u/",save_string+"_l={:.2f}".format(vals[i]).replace('.',','),u)
+		if p0: print("Eigenpairs written !",flush=True)
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,stab=False) -> None:
@@ -136,7 +174,7 @@ class SPYP(SPY):
 		self.R   = pythonMatrix([[m_local,m],[n_local,n]],  R_class,comm)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_class,comm)
 
-	def resolvent(self,k:int,St_list,Re:int,nut:int,S:float,m:int,hotStart:bool=False) -> None:
+	def resolvent(self,k:int,St_list,Re:int,nut:int,S:float,m:int,hot_start:bool=False) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
 
@@ -149,7 +187,7 @@ class SPYP(SPY):
 		for St in St_list:
 			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 
-			if hotStart:
+			if hot_start:
 				forcing_0=Function(self.TH0c)
 				loadStuff(self.resolvent_path+"forcing/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],forcing_0)
 				EPS.setInitialSpace(forcing_0.vector)
@@ -173,7 +211,7 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path)
 			dirCreator(self.resolvent_path+"gains/")
 			dirCreator(self.resolvent_path+"forcing/")
-			save_string=f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}"
+			save_string=f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}".replace('.',',')
 			if p0:
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
@@ -212,38 +250,6 @@ class SPYP(SPY):
 				div = Function(self.TH1)
 				div.interpolate(expr)
 				self.printStuff("./","sanity_check_div",div)"""
-
-	# Modal analysis
-	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
-		# Solver
-		EPS = slp.EPS().create(comm)
-		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
-		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is not hermitian, but M is semi-definite
-		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
-		EPS.setTarget(sigma)
-		configureEPS(EPS,k,self.params)
-		# Spectral transform
-		ST = EPS.getST(); ST.setType('sinvert')
-		# Krylov subspace
-		KSP = ST.getKSP()
-		configureKSP(KSP,self.params)
-		EPS.setFromOptions()
-		EPS.solve()
-		n=EPS.getConverged()
-		if n==0: return
-		# Conversion back into numpy 
-		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
-		dirCreator(self.eig_path)
-		save_string=f"Re={Re:d}_S={S:00.3f}_m={m:d}"
-		# write eigenvalues
-		np.savetxt(self.eig_path+save_string+f"_sig={sigma:00.3f}.txt",np.column_stack([vals.real, vals.imag]))
-		# Write eigenvectors back in xdmf (but not too many of them)
-		for i in range(min(n,3)):
-			q=Function(self.TH)
-			EPS.getEigenvector(i,q.vector)
-			u,p = q.split()
-			self.printStuff(self.eig_path+"u/",save_string+f"_l={vals[i]:00.3f}",u)
-		if p0: print("Eigenpairs written !",flush=True)
 
 	def visualiseCurls(self,str,Re,nut,S,m,St,x):
 		data = Function(self.TH0c)
@@ -368,61 +374,57 @@ class SPYP(SPY):
 			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
 			plt.close()
 
-	def visualise3dModes(self,str,Re,nut,S,m,St,coord=0):
-		data = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
-		datas=data.split()
+	def readMode(self,str:str,Re:int,nut:int,S:float,m:int,St:float,coord=0):
+		funs = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],funs)
+		funs=funs.split()
+		return funs[coord]
+
+	def readCurl(self,str:str,Re:int,nut:int,S:float,m:int,St:float,coord=0):
+		funs = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],funs)
+		expr=dfx.fem.Expression(self.crl(funs,m)[coord],self.TH1.element.interpolation_points())
+		crl = Function(self.TH1)
+		crl.interpolate(expr)
+		return crl
+
+	def computeIsosurface(self,m:int,O:float,L:float,H:float,res_x:int,res_yz:int,r:float,f:Function,scale:str):
+		# New regular mesh
+		X,Y,Z = np.mgrid[O:L:res_x*1j, -H:H:res_yz*1j, -H:H:res_yz*1j]
+		X,Y,Z = X.flatten(),Y.flatten(),Z.flatten()
+
+		# Evaluation of projected value
+		points = np.vstack((X,Y,Z)).T
+		projected_points = np.vstack((X,np.sqrt(Y**2+Z**2),np.zeros_like(X))).T
+		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
+		cells, points_on_proc, projected_points_on_proc = [], [], []
 		
-		# Coarser mesh (also loaded in parallel !)
-		with dfx.io.XDMFFile(comm, "nozzle_coarser.xdmf", "r") as file:
-			mesh_coarser = file.read_mesh(name="Grid")
-
-		# Interpolate on nodes, isolate wanted coordinate
-		FE = ufl.FiniteElement("CG",mesh_coarser.ufl_cell(),1)
-		V = FunctionSpace(mesh_coarser,FE)
-		fun = Function(V)
-		fun.interpolate(datas[coord])
-		X,R = mesh_coarser.geometry.x[:,:2].T
-		D = fun.x.array
-
-		# Go 3D !
-		n = 50
-		thetas = np.linspace(0,2*np.pi,n,endpoint=False)
-		X = np.tile(X,n)
-		Y = np.outer(R,np.sin(thetas)).flatten()
-		Z = np.outer(R,np.cos(thetas)).flatten()
-		D = np.real(np.outer(D,np.exp(m*1j*thetas))).flatten()
-
-		# One node to gather them all and in darkness bind them
-		X = comm.gather(X, root=0)
-		Y = comm.gather(Y, root=0)
-		Z = comm.gather(Z, root=0)
-		D = comm.gather(D, root=0)
-
-		# Actual plotting
-		dir=self.resolvent_path+str+"/3d/"
-		dirCreator(dir)
+		# Find cells whose bounding-box collide with the the points
+		cell_candidates = dfx.geometry.compute_collisions(bbtree, projected_points)
+		# Choose one of the cells that contains the point
+		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, projected_points)
+		for i, point in enumerate(points):
+			if len(colliding_cells.links(i))>0:
+				points_on_proc.append(point)
+				projected_points_on_proc.append(projected_points[i])
+				cells.append(colliding_cells.links(i)[0])
+		# Heavy lifting
+		if len(points_on_proc)!=0: V = f.eval(projected_points_on_proc, cells)
+		else: V = None
+		# Gather data and points
+		V = comm.gather(V, root=0)
+		points_on_proc = comm.gather(points_on_proc, root=0)
 		if p0:
-			X, Y, Z, D = np.hstack(X), np.hstack(Y), np.hstack(Z), np.hstack(D)
-			"""id=np.argsort(X)
-			X,Y,Z,D=X[id],Y[id],Z[id],D[id]"""
-
-			mlab.contour3d(X, Y, Z, D)
-			mlab.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.png")
-			
-			"""fig = go.Figure(data=go.Scatter3d(x=X,y=Y,z=Z,
-							mode='markers',
-							marker=dict(
-								size=6,
-								color=D,                # set color to an array/list of desired values
-								colorscale='balance',   # choose a colorscale
-								opacity=.1
-							)))
-			fig.write_html("test.html")
-			
-			fig = go.Figure(data=go.Isosurface(x=X.flatten(),y=Y.flatten(),z=Z.flatten(),value=D.flatten(),
-											   isomin=.75*np.min(D),isomax=.75*np.max(D),
-											   opacity=0.6,
-											   surface_count=5, colorbar_nticks=5,
-											   caps=dict(x_show=False, y_show=False)))
-			fig.write_html(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}.html")"""
+			V = np.hstack([v.flatten() for v in V if v is not None])
+			points = np.vstack([np.array(pts) for pts in points_on_proc if len(pts)>0])
+			# Filter ghost values
+			points, ids = np.unique(points, return_index=True, axis=0)
+			points,V=points.T,V[ids]
+			# Reorder everything to match mgrid
+			ids=np.lexsort(np.flip(points,0))
+			X,Y,Z=points
+			V=np.real(V[ids]*np.exp(1j*m*np.arctan2(Y,Z))) # Proper azimuthal decomposition
+			return go.Isosurface(x=X,y=Y,z=Z,value=V,
+								 isomin=r*np.min(V),isomax=r*np.max(V),
+								 colorscale=scale,
+								 caps=dict(x_show=False, y_show=False, z_show=False))

@@ -4,7 +4,6 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-from fileinput import filename
 import os
 import numpy as np
 from setup import *

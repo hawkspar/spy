@@ -6,24 +6,21 @@ Created on Wed Oct  13 17:07:00 2021
 """
 from setup import *
 from spyp import SPYP # Must be after setup
-from spy import meshConvert
+import plotly.graph_objects as go
 from mpi4py.MPI import COMM_WORLD as comm
 
-"""if comm.rank==0:
-	meshConvert("nozzle_2D_coarser","nozzle_coarser","quad",False)
-comm.barrier()
-
-ms=range(6)
-Sts=np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.01,10)))
-Ss=[0,1]"""
-ms=[3]
-Sts=[.01]
-Ss=[1]
 spyp=SPYP(params,datapath,direction_map)
-for str in ["forcing","response"]:
-	for m in ms:
-		for St in Sts:
-			for S in Ss:
-				#spyp.visualiseCurls(str,1000,400000,S,m,St,.5)
-				spyp.visualise3dModes(str,1000,400000,S,m,St)
-				#spyp.visualiseStreaks(str,1000,400000,S,m,St,5)
+print(spyp.mesh.geometry.x)
+# Actual plotting
+dir=spyp.resolvent_path+"/3d/"
+spyp.dirCreator(dir)
+iso_f=spyp.computeIsosurface(3,0, 1.2, 1.5,100,100,.1,spyp.readCurl("forcing", Re,400000,S,3,.01),'Earth')
+iso_r=spyp.computeIsosurface(3,.5,16.5,2,  100,100,.1,spyp.readMode("response",Re,400000,S,3,.01),'RdBu')
+Ri = Function(spyp.TH1)
+Ri.interpolate(lambda x: np.isclose(x[1],.99))
+nozzle=spyp.computeIsosurface(0,0,1,1,50,50,1,Ri,'Greys')
+if comm.rank==0:
+	fig=go.Figure(data=[iso_f, iso_r, nozzle])
+	fig.update_coloraxes(showscale=False)
+	fig.update_layout(scene_aspectmode='data')
+	fig.write_html(dir+f"Re={Re:d}_nut={400000:d}_S={S:00.3f}_m={3:d}_St={.01:00.3f}.html")

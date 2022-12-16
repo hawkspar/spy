@@ -21,20 +21,20 @@ class SPYB(SPY):
 		dirCreator(self.baseflow_path)
 	
 	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
-		self.Q.x.array[self.TH0_to_TH]=self.smoothen(5e-3,self.U,self.TH0,bcs_u,weak_bcs_u)
-		self.Q.x.array[self.TH1_to_TH]=self.smoothen(5e-2,self.P,self.TH1,[],lambda spy,p,s:0)
+		self.Q.x.array[self.FS_to_FS0]=self.smoothen(5e-3,self.U,self.FS0,bcs_u,weak_bcs_u)
+		self.Q.x.array[self.FS_to_FS1]=self.smoothen(5e-2,self.P,self.FS1,[],lambda spy,p,s:0)
 		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,nut:int,S:float,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,baseflowInit=None,stabilise=False):
+	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,baseflowInit=None,stabilise=False):
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,P=self.Q.split()
 			U.interpolate(baseflowInit)
 
 		# Compute form
-		base_form  = self.navierStokes(weak_bcs,stabilise) # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(weak_bcs,0,stabilise) # m=0
+		base_form  = self.navierStokes(weak_bcs,dist,stabilise) # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(weak_bcs,0,dist,stabilise) # m=0
 		
 		# Encapsulations
 		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)

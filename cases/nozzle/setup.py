@@ -6,18 +6,16 @@ Created on Wed Oct  13 17:07:00 2021
 """
 import ufl, sys
 import numpy as np
-import dolfinx as dfx
-from dolfinx.fem import Function
 
 sys.path.append('/home/shared/src')
 
-from spy import SPY,loadStuff
+from spy import SPY
 
 # Geometry parameters (nozzle)
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,Re=1,400000
+S,nut,Re=1,400000,1000
 h=2.5e-4
 
 # Numerical Parameters
@@ -39,9 +37,13 @@ def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.max
 def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top (tilded) boundary
 def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
 
+def dist(spy:SPY):
+	x,r=ufl.SpatialCoordinate(spy.mesh)[0],spy.r
+	return ufl.sqrt((r-1)**2 + (x>R)*(x-R)**2)
+
 def Ref(spy:SPY,Re): spy.Re=Re
 
-def forcingIndicator(x): return (x[1]<1.2+x[0]*(2-1.2)/3)*(x[0]<3)+(x[1]<2)*(x[0]>=3)
+def forcingIndicator(x): return (x[1]<nozzle_top(x[0]))*(x[0]<1)+(x[1]<1+x[0]/3)*(x[0]>=1)*(x[0]<3)+(x[1]<2)*(x[0]>=3)
 
 def nutf(spy:SPY,Re:int,S:float):
 	spy.nut=Function(spy.TH1)
