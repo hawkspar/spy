@@ -1,6 +1,6 @@
 import numpy as np
-from setup import Re, S
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
+from setup import Re, S, params
 from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
@@ -58,11 +58,13 @@ fine_xy = comm.bcast(fine_xy, root=0)
 with XDMFFile(comm, "nozzle.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
 
 # Create FiniteElement, FunctionSpace & Functions
-FE_vector=ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
-FE_scalar=ufl.FiniteElement("CG",mesh.ufl_cell(),1)
-V =FunctionSpace(mesh, FE_vector)
-W =FunctionSpace(mesh, FE_scalar)
-U, P, nut = Function(V), Function(W), Function(W)
+FE_vector =ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
+FE_scalar =ufl.FiniteElement("CG",mesh.ufl_cell(),1)
+FE_scalar2=ufl.FiniteElement("CG",mesh.ufl_cell(),2)
+V=FunctionSpace(mesh, FE_vector)
+W=FunctionSpace(mesh, FE_scalar)
+X=FunctionSpace(mesh, FE_scalar2)
+U, P, nut = Function(V), Function(W), Function(X)
 
 # Handlers (still useful when !interpolate)
 def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'cubic')
@@ -73,10 +75,10 @@ if S==0: uthv[:]=0
 
 # Map data onto dolfinx vectors
 U.sub(0).interpolate(lambda x: interp(uxv, x))
-U.sub(1).interpolate(lambda x: interp(urv, x)*(x[1]>1e-12)) # Enforce u_r=u_th=0 at r=0
-U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>1e-12))
-P.interpolate(  lambda x: interp(pv,   x))
-nut.interpolate(lambda x: interp(nutv, x))
+U.sub(1).interpolate(lambda x: interp(urv, x)*(x[1]>params['atol'])) # Enforce u_r=u_th=0 at r=0
+U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>params['atol']))
+P.interpolate(  lambda x: interp(pv,  x))
+nut.interpolate(lambda x: interp(nutv,x))
 # Fix negative eddy viscosity
 nut.x.array[nut.x.array<0] = 0
 
@@ -94,6 +96,6 @@ dirCreator(pre)
 app=f"_S={S:.3f}_Re={Re:d}_nut={Re:d}"
 
 # Save
-saveStuff(pre+"/u/",  "u"+app,  U)
-saveStuff(pre+"/p/",  "p"+app,  P)
+saveStuff(pre+"/u/",  "u"  +app,U)
+saveStuff(pre+"/p/",  "p"  +app,P)
 saveStuff(pre+"/nut/","nut"+app,nut)

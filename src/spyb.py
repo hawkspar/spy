@@ -19,6 +19,7 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, direction_map)
 		dirCreator(self.baseflow_path)
+		if not np.dtype(pet.ScalarType).kind == 'r': raise RuntimeError("This script performs better with a real version of dolfinx/petsc/slepc")
 	
 	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
 		self.Q.x.array[self.FS_to_FS0]=self.smoothen(5e-3,self.U,self.FS0,bcs_u,weak_bcs_u)
@@ -29,7 +30,7 @@ class SPYB(SPY):
 	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,baseflowInit=None,stabilise=False):
 		# Cold initialisation
 		if baseflowInit!=None:
-			U,P=self.Q.split()
+			U,_,_=self.Q.split()
 			U.interpolate(baseflowInit)
 
 		# Compute form
@@ -61,7 +62,7 @@ class SPYB(SPY):
 			if S==0: app=f"_S={S:d}_Re={Re:d}_nut={nut:d}"
 			else: 	 app=f"_S={S:00.3f}_Re={Re:d}_nut={nut:d}"
 			self.saveBaseflow(app)
-			U,P=self.Q.split()
+			U,_,_=self.Q.split()
 			self.printStuff(self.print_path,"u"+app,U)
 
 	# To be run in real mode

@@ -6,6 +6,8 @@ Created on Wed Oct  13 17:07:00 2021
 """
 import ufl, sys
 import numpy as np
+import dolfinx as dfx
+from dolfinx.fem import Function
 
 sys.path.append('/home/shared/src')
 
@@ -32,10 +34,11 @@ def nozzle_top(x):
 	return y
 
 # Geometry
-def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,		   params['atol']) # Left border
-def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.max(x[0]),params['atol']) # Right border
-def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top (tilded) boundary
-def nozzle(x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
+def inlet(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,		   params['atol']) # Left border
+def outlet(  x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.max(x[0]),params['atol']) # Right border
+def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top (tilded) boundary
+def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
+def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,params['atol']) # Axis of symmetry at r=0
 
 def dist(spy:SPY):
 	x,r=ufl.SpatialCoordinate(spy.mesh)[0],spy.r
@@ -44,10 +47,6 @@ def dist(spy:SPY):
 def Ref(spy:SPY,Re): spy.Re=Re
 
 def forcingIndicator(x): return (x[1]<nozzle_top(x[0]))*(x[0]<1)+(x[1]<1+x[0]/3)*(x[0]>=1)*(x[0]<3)+(x[1]<2)*(x[0]>=3)
-
-def nutf(spy:SPY,Re:int,S:float):
-	spy.nut=Function(spy.TH1)
-	loadStuff(spy.nut_path,['S','Re'],[S,Re],spy.nut)
 
 def baseflowInit(x):
 	u=0*x
@@ -58,7 +57,7 @@ def baseflowInit(x):
 def boundaryConditionsU(spy:SPY,S) -> None:
 	bcs=[]
 	# Compute DoFs
-	sub_space_x=spy.TH0.sub(0)
+	sub_space_x=spy.FS0.sub(0)
 	sub_space_x_collapsed,_=sub_space_x.collapse()
 
 	u_inlet_x=Function(sub_space_x_collapsed)
@@ -70,7 +69,7 @@ def boundaryConditionsU(spy:SPY,S) -> None:
 	bcs.append(dfx.fem.dirichletbc(u_inlet_x, dofs_inlet_x, sub_space_x)) # Same as OpenFOAM
 
 	# Same for tangential
-	sub_space_th=spy.TH0.sub(2)
+	sub_space_th=spy.FS0.sub(2)
 	sub_space_th_collapsed,_=sub_space_th.collapse()
 
 	# Modified vortex that goes to zero at top boundary
@@ -83,7 +82,7 @@ def boundaryConditionsU(spy:SPY,S) -> None:
 	# Handle homogeneous boundary conditions
 	for boundary, directions in [(inlet,['r']),(nozzle,['x','r','th']),(spy.symmetry,['r','th'])]:
 		for direction in directions:
-			sub_space=spy.TH0.sub(direction_map[direction])
+			sub_space=spy.FS0.sub(direction_map[direction])
 			sub_space_collapsed,_=sub_space.collapse()
 			# Compute unflattened DoFs (don't care for flattened ones)
 			dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
@@ -95,7 +94,7 @@ def boundaryConditionsU(spy:SPY,S) -> None:
 
 def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	# Compute DoFs
-	sub_space_x=spy.TH.sub(0).sub(0)
+	sub_space_x=spy.FS.sub(0).sub(0)
 	sub_space_x_collapsed,_=sub_space_x.collapse()
 
 	u_inlet_x=Function(sub_space_x_collapsed)
@@ -110,7 +109,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	spy.applyBCs(dofs_inlet_x[0],bcs_inlet_x) # x=X entirely handled by implicit Neumann
 
 	# Same for tangential
-	sub_space_th=spy.TH.sub(0).sub(2)
+	sub_space_th=spy.FS.sub(0).sub(2)
 	sub_space_th_collapsed,_=sub_space_th.collapse()
 
 	# Modified vortex that goes to zero at top boundary
@@ -121,7 +120,8 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	spy.applyBCs(dofs_inlet_th[0],bcs_inlet_th)
 
 	# Handle homogeneous boundary conditions
-	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(spy.symmetry,['r','th'])])
+	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
+	spy.applyHomogeneousBCs([(nozzle,['x','r','th'])],2) # Enforce nu=0 at the wall
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)
@@ -133,13 +133,13 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	# Handle homogeneous boundary conditions
 	homogeneous_boundaries=[(inlet,['x','r','th']),(nozzle,['x','r','th'])]
-	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
-	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
-	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
+	if 	     m ==0: homogeneous_boundaries.append((symmetry,['r','th']))
+	elif abs(m)==1: homogeneous_boundaries.append((symmetry,['x']))
+	else:		    homogeneous_boundaries.append((symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
 
-def weakBoundaryConditions(spy:SPY,u,p,m:int=0) -> ufl.Form:
-	boundaries = [(1, lambda x: top(x)+outlet(x)), (2, spy.symmetry)]
+def weakBoundaryConditions(spy:SPY,u,_,m:int=0) -> ufl.Form:
+	boundaries = [(2, nozzle)]
 
 	facet_indices, facet_markers = [], []
 	fdim = spy.mesh.topology.dim - 1
@@ -157,7 +157,7 @@ def weakBoundaryConditions(spy:SPY,u,p,m:int=0) -> ufl.Form:
 	n = ufl.FacetNormal(spy.mesh)
 	n = ufl.as_vector([n[0],n[1],0])
 
-	v,s=ufl.split(spy.test)
+	v,_,_=ufl.split(spy.test)
 
 	grd,r=lambda v: spy.grd(v,m),spy.r
 	nu=1/spy.Re+spy.nut

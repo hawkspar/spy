@@ -7,10 +7,10 @@ Created on Wed Oct  13 17:07:00 2021
 import numpy as np
 from setup import *
 from spyp import SPYP # Must be after setup
+from spy import findStuff
 from os.path import isdir
 from mpi4py.MPI import COMM_WORLD
 from matplotlib import pyplot as plt
-from spy import findStuff, dirCreator
 
 p0=COMM_WORLD.rank==0
 load=False
@@ -19,13 +19,12 @@ save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}"
 
 # Eigenvalues
 spyp=SPYP(params, datapath, direction_map)
-Ref(spyp,Re); nutf(spyp,nut,S)
+Ref(spyp,Re)
 spyp.loadBaseflow(Re,nut,S) # Don't load pressure
 boundaryConditionsPerturbations(spyp,m)
 spyp.stabilise(m)
 # For efficiency, matrix is assembled only once
 spyp.assembleJNMatrices(m)
-dirCreator(spyp.eig_path)
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 if load and p0:
@@ -38,13 +37,14 @@ else:
             # Memoisation protocol
             sigma=re+1j*im
             spyp.eigenvalues(sigma,5,Re,nut,S,m,isdir(spyp.eig_path)) # Actual computation shift value, nb of eigenmode
-            closest_file_name=findStuff(spyp.eig_path,["sig"],[sigma],lambda f: f[-4:]==".txt",False)
-            try:
-                if p0:
-                    sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
-                    vals_real=np.hstack((vals_real,sig_vals_real))
-                    vals_imag=np.hstack((vals_imag,sig_vals_imag))
-            except OSError: pass # File not found = no eigenvalues
+            if isdir(spyp.eig_path):
+                closest_file_name=findStuff(spyp.eig_path,["sig"],[sigma],lambda f: f[-4:]==".txt",False)
+                try:
+                    if p0:
+                        sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
+                        vals_real=np.hstack((vals_real,sig_vals_real))
+                        vals_imag=np.hstack((vals_imag,sig_vals_imag))
+                except OSError: pass # File not found = no eigenvalues
 if p0:
     # Sum them all, regroup them
     np.savetxt(spyp.eig_path+"evals"+save_string+".dat",np.column_stack([vals_real, vals_imag]))
