@@ -33,7 +33,7 @@ def fv2p(c,dc): return (c**2*fv1p(c,dc) - dc)/(1. + c*fv1(c))**2
 
 def Ome(u,r,dx:int,dr:int,dt:int,atol:float,mesh):
 	c=crl(r,dx,dr,dt,mesh,u,0)
-	return ufl.sqrt(.5*ufl.dot(c,c))+ufl.Constant(mesh,pet.ScalarType(atol))
+	return ufl.sqrt(.5*ufl.dot(c,c)+dfx.fem.Constant(mesh,pet.ScalarType(atol)))
 	a=ufl.sqrt((r*u[dt].dx(dr) + u[dt])**2 + r*u[dt].dx(dx)**2 + (r*(u[dr].dx(dx) - u[dx].dx(dr)))**2)
 	return ufl.conditional(ufl.ge(a,atol),a,atol) # max(a,atol)
 def Omep(u,du,r,dx:int,dr:int,dt:int,atol:float,mesh,m:int):
@@ -44,18 +44,18 @@ def Omep(u,du,r,dx:int,dr:int,dt:int,atol:float,mesh,m:int):
 
 def S(q,r,dx:int,dr:int,dt:int,atol:float,Re,d,mesh):
 	u, _, nu = ufl.split(q)
-	return Ome(u,r,dx,dr,dt,atol,mesh) + r*nu*fv2(nu)/Re/(kap*d)**2
+	return Ome(u,r,dx,dr,dt,atol,mesh) + r*nu*fv2(nu*Re)/(kap*d)**2
 def Sp(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d,m):
 	u,  _, nu  = ufl.split(q)
 	du, _, dnu = ufl.split(dq)
-	return Omep(u,du,r,dx,dr,dt,atol,m) + r*(dnu*fv2(nu) + nu*fv2p(nu,dnu))/(Re*kap**2*d**2)
+	return Omep(u,du,r,dx,dr,dt,atol,m) + r*(dnu*fv2(nu*Re) + nu*fv2p(nu*Re,dnu*Re))/(kap*d)**2
 
-def ra(q,r,dx:int,dr:int,dt:int,atol:float,Re,d):
-	_, _, nu = ufl.split(q)
-	a=r*nu/(Re*S(q,r,dx,dr,dt,atol,Re,d)*kap**2*d**2)
-	return ufl.conditional(ufl.le(a,10),a,10) # min(a,10)
+def ra(q,r,dx:int,dr:int,dt:int,atol:float,d,mesh):
+	u, _, nu = ufl.split(q)
+	return r*nu/Ome(u,r,dx,dr,dt,atol,mesh)/(kap*d)**2
+	#return ufl.conditional(ufl.le(a,10),a,10) # min(a,10)
 def rap(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d):
-	_, _,  nu  = ufl.split(q)
+	_, _,  nu = ufl.split(q)
 	_, _, dnu = ufl.split(dq)
 	Sv=S(q,r,dx,dr,dt,atol,Re,d)
 	return ((r*nu/(Re*Sv*kap**2*d**2))<10.)*r*(dnu/(Re*Sv*kap**2*d**2)
@@ -68,7 +68,7 @@ def gp(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d): return (1. + cw2*(6.*ra(q,r
 
 def fw(q,r,dx:int,dr:int,dt:int,atol:float,Re,d):
 	gv=g(q,r,dx,dr,dt,atol,Re,d)
-	return gv*((1. + cw3**6)/(gv**6 + cw3**6))**(1./6.)
+	return gv*((1 + cw3**6)/(gv**6 + cw3**6))**(1./6.)
 def fwp(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d): return cw3**6*gp(q,dq,r,dx,dr,dt,atol,Re,d)/(1. + cw3**6)*((1. + cw3**6)/(g(q,r,dx,dr,dt,atol,Re,d)**6 + cw3**6))**(7./6.)
 
 # Vanilla operators
@@ -99,7 +99,7 @@ def div(r,dx:int,dr:int,dt:int,				 v,m:int,i:int=0):
 
 def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
 	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
-							m*1j*v[dx]		-  v[dt].dx(dx),
+   m*dfx.fem.Constant(mesh, 1j)*v[dx]		-  v[dt].dx(dx),
 								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
 
 def r2vis( r,dx:int,dr:int,dt:int,nu,v,m:int):
@@ -189,41 +189,41 @@ class SPY:
 			self.mesh = file.read_mesh(name="Grid")
 		if p0: print("Loaded "+meshpath,flush=True)
 
-		# Extraction of r
-		self.r = ufl.SpatialCoordinate(self.mesh)[direction_map['r']]
-	
-		# Finite elements & function spaces
-		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
-		self.FS0 = FunctionSpace(self.mesh,FE_vector)
-		self.FS1 = FunctionSpace(self.mesh,FE_scalar)
-		self.FS2 = FunctionSpace(self.mesh,FE_scalar)
-		# Taylor Hodd elements ; stable element pair + eddy viscosity
-		self.FS = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar,FE_scalar))
-		W = FunctionSpace(self.mesh,FE_constant)
-		self.FS0c, self.FS_to_FS0 = self.FS.sub(0).collapse()
-		self.FS1c, self.FS_to_FS1 = self.FS.sub(1).collapse()
-		self.FS2c, self.FS_to_FS2 = self.FS.sub(2).collapse()
-		
-		# Test & trial functions
-		self.trial = ufl.TrialFunction(self.FS)
-		self.test  = ufl.TestFunction( self.FS)
-		
-		# Initialisation of baseflow
-		self.Q = Function(self.FS)
-		# Collapsed subspaces
-		self.U, self.P, self.Nu = Function(self.FS0), Function(self.FS1), Function(self.FS2)
+		self.defineFunctionSpaces()
 	
 		# Forcing localisation
 		if forcingIndicator==None: self.indic=1
 		else:
+			FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
+			W = FunctionSpace(self.mesh,FE_constant)
 			self.indic = Function(W)
 			self.indic.interpolate(forcingIndicator)
 
 		# BCs essentials
 		self.dofs = np.empty(0,dtype=np.int32)
 		self.bcs  = []
+
+	def defineFunctionSpaces(self):
+		# Extraction of r
+		self.r = ufl.SpatialCoordinate(self.mesh)[self.direction_map['r']]
+		# Finite elements & function spaces
+		FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+		FE_scalar=ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		self.FS0 = FunctionSpace(self.mesh,FE_vector)
+		self.FS1 = FunctionSpace(self.mesh,FE_scalar)
+		self.FS2 = FunctionSpace(self.mesh,FE_scalar)
+		# Taylor Hodd elements ; stable element pair + eddy viscosity
+		self.FS = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar,FE_scalar))
+		self.FS0c, self.FS_to_FS0 = self.FS.sub(0).collapse()
+		self.FS1c, self.FS_to_FS1 = self.FS.sub(1).collapse()
+		self.FS2c, self.FS_to_FS2 = self.FS.sub(2).collapse()
+		# Test & trial functions
+		self.trial = ufl.TrialFunction(self.FS)
+		self.test  = ufl.TestFunction( self.FS)
+		# Initialisation of baseflow
+		self.Q = Function(self.FS)
+		# Collapsed subspaces
+		self.U, self.P, self.Nu = Function(self.FS0), Function(self.FS1), Function(self.FS2)
 
 	# Helper
 	def loadBaseflow(self,Re,nut,S,p=False):
@@ -296,15 +296,15 @@ class SPY:
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		r,atol=self.r,self.params['atol']
 		gd=lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		Sv,fwv=S(Q,r,dx,dr,dt,atol,Re,d,self.mesh,0),fw(Q,r,dx,dr,dt,atol,Re,d)
+		fwv,Sv=fw(Q,r,dx,dr,dt,atol,Re,d),S(Q,r,dx,dr,dt,atol,Re,d,self.mesh)
 		# Eddy viscosity term
 		F  = ufl.inner(Nu*fv1(Nu)/Re*(gd(U)+gd(U).T),gd(v,1))
 		# SA equations
 		F += ufl.inner(ufl.dot(gd(Nu),U),t)
-		F -= ufl.inner(cb1*(1. - ft2(Nu))*Sv*Nu,t)
-		#F += ufl.inner(r*(cw1*fwv - cb1/kap**2*ft2(Nu))*Nu**2/(Re*d)**2,t)
-		#F -= 1./(Re*sig)*ufl.inner((1. + Nu)*gd(Nu),gd(t,1))
-		#F += cb2/(Re*sig)*ufl.inner(ufl.dot(gd(Nu),gd(Nu)),t)
+		F -= cb1*ufl.inner(Sv*Nu,t)
+		F += 1./Re/sig*ufl.inner((1. + Nu)*gd(Nu),gd(t,1))
+		F -= cb2/Re/sig*ufl.inner(ufl.dot(gd(Nu),gd(Nu)),t)
+		F += cw1*ufl.inner(fwv*(Nu/d)**2,t)
 		return F*ufl.dx
 	
 	# Heart of this entire code
@@ -327,7 +327,7 @@ class SPY:
 		if stabilise:
 			F += ufl.inner(gd(P),r*SUPG)
 			F -= ufl.inner(r2vs,   SUPG)
-		return F*ufl.dx+weak_bcs(self,U,P)+self.SA(dist(self))
+		return F*ufl.dx+weak_bcs(self,U,P)+self.SA(dist)
 
 	def SAlin(self, m, d):
 		# Shortforms
@@ -377,7 +377,7 @@ class SPY:
 			F += ufl.inner(gd(p,m),r*SUPG)
 			F -= ufl.inner(r2vs,	 SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)
-		return F*ufl.dx+weak_bcs(self,u,p,m)#+self.SAlin(m,dist(self))
+		return F*ufl.dx+weak_bcs(self,u,p,m)+self.SAlin(m,dist)
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary, value=0, subspace=0) -> tuple:

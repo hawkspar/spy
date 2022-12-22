@@ -57,7 +57,6 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 class SPYP(SPY):
 	def __init__(self, params:dict, datapath:str, direction_map:dict, forcing_indicator=None) -> None:
 		super().__init__(params, datapath, direction_map, forcing_indicator)
-		if not np.dtype(pet.ScalarType).kind == 'c': raise RuntimeError("This script requires a complex version of dolfinx/petsc/slepc")
 
 	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self,m:int,stab=False,weak_bcs=lambda spy,u,p,m=0: 0) -> None:

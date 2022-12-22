@@ -6,10 +6,14 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import shutil
 import numpy as np
+from copy import deepcopy
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
+from dolfinx.fem import Function
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
+from dolfinx.mesh import locate_entities, meshtags, refine
 from mpi4py.MPI import COMM_WORLD as comm, MIN
 
 p0=comm.rank==0
@@ -19,7 +23,6 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, direction_map)
 		dirCreator(self.baseflow_path)
-		if not np.dtype(pet.ScalarType).kind == 'r': raise RuntimeError("This script performs better with a real version of dolfinx/petsc/slepc")
 	
 	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
 		self.Q.x.array[self.FS_to_FS0]=self.smoothen(5e-3,self.U,self.FS0,bcs_u,weak_bcs_u)
@@ -35,10 +38,10 @@ class SPYB(SPY):
 
 		# Compute form
 		base_form  = self.navierStokes(weak_bcs,dist,stabilise) # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(weak_bcs,0,dist,stabilise) # m=0
+		#dbase_form = self.linearisedNavierStokes(weak_bcs,0,dist,stabilise) # m=0
 		
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
+		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs)#,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning
@@ -64,6 +67,34 @@ class SPYB(SPY):
 			self.saveBaseflow(app)
 			U,_,_=self.Q.split()
 			self.printStuff(self.print_path,"u"+app,U)
+
+		if refine:
+			# Save Newton results and residual
+			Q=deepcopy(self.Q)
+			res=Function(self.FS)
+			res.vector=solver.b
+			bbtree = BoundingBoxTree(self.mesh, 2)
+			def high_error(x):
+				# Find cells whose bounding-box collide with the the points
+				cell_candidates = compute_collisions(bbtree, x)
+				# Choose one of the cells that contains the point
+				cells = compute_colliding_cells(self.mesh, cell_candidates, x)
+				res = res.eval(x, cells)
+				return res>.8*np.max(res)
+			facets = locate_entities(self.mesh, 2, high_error)
+			refine_indices.append(facets)
+			refine_markers.append(np.full(len(facets), 1))
+			# Only markers should be int8
+			refine_indices = np.array(np.hstack(refine_indices), dtype=np.int32)
+			refine_markers = np.array(np.hstack(refine_markers), dtype=np.int8)
+			# Indices sent into meshtags should be sorted
+			sort = np.argsort(refine_indices)
+			refine_tag = meshtags(self.mesh, 2, refine_indices[sort], refine_markers[sort])
+
+			self.mesh.topology.create_entities(1)
+			self.mesh = refine(self.mesh, refine_tag)
+			self.defineFunctionSpaces()
+			self.Q.interpolate(Q)
 
 	# To be run in real mode
 	# DESTRUCTIVE !

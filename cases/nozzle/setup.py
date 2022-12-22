@@ -42,7 +42,7 @@ def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,pa
 
 def dist(spy:SPY):
 	x,r=ufl.SpatialCoordinate(spy.mesh)[0],spy.r
-	return ufl.sqrt((r-1)**2 + (x>R)*(x-R)**2)
+	return ufl.sqrt((r-1)**2 + ufl.conditional(ufl.ge(x,R),(x-R)**2,0))
 
 def Ref(spy:SPY,Re): spy.Re=Re
 

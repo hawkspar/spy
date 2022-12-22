@@ -11,7 +11,7 @@ spyb=SPYB(params,datapath,direction_map)
 boundaryConditionsBaseflow(spyb,0)
 Ref(spyb,1000)
 spyb.stabilise(0)
-spyb.baseflow(1000,400000,0,dist,baseflowInit=baseflowInit)
+spyb.baseflow(1000,400000,0,dist(spyb),baseflowInit=baseflowInit)
 for Re in [5000,10000,20000]:
 	spyb.baseflow(Re,400000,0,dist)
 """# Now to the swirling flow
