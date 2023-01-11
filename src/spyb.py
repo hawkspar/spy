@@ -4,17 +4,17 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import shutil
+import shutil, ufl
 import numpy as np
-from copy import deepcopy
+from copy import copy
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
-from dolfinx.fem import Function
+from mpi4py.MPI import COMM_WORLD as comm, MIN, MAX
 from dolfinx.nls.petsc import NewtonSolver
+from dolfinx.fem import Function, Expression
 from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.mesh import locate_entities, refine
 from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
-from dolfinx.mesh import locate_entities, meshtags, refine
-from mpi4py.MPI import COMM_WORLD as comm, MIN
 
 p0=comm.rank==0
 
@@ -30,7 +30,7 @@ class SPYB(SPY):
 		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,baseflowInit=None,stabilise=False):
+	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,refinement:bool=False,baseflowInit=None,stabilise=False):
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_,_=self.Q.split()
@@ -38,10 +38,10 @@ class SPYB(SPY):
 
 		# Compute form
 		base_form  = self.navierStokes(weak_bcs,dist,stabilise) # No azimuthal decomposition for base flow
-		#dbase_form = self.linearisedNavierStokes(weak_bcs,0,dist,stabilise) # m=0
+		dbase_form = self.linearisedNavierStokes(weak_bcs,0,dist,stabilise) # m=0
 		
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs)#,J=dbase_form)
+		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning
@@ -61,40 +61,43 @@ class SPYB(SPY):
 		# Actual heavyweight
 		solver.solve(self.Q)
 
+		if refinement:
+			# Locate high error areas
+			def high_error(points):
+				expr = Expression(self.navierStokesError(),self.FS1.element.interpolation_points())
+				res = Function(self.FS)
+				res.interpolate(expr)
+
+				bbtree = BoundingBoxTree(self.mesh, 2)
+				cells, points_on_proc = [], []
+				# Find cells whose bounding-box collide with the the points
+				cell_candidates = compute_collisions(bbtree, points)
+				# Choose one of the cells that contains the point
+				colliding_cells = compute_colliding_cells(self.mesh, cell_candidates, points)
+				for i, point in enumerate(points):
+					if len(colliding_cells.links(i))>0:
+						points_on_proc.append(point)
+						cells.append(colliding_cells.links(i)[0])
+				# Actual evaluation
+				res_at_points = res.eval(points_on_proc, cells)
+				# Currently absolutely arbitrary bound of 80% max
+				max_res = comm.allreduce(np.max(res_at_points), op=MAX)
+				return res_at_points>.8*max_res
+			edges = locate_entities(self.mesh, 2, high_error)
+			self.mesh.topology.create_entities(1)
+			# Mesh refinement
+			self.mesh = refine(self.mesh, edges, redistribute=False)
+			self.defineFunctionSpaces()
+			# Interpolate Newton results on finer mesh
+			Q=copy(self.Q)
+			self.Q.interpolate(Q)
+
 		if save:  # Memoisation
 			if S==0: app=f"_S={S:d}_Re={Re:d}_nut={nut:d}"
 			else: 	 app=f"_S={S:00.3f}_Re={Re:d}_nut={nut:d}"
 			self.saveBaseflow(app)
 			U,_,_=self.Q.split()
 			self.printStuff(self.print_path,"u"+app,U)
-
-		if refine:
-			# Save Newton results and residual
-			Q=deepcopy(self.Q)
-			res=Function(self.FS)
-			res.vector=solver.b
-			bbtree = BoundingBoxTree(self.mesh, 2)
-			def high_error(x):
-				# Find cells whose bounding-box collide with the the points
-				cell_candidates = compute_collisions(bbtree, x)
-				# Choose one of the cells that contains the point
-				cells = compute_colliding_cells(self.mesh, cell_candidates, x)
-				res = res.eval(x, cells)
-				return res>.8*np.max(res)
-			facets = locate_entities(self.mesh, 2, high_error)
-			refine_indices.append(facets)
-			refine_markers.append(np.full(len(facets), 1))
-			# Only markers should be int8
-			refine_indices = np.array(np.hstack(refine_indices), dtype=np.int32)
-			refine_markers = np.array(np.hstack(refine_markers), dtype=np.int8)
-			# Indices sent into meshtags should be sorted
-			sort = np.argsort(refine_indices)
-			refine_tag = meshtags(self.mesh, 2, refine_indices[sort], refine_markers[sort])
-
-			self.mesh.topology.create_entities(1)
-			self.mesh = refine(self.mesh, refine_tag)
-			self.defineFunctionSpaces()
-			self.Q.interpolate(Q)
 
 	# To be run in real mode
 	# DESTRUCTIVE !

@@ -24,7 +24,7 @@ h=2.5e-4
 params = {"rp":.9,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "max_iter":10000}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 

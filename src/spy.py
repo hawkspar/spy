@@ -22,84 +22,68 @@ cw2,cw3 = .3,2
 cv1 = 7.1
 ct3,ct4 = 1.2,.5
 
-def ft2(nu): 	  return ct3*ufl.exp(-ct4*nu**2)
-def ft2p(nu,dnu): return -2.*ct4*ct3*nu*dnu*ufl.exp(-ct4*nu**2)
+def ft2(Nu): 	 return ct3*ufl.exp(-ct4*Nu**2)
+def ft2p(Nu,nu): return -2.*ct4*ct3*Nu*nu*ufl.exp(-ct4*Nu**2)
 
-def fv1(c): 	return c**3/(c**3 + cv1**3)
-def fv1p(c,dc): return 3.*cv1**3*c**2*dc/(c**3 + cv1**3)**2
+def fv1(C):    return C**3/(C**3 + cv1**3)
+def fv1p(C,c): return 3.*cv1**3*C**2*c/(C**3 + cv1**3)**2
 
-def fv2(c): 	return 1. - c/(1. + c*fv1(c))
-def fv2p(c,dc): return (c**2*fv1p(c,dc) - dc)/(1. + c*fv1(c))**2
+def fv2(C):    return 1. - C/(1. + C*fv1(C))
+def fv2p(C,c): return (C**2*fv1p(C,c) - c)/(1. + C*fv1(C))**2
+		
+def Ome(C,atol): 	return ufl.sqrt(.5*ufl.dot(C,C)+atol)
+def Omep(C,c,atol): return .5*ufl.dot(C,c)/Ome(C,atol)
 
-def Ome(u,r,dx:int,dr:int,dt:int,atol:float,mesh):
-	c=crl(r,dx,dr,dt,mesh,u,0)
-	return ufl.sqrt(.5*ufl.dot(c,c)+dfx.fem.Constant(mesh,pet.ScalarType(atol)))
-	a=ufl.sqrt((r*u[dt].dx(dr) + u[dt])**2 + r*u[dt].dx(dx)**2 + (r*(u[dr].dx(dx) - u[dx].dx(dr)))**2)
-	return ufl.conditional(ufl.ge(a,atol),a,atol) # max(a,atol)
-def Omep(u,du,r,dx:int,dr:int,dt:int,atol:float,mesh,m:int):
-	c =crl(r,dx,dr,dt,mesh,u,0)
-	dc=crl(r,dx,dr,dt,mesh,du,m)
-	return ufl.dot(c,dc)/Ome(u,r,dx,dr,dt,atol,mesh)
-	return ((r*du[dt].dx(dr) + du[dt])*(r*u[dt].dx(dr) + u[dt]) + r**2*du[dt].dx(dx)*u[dt].dx(dx) + r**2*(du[dr].dx(dx) - du[dx].dx(dr))*(u[dr].dx(dx) - u[dx].dx(dr)))/Ome(u,r,dx,dr,dt,atol)
+def S( Nu,	 r,C,  atol,Re,ikd2): return Ome(C,atol) 	+ r* Nu*fv2(Nu*Re)*ikd2
+def Sp(Nu,nu,r,C,c,atol,Re,ikd2): return Omep(C,c,atol) + r*(nu*fv2(Nu*Re) + Nu*fv2p(Nu*Re,nu*Re))*ikd2
 
-def S(q,r,dx:int,dr:int,dt:int,atol:float,Re,d,mesh):
-	u, _, nu = ufl.split(q)
-	return Ome(u,r,dx,dr,dt,atol,mesh) + r*nu*fv2(nu*Re)/(kap*d)**2
-def Sp(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d,m):
-	u,  _, nu  = ufl.split(q)
-	du, _, dnu = ufl.split(dq)
-	return Omep(u,du,r,dx,dr,dt,atol,m) + r*(dnu*fv2(nu*Re) + nu*fv2p(nu*Re,dnu*Re))/(kap*d)**2
+def ra(Nu,r,C,atol,Re,ikd2):
+	a = r*Nu/S(Nu,r,C,atol,Re,ikd2)*ikd2
+	return ufl.conditional(ufl.le(a,10),a,10) # min(a,10)
+def rap(Nu,nu,r,C,c,atol,Re,ikd2):
+	Sv = S(Nu,r,C,atol,Re,ikd2)
+	a = r*Nu/Sv*ikd2
+	return ufl.conditional(ufl.le(a,10),r*(nu-Nu*Sp(Nu,nu,r,C,c,atol,Re,ikd2)/Sv)/Re/Sv*ikd2,0)
 
-def ra(q,r,dx:int,dr:int,dt:int,atol:float,d,mesh):
-	u, _, nu = ufl.split(q)
-	return r*nu/Ome(u,r,dx,dr,dt,atol,mesh)/(kap*d)**2
-	#return ufl.conditional(ufl.le(a,10),a,10) # min(a,10)
-def rap(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d):
-	_, _,  nu = ufl.split(q)
-	_, _, dnu = ufl.split(dq)
-	Sv=S(q,r,dx,dr,dt,atol,Re,d)
-	return ((r*nu/(Re*Sv*kap**2*d**2))<10.)*r*(dnu/(Re*Sv*kap**2*d**2)
-			- nu*Sp(q,dq,r,dx,dr,dt,atol,Re,d)/(Re*Sv**2*kap**2*d**2))
-
-def g(q,r,dx:int,dr:int,dt:int,atol:float,Re,d):
-	rav=ra(q,r,dx,dr,dt,atol,Re,d)
+def g(Nu,r,C,atol,Re,ikd2):
+	rav=ra(Nu,r,C,atol,Re,ikd2)
 	return rav + cw2*(rav**6 - rav)
-def gp(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d): return (1. + cw2*(6.*ra(q,r,dx,dr,dt,atol,Re,d)**5 - 1.))*rap(q,dq,r,dx,dr,dt,atol,Re,d)
+def gp(Nu,nu,r,C,c,atol,Re,ikd2): return (1. + cw2*(6.*ra(Nu,r,C,atol,Re,ikd2)**5 - 1.))*rap(Nu,nu,r,C,c,atol,Re,ikd2)
 
-def fw(q,r,dx:int,dr:int,dt:int,atol:float,Re,d):
-	gv=g(q,r,dx,dr,dt,atol,Re,d)
-	return gv*((1 + cw3**6)/(gv**6 + cw3**6))**(1./6.)
-def fwp(q,dq,r,dx:int,dr:int,dt:int,atol:float,Re,d): return cw3**6*gp(q,dq,r,dx,dr,dt,atol,Re,d)/(1. + cw3**6)*((1. + cw3**6)/(g(q,r,dx,dr,dt,atol,Re,d)**6 + cw3**6))**(7./6.)
+def fw(Nu,r,C,atol,Re,ikd2):
+	gv=g(Nu,r,C,atol,Re,ikd2)
+	return gv*((1 + cw3**6)/(gv**6 + cw3**6))**(1/6)
+def fwp(Nu,nu,r,C,c,atol,Re,ikd2): return cw3**6*gp(Nu,nu,r,C,c,atol,Re,ikd2)/(1. + cw3**6)*((1. + cw3**6)/(g(Nu,r,C,atol,Re,ikd2)**6 + cw3**6))**(7./6.)
 
 # Vanilla operators
 def grd_nor(r,dx:int,dr:int,dt:int,v,m:int):
-	if len(v.ufl_shape)==0:
-		return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
+	if len(v.ufl_shape)==0: return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
 	return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*1j*v[dx]		 /r],
-							[v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
-							[v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
+						  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
+						  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
 
 def div_nor(r,dx:int,dr:int,dt:int,mesh,v,m:int):
-	if len(v.ufl_shape)==1:
-		return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*dfx.fem.Constant(mesh, 1j)*v[dt]/r
-	else:
-		return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+(v[dr,dx]+m*1j*v[dt,dx])/r,
-								v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+(v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt])/r,
-								v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+(v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr])/r])
+	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*dfx.fem.Constant(mesh, 1j)*v[dt]/r
+	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+(v[dr,dx]+m*1j*v[dt,dx])/r,
+						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+(v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt])/r,
+						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+(v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr])/r])
 
-# Gradient with r multiplication
+# Operators with r multiplication
 def grd(r,dx:int,dr:int,dt:int,				 v,m:int,i:int=0):
 	if len(v.ufl_shape)==0: return ufl.as_vector([r*v.dx(dx), i*v+r*v.dx(dr), m*1j*v])
 	return ufl.as_tensor([[r*v[dx].dx(dx), i*v[dx]+r*v[dx].dx(dr), m*1j*v[dx]],
-							[r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
-							[r*v[dt].dx(dx), i*v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
+						  [r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
+						  [r*v[dt].dx(dx), i*v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
 
 def div(r,dx:int,dr:int,dt:int,				 v,m:int,i:int=0):
-	return r*v[dx].dx(dx) + (1+i)*v[dr] + r*v[dr].dx(dr) + m*1j*v[dt]
+	if len(v.ufl_shape)==1: return r*v[dx].dx(dx) + (1+i)*v[dr] + v[dr].dx(dr) + m*1j*v[dt]
+	return ufl.as_vector([r*v[dx,dx].dx(dx)+(1+i)*v[dr,dx].dx(dr)+v[dr,dx]+m*1j*v[dt,dx],
+						  r*v[dx,dr].dx(dx)+(1+i)*v[dr,dr].dx(dr)+v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt],
+						  r*v[dx,dt].dx(dx)+(1+i)*v[dr,dt].dx(dr)+v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr]])
 
 def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
 	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
-   m*dfx.fem.Constant(mesh, 1j)*v[dx]		-  v[dt].dx(dx),
+    m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
 								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
 
 def r2vis( r,dx:int,dr:int,dt:int,nu,v,m:int):
@@ -125,15 +109,15 @@ def dirCreator(path:str):
 	comm.barrier() # Wait for all other processors
 
 # Simple handler
-def meshConvert(path:str,out:str,cell_type:str,prune=True) -> None:
+def meshConvert(path:str,cell_type:str,prune=True) -> None:
 	import meshio #pip3 install --no-binary=h5py h5py meshio
 	gmsh_mesh = meshio.read(path+".msh")
 	# Write it out again
 	ps = gmsh_mesh.points[:,:(3-prune)]
 	cs = gmsh_mesh.get_cells_type(cell_type)
 	dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
-	meshio.write(out+".xdmf", dolfinx_mesh)
-	print("Mesh "+path+".msh converted to "+out+".xdmf !",flush=True)
+	meshio.write(path+".xdmf", dolfinx_mesh)
+	print("Mesh "+path+".msh converted to "+path+".xdmf !",flush=True)
 
 # Memoisation routine - find closest in param
 def findStuff(path:str,keys:list,params:list,format=lambda f:True,distributed=True):
@@ -287,6 +271,7 @@ class SPY:
 		self.SUPG = tau*gdv*U # Streamline Upwind Petrov Galerkin
 
 	def SA(self, d):
+		dx=ufl.Measure("dx", metadata={"quadrature_degree": 4})
 		# Shortforms
 		r, Q, Re = self.r, self.Q, self.Re
 		# Functions
@@ -294,18 +279,19 @@ class SPY:
 		v, _, t  = ufl.split(self.test)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		r,atol=self.r,self.params['atol']
+		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
 		gd=lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		fwv,Sv=fw(Q,r,dx,dr,dt,atol,Re,d),S(Q,r,dx,dr,dt,atol,Re,d,self.mesh)
+		C=crl(r,dx,dr,dt,self.mesh,U,0)
+		fwv,Sv=fw(Nu,r,C,atol,Re,1/(kap*d)**2),S(Nu,r,C,atol,Re,1/(kap*d)**2)
 		# Eddy viscosity term
-		F  = ufl.inner(Nu*fv1(Nu)/Re*(gd(U)+gd(U).T),gd(v,1))
+		F  = ufl.inner(Nu*fv1(Nu)*(gd(U)+gd(U).T),gd(v,1))/Re
 		# SA equations
 		F += ufl.inner(ufl.dot(gd(Nu),U),t)
 		F -= cb1*ufl.inner(Sv*Nu,t)
-		F += 1./Re/sig*ufl.inner((1. + Nu)*gd(Nu),gd(t,1))
+		F += 1. /Re/sig*ufl.inner((1. + Nu)*gd(Nu),gd(t,1))
 		F -= cb2/Re/sig*ufl.inner(ufl.dot(gd(Nu),gd(Nu)),t)
 		F += cw1*ufl.inner(fwv*(Nu/d)**2,t)
-		return F*ufl.dx
+		return F*ufl.dx(degree=30)
 	
 	# Heart of this entire code
 	def navierStokes(self,weak_bcs,dist,stabilise=False) -> ufl.Form:
@@ -328,6 +314,23 @@ class SPY:
 			F += ufl.inner(gd(P),r*SUPG)
 			F -= ufl.inner(r2vs,   SUPG)
 		return F*ufl.dx+weak_bcs(self,U,P)+self.SA(dist)
+	
+	# Heart of this entire code
+	def navierStokesError(self) -> ufl.Form:
+		# Shortforms
+		r, Re = self.r, self.Re
+		# Functions
+		U, P, Nu = ufl.split(self.Q)
+		# More shortforms
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		dv,gd=lambda v,i=0: div(r,dx,dr,dt,v,0,i),lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
+		r2vs = r2vis2(r,dx,dr,dt,1/Re+Nu*fv1(Nu),U,0)
+		# Mass (variational formulation)
+		dv2 = ufl.inner(dv(U), dv(U))
+		# Momentum (different test functions and IBP)
+		mo  = r*gd(U)*U+r*gd(P)-r2vs
+		mo2 = ufl.inner(mo,    mo)
+		return (dv2+mo2)*ufl.dx
 
 	def SAlin(self, m, d):
 		# Shortforms
@@ -338,20 +341,24 @@ class SPY:
 		v, _, t  = ufl.split(self.test)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
 		gd=lambda v,m,i=0: grd(r,dx,dr,dt,v,m,i)
-		Sv,Spv=S(Q,r,dx,dr,dt,atol,Re,d),Sp(Q,q,r,dx,dr,dt,atol,Re,d)
-		fwv,fwpv=fw(Q,r,dx,dr,dt,atol,Re,d),fwp(Q,q,r,dx,dr,dt,atol,Re,d)
+		C,c=crl(r,dx,dr,dt,self.mesh,U,0),crl(r,dx,dr,dt,self.mesh,u,m)
+		Sv, Spv = S(Nu,r,C,atol,Re,1/(kap*d)**2), Sp(Nu,nu,r,C,c,atol,Re,1/(kap*d)**2)
+		fwv,fwpv=fw(Nu,r,C,atol,Re,1/(kap*d)**2),fwp(Nu,nu,r,C,c,atol,Re,1/(kap*d)**2)
 		# Eddy viscosity term
-		F  = ufl.inner(nu*fv1(Nu)/Re*(gd(U,0)+gd(U,0).T)
-				  +Nu*fv1p(Nu,nu)/Re*(gd(U,0)+gd(U,0).T)
-				      +Nu*fv1(Nu)/Re*(gd(u,m)+gd(u,m).T),gd(v,m,1))
+		F  = ufl.inner((nu*fv1(Nu)
+				   +Nu*fv1p(Nu,nu))*(gd(U,0)+gd(U,0).T)
+				       +Nu*fv1(Nu) *(gd(u,m)+gd(u,m).T),gd(v,m,1))/Re
 		# SA equations
 		F += ufl.inner(ufl.dot(gd(nu,m),U)+ufl.dot(gd(Nu,0),u),t)
-		F += ufl.inner(cb1*ft2p(Nu,nu)*Sv*Nu-cb1*(1-ft2(Nu))*Spv*Nu-cb1*(1-ft2(Nu))*Sv*nu,t)
-		F += r*ufl.inner((cw1*fwpv - cb1/kap**2*ft2p(Nu,nu))*Nu**2+2*(cw1*fwv - cb1/kap**2*ft2(Nu))*nu*Nu,t)/(Re*d)**2
-		F -= 1./(Re*sig)*ufl.inner(nu*gd(Nu,0)+(1. + Nu)*gd(nu,m),gd(t,m,1))
-		F += 2*cb2/(Re*sig)*ufl.inner(ufl.dot(gd(Nu,0),gd(nu,m)),t)
-		return F*ufl.dx
+		F -= cb1*ufl.inner(Spv*Nu+Sv*nu,t)
+		"""F += ufl.inner(cb1*ft2p(Nu,nu)*Sv*Nu-cb1*(1-ft2(Nu))*Spv*Nu-cb1*(1-ft2(Nu))*Sv*nu,t)
+		F += r*ufl.inner((cw1*fwpv - cb1/kap**2*ft2p(Nu,nu))*Nu**2+2*(cw1*fwv - cb1/kap**2*ft2(Nu))*nu*Nu,t)/(Re*d)**2"""
+		F -=   1. /Re/sig*ufl.inner(nu*gd(Nu,0)+(1. + Nu)*gd(nu,m),gd(t,m,1))
+		F += 2*cb2/Re/sig*ufl.inner(ufl.dot(gd(Nu,0),gd(nu,m)),t)
+		F += cw1*ufl.inner(fwpv*Nu**2+fwv*2*nu*Nu,t)/d**2
+		return F*ufl.dx(degree=30)
 		
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,weak_bcs,m:int,dist,stabilise=False) -> ufl.Form:

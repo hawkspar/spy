@@ -9,12 +9,13 @@ from spyb import SPYB
 
 spyb=SPYB(params,datapath,direction_map)
 boundaryConditionsBaseflow(spyb,0)
-Ref(spyb,1000)
+Ref(spyb,1)
 spyb.stabilise(0)
-spyb.baseflow(1000,400000,0,dist(spyb),baseflowInit=baseflowInit)
+spyb.baseflow(1,1,0,dist(spyb),baseflowInit=baseflowInit,save=True)
+"""
 for Re in [5000,10000,20000]:
 	spyb.baseflow(Re,400000,0,dist)
-"""# Now to the swirling flow
+# Now to the swirling flow
 nutf(spyb,400000,.1)
 for S in [1e-2,.1]:
 	boundaryConditionsBaseflow(spyb,S)
@@ -24,4 +25,5 @@ spyb.loadBaseflow(1000,400000,.5,True)
 nutf(spyb,400000,.5)
 for S in [1]:
 	boundaryConditionsBaseflow(spyb,S)
-	spyb.baseflow(1000,400000,S)"""
+	spyb.baseflow(1000,400000,S)
+"""
