@@ -20,8 +20,8 @@ p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
-	def __init__(self, params:dict, datapath:str, direction_map:dict) -> None:
-		super().__init__(params, datapath, direction_map)
+	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
+		super().__init__(params, datapath, mesh_name, direction_map)
 		dirCreator(self.baseflow_path)
 	
 	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
@@ -30,7 +30,7 @@ class SPYB(SPY):
 		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,refinement:bool=False,baseflowInit=None,stabilise=False):
+	def baseflow(self,Re:int,S:float,dist,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,refinement:bool=False,baseflowInit=None,stabilise=False):
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_,_=self.Q.split()
@@ -59,7 +59,7 @@ class SPYB(SPY):
 		ksp.setFromOptions()
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
-		solver.solve(self.Q)
+		n,converged=solver.solve(self.Q)
 
 		if refinement:
 			# Locate high error areas
@@ -93,11 +93,13 @@ class SPYB(SPY):
 			self.Q.interpolate(Q)
 
 		if save:  # Memoisation
-			if S==0: app=f"_S={S:d}_Re={Re:d}_nut={nut:d}"
-			else: 	 app=f"_S={S:00.3f}_Re={Re:d}_nut={nut:d}"
+			if S==0: app=f"_S={S:d}_Re={Re:d}"
+			else: 	 app=f"_S={S:00.3f}_Re={Re:d}"
 			self.saveBaseflow(app)
 			U,_,_=self.Q.split()
 			self.printStuff(self.print_path,"u"+app,U)
+		
+		return n
 
 	# To be run in real mode
 	# DESTRUCTIVE !

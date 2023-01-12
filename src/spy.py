@@ -15,45 +15,46 @@ p0=comm.rank==0
 
 # SA constants
 cb1,cb2 = .1355,.622
-sig = 2./3.
+sig = 2/3
 kap = .41
-cw1 = cb1/kap**2 + (1. + cb2)/sig
+cw1 = cb1/kap**2 + (1+cb2)/sig
 cw2,cw3 = .3,2
 cv1 = 7.1
 ct3,ct4 = 1.2,.5
 
-def ft2(Nu): 	 return ct3*ufl.exp(-ct4*Nu**2)
-def ft2p(Nu,nu): return -2.*ct4*ct3*Nu*nu*ufl.exp(-ct4*Nu**2)
+def ft2(C):    return ct3*ufl.exp(-ct4*C**2)
+def ft2p(C,c): return -2*ct4*ct3*C*c*ufl.exp(-ct4*C**2)
 
 def fv1(C):    return C**3/(C**3 + cv1**3)
-def fv1p(C,c): return 3.*cv1**3*C**2*c/(C**3 + cv1**3)**2
+def fv1p(C,c): return 3*cv1**3*C**2*c/(C**3 + cv1**3)**2
 
-def fv2(C):    return 1. - C/(1. + C*fv1(C))
-def fv2p(C,c): return (C**2*fv1p(C,c) - c)/(1. + C*fv1(C))**2
-		
-def Ome(C,atol): 	return ufl.sqrt(.5*ufl.dot(C,C)+atol)
-def Omep(C,c,atol): return .5*ufl.dot(C,c)/Ome(C,atol)
+def fv2(C):    return 1 - C/(1 + C*fv1(C))
+def fv2p(C,c): return (C**2*fv1p(C,c) - c)/(1 + C*fv1(C))**2
 
-def S( Nu,	 r,C,  atol,Re,ikd2): return Ome(C,atol) 	+ r* Nu*fv2(Nu*Re)*ikd2
-def Sp(Nu,nu,r,C,c,atol,Re,ikd2): return Omep(C,c,atol) + r*(nu*fv2(Nu*Re) + Nu*fv2p(Nu*Re,nu*Re))*ikd2
+def Ome(W,atol): 	return ufl.sqrt(.5*ufl.dot(W,W)+atol)
+def Omep(W,w,atol): return .5*ufl.dot(W,w)/Ome(W,atol)
 
-def ra(Nu,r,C,atol,Re,ikd2):
-	a = r*Nu/S(Nu,r,C,atol,Re,ikd2)*ikd2
+# Actually S*r
+def S( Nu,	 r,W,  atol,Re,ikd2): return Ome(W,atol) 	+ r* Nu*fv2(Nu*Re)*ikd2
+def Sp(Nu,nu,r,W,w,atol,Re,ikd2): return Omep(W,w,atol) + r*(nu*fv2(Nu*Re) + Nu*fv2p(Nu*Re,nu*Re))*ikd2
+
+def ra(Nu,r,W,atol,Re,ikd2):
+	a = r*Nu/S(Nu,r,W,atol,Re,ikd2)*ikd2 # r to cancel out the multiplication
 	return ufl.conditional(ufl.le(a,10),a,10) # min(a,10)
-def rap(Nu,nu,r,C,c,atol,Re,ikd2):
-	Sv = S(Nu,r,C,atol,Re,ikd2)
+def rap(Nu,nu,r,W,w,atol,Re,ikd2):
+	Sv = S(Nu,r,W,atol,Re,ikd2)
 	a = r*Nu/Sv*ikd2
-	return ufl.conditional(ufl.le(a,10),r*(nu-Nu*Sp(Nu,nu,r,C,c,atol,Re,ikd2)/Sv)/Re/Sv*ikd2,0)
+	return ufl.conditional(ufl.le(a,10),nu-Nu*Sp(Nu,nu,r,W,w,atol,Re,ikd2)/Sv,0)*r/Sv*ikd2
 
-def g(Nu,r,C,atol,Re,ikd2):
-	rav=ra(Nu,r,C,atol,Re,ikd2)
+def g(Nu,r,W,atol,Re,ikd2):
+	rav=ra(Nu,r,W,atol,Re,ikd2)
 	return rav + cw2*(rav**6 - rav)
-def gp(Nu,nu,r,C,c,atol,Re,ikd2): return (1. + cw2*(6.*ra(Nu,r,C,atol,Re,ikd2)**5 - 1.))*rap(Nu,nu,r,C,c,atol,Re,ikd2)
+def gp(Nu,nu,r,W,w,atol,Re,ikd2): return (1 + cw2*(6*ra(Nu,r,W,atol,Re,ikd2)**5 - 1))*rap(Nu,nu,r,W,w,atol,Re,ikd2)
 
-def fw(Nu,r,C,atol,Re,ikd2):
-	gv=g(Nu,r,C,atol,Re,ikd2)
+def fw(Nu,r,W,atol,Re,ikd2):
+	gv=g(Nu,r,W,atol,Re,ikd2)
 	return gv*((1 + cw3**6)/(gv**6 + cw3**6))**(1/6)
-def fwp(Nu,nu,r,C,c,atol,Re,ikd2): return cw3**6*gp(Nu,nu,r,C,c,atol,Re,ikd2)/(1. + cw3**6)*((1. + cw3**6)/(g(Nu,r,C,atol,Re,ikd2)**6 + cw3**6))**(7./6.)
+def fwp(Nu,nu,r,W,w,atol,Re,ikd2): return cw3**6*(1 + cw3**6)**(1/6)*gp(Nu,nu,r,W,w,atol,Re,ikd2)/(g(Nu,r,W,atol,Re,ikd2)**6 + cw3**6)**(7/6)
 
 # Vanilla operators
 def grd_nor(r,dx:int,dr:int,dt:int,v,m:int):
@@ -151,7 +152,7 @@ def saveStuff(dir:str,name:str,fun:Function) -> None:
 
 # Swirling Parallel Yaj
 class SPY:
-	def __init__(self, params:dict, datapath:str, direction_map:dict, forcingIndicator=None) -> None:
+	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict, forcingIndicator=None) -> None:
 		# Direction dependant
 		self.direction_map=direction_map
 		# Solver parameters (Newton mostly, but also eig)
@@ -168,7 +169,7 @@ class SPY:
 		self.eig_path	   =self.case_path+'eigenvalues/'
 
 		# Mesh from file
-		meshpath=self.case_path+datapath[:-1]+".xdmf"
+		meshpath=self.case_path+mesh_name+".xdmf"
 		with dfx.io.XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		if p0: print("Loaded "+meshpath,flush=True)
@@ -271,7 +272,6 @@ class SPY:
 		self.SUPG = tau*gdv*U # Streamline Upwind Petrov Galerkin
 
 	def SA(self, d):
-		dx=ufl.Measure("dx", metadata={"quadrature_degree": 4})
 		# Shortforms
 		r, Q, Re = self.r, self.Q, self.Re
 		# Functions
@@ -281,17 +281,17 @@ class SPY:
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
 		gd=lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		C=crl(r,dx,dr,dt,self.mesh,U,0)
-		fwv,Sv=fw(Nu,r,C,atol,Re,1/(kap*d)**2),S(Nu,r,C,atol,Re,1/(kap*d)**2)
+		W=crl(r,dx,dr,dt,self.mesh,U,0)
+		fwv,Sv=fw(Nu,r,W,atol,Re,1/(kap*d)**2),S(Nu,r,W,atol,Re,1/(kap*d)**2)
 		# Eddy viscosity term
-		F  = ufl.inner(Nu*fv1(Nu)*(gd(U)+gd(U).T),gd(v,1))/Re
+		F  = ufl.inner(Nu*fv1(Nu*Re)*(gd(U)+gd(U).T),gd(v,1))*ufl.dx
 		# SA equations
-		F += ufl.inner(ufl.dot(gd(Nu),U),t)
-		F -= cb1*ufl.inner(Sv*Nu,t)
-		F += 1. /Re/sig*ufl.inner((1. + Nu)*gd(Nu),gd(t,1))
-		F -= cb2/Re/sig*ufl.inner(ufl.dot(gd(Nu),gd(Nu)),t)
-		F += cw1*ufl.inner(fwv*(Nu/d)**2,t)
-		return F*ufl.dx(degree=30)
+		G  = r*ufl.inner(ufl.dot(gd(Nu),U),t)
+		G -= r*cb1*(1-ft2(Nu*Re))*ufl.inner(Sv*Nu,t)
+		G += r**2*ufl.inner(cw1*fwv-cb1/kap**2*ft2(Nu*Re),t)*(Nu/d)**2
+		G += 1/sig*ufl.inner((1/Re+Nu)*gd(Nu),gd(t,1))
+		G -= cb2/sig*ufl.inner(ufl.dot(gd(Nu),gd(Nu)),t)
+		return F+G*ufl.dx(degree=30)
 	
 	# Heart of this entire code
 	def navierStokes(self,weak_bcs,dist,stabilise=False) -> ufl.Form:
@@ -343,22 +343,20 @@ class SPY:
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
 		gd=lambda v,m,i=0: grd(r,dx,dr,dt,v,m,i)
-		C,c=crl(r,dx,dr,dt,self.mesh,U,0),crl(r,dx,dr,dt,self.mesh,u,m)
-		Sv, Spv = S(Nu,r,C,atol,Re,1/(kap*d)**2), Sp(Nu,nu,r,C,c,atol,Re,1/(kap*d)**2)
-		fwv,fwpv=fw(Nu,r,C,atol,Re,1/(kap*d)**2),fwp(Nu,nu,r,C,c,atol,Re,1/(kap*d)**2)
+		W,w=crl(r,dx,dr,dt,self.mesh,U,0),crl(r,dx,dr,dt,self.mesh,u,m)
+		Sv, Spv = S(Nu,r,W,atol,Re,1/(kap*d)**2), Sp(Nu,nu,r,W,w,atol,Re,1/(kap*d)**2)
+		fwv,fwpv=fw(Nu,r,W,atol,Re,1/(kap*d)**2),fwp(Nu,nu,r,W,w,atol,Re,1/(kap*d)**2)
 		# Eddy viscosity term
-		F  = ufl.inner((nu*fv1(Nu)
-				   +Nu*fv1p(Nu,nu))*(gd(U,0)+gd(U,0).T)
-				       +Nu*fv1(Nu) *(gd(u,m)+gd(u,m).T),gd(v,m,1))/Re
+		F  = ufl.inner((nu*fv1(Nu*Re)
+				   +Nu*fv1p(Nu*Re,nu*Re))*(gd(U,0)+gd(U,0).T)
+				       +Nu*fv1(Nu*Re)    *(gd(u,m)+gd(u,m).T),gd(v,m,1))*ufl.dx
 		# SA equations
-		F += ufl.inner(ufl.dot(gd(nu,m),U)+ufl.dot(gd(Nu,0),u),t)
-		F -= cb1*ufl.inner(Spv*Nu+Sv*nu,t)
-		"""F += ufl.inner(cb1*ft2p(Nu,nu)*Sv*Nu-cb1*(1-ft2(Nu))*Spv*Nu-cb1*(1-ft2(Nu))*Sv*nu,t)
-		F += r*ufl.inner((cw1*fwpv - cb1/kap**2*ft2p(Nu,nu))*Nu**2+2*(cw1*fwv - cb1/kap**2*ft2(Nu))*nu*Nu,t)/(Re*d)**2"""
-		F -=   1. /Re/sig*ufl.inner(nu*gd(Nu,0)+(1. + Nu)*gd(nu,m),gd(t,m,1))
-		F += 2*cb2/Re/sig*ufl.inner(ufl.dot(gd(Nu,0),gd(nu,m)),t)
-		F += cw1*ufl.inner(fwpv*Nu**2+fwv*2*nu*Nu,t)/d**2
-		return F*ufl.dx(degree=30)
+		G  = r*ufl.inner(ufl.dot(gd(nu,m),U)+ufl.dot(gd(Nu,0),u),t)
+		G -= r*cb1*(ft2p(Nu*Re,nu*Re)*ufl.inner(Sv*Nu,t)+(1-ft2(Nu*Re))*ufl.inner(Spv*Nu+Sv*nu,t))
+		G += (r/d)**2*(ufl.inner(cw1*fwpv-cb1/kap**2*ft2p(Nu*Re,nu*Re),t)*Nu**2+2*ufl.inner(cw1*fwv-cb1/kap**2*ft2(Nu*Re),t)*nu*Nu)
+		G += 1/sig*ufl.inner(nu*gd(Nu,0)+(1/Re+Nu)*gd(nu,m),gd(t,m,1))
+		G -= cb2/sig*ufl.inner(2*ufl.dot(gd(nu,m),gd(Nu,0)),t)
+		return F+G*ufl.dx(degree=30)
 		
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,weak_bcs,m:int,dist,stabilise=False) -> ufl.Form:
@@ -387,15 +385,17 @@ class SPY:
 		return F*ufl.dx+weak_bcs(self,u,p,m)+self.SAlin(m,dist)
 
 	# Code factorisation
-	def constantBC(self, direction:chr, boundary, value=0, subspace=0) -> tuple:
-		sub_space=self.FS.sub(subspace).sub(self.direction_map[direction])
-		sub_space_collapsed,_=sub_space.collapse()
+	def constantBC(self, direction:chr, boundary:bool, value:float=0, subspace_i:int=0) -> tuple:
+		subspace=self.FS.sub(subspace_i)
+		if subspace_i==0:
+			subspace=subspace.sub(self.direction_map[direction])
+		subspace_collapsed,_=subspace.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)
-		dofs = dfx.fem.locate_dofs_geometrical((sub_space, sub_space_collapsed), boundary)
-		cst = Function(sub_space_collapsed)
+		dofs = dfx.fem.locate_dofs_geometrical((subspace, subspace_collapsed), boundary)
+		cst = Function(subspace_collapsed)
 		cst.interpolate(lambda x: np.ones_like(x[0])*value)
 		# Actual BCs
-		bcs = dfx.fem.dirichletbc(cst, dofs, sub_space) # u_i=value at boundary
+		bcs = dfx.fem.dirichletbc(cst, dofs, subspace) # u_i=value at boundary
 		return dofs[0],bcs
 
 	# Encapsulation	
@@ -403,10 +403,10 @@ class SPY:
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.append(bcs)
 
-	def applyHomogeneousBCs(self, tup:list, subspace=0) -> None:
+	def applyHomogeneousBCs(self, tup:list, subspace_i:int=0) -> None:
 		for marker,directions in tup:
 			for direction in directions:
-				dofs,bcs=self.constantBC(direction,marker, subspace)
+				dofs,bcs=self.constantBC(direction,marker,subspace_i=subspace_i)
 				self.applyBCs(dofs,bcs)
 
 	def printStuff(self,dir:str,name:str,fun:Function) -> None:
