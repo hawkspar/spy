@@ -6,7 +6,6 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import shutil, ufl
 import numpy as np
-from copy import copy
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm, MIN, MAX
@@ -30,18 +29,39 @@ class SPYB(SPY):
 		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,S:float,dist,weak_bcs=lambda spy,u,p,m=0: 0,save:bool=True,refinement:bool=False,baseflowInit=None,stabilise=False):
+	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple,refinement:bool=False,baseflowInit=None,stabilise=False) -> int:
 		# Cold initialisation
 		if baseflowInit!=None:
-			U,_,_=self.Q.split()
+			U,_=self.Q.split()
 			U.interpolate(baseflowInit)
 
 		# Compute form
-		base_form  = self.navierStokes(weak_bcs,dist,stabilise) # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(weak_bcs,0,dist,stabilise) # m=0
+		base_form  = self.navierStokes(self.Q,self.test,dist,stabilise)+weak_bcs[0] # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist,stabilise)+weak_bcs[1] # m=0
+		return self.solver(Re,nut,S,base_form,dbase_form,self.Q,refinement=refinement)
+
+	def corrector(self,Q0,dQ,dRe,h,Re0:int,nut:int,S:float,d,weak_bcs:tuple) -> int:
+		Qe=self.extend(self.Q)
+		Q0=self.extend(Q0)
+		dQ=self.extend(dQ)
+		u, p, nu, re= ufl.split(self.triale)
+		U, P, Nu, Re= ufl.split(Qe)
+		_, _, _,  w = ufl.split(self.teste)
+		U0,P0,Nu0,_ = ufl.split(Q0)
+		dU,dP,dNu,_ = ufl.split(dQ)
+		self.Re=Re
+		base_form  = self.navierStokes(Qe,self.teste,d,extended=True)+weak_bcs[0]+\
+					 ufl.inner(ufl.inner(dU,U-U0)+ufl.inner(dP,P-P0)+ufl.inner(dNu,Nu-Nu0)+dRe*(Re-Re0)-h,w) # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(self.triale,Qe,self.teste,0,d,extended=True)+weak_bcs[1]+\
+					 ufl.inner(ufl.inner(dU,u)+ufl.inner(dP,p)+ufl.inner(dNu,nu)+dRe*re,w) # No azimuthal decomposition for base flow
+		n=self.solver(Re0,nut,S,base_form,dbase_form,Qe,save=False)
+		self.Q,Re=self.revert(Qe)
 		
+		return Re,n
+		
+	def solver(self,Re:int,nut:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
 		# Encapsulations
-		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs,J=dbase_form)
+		problem = NonlinearProblem(base_form,q,bcs=self.bcs,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning
@@ -59,7 +79,7 @@ class SPYB(SPY):
 		ksp.setFromOptions()
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
-		n,converged=solver.solve(self.Q)
+		n,converged=solver.solve(q)
 
 		if refinement:
 			# Locate high error areas
@@ -89,14 +109,13 @@ class SPYB(SPY):
 			self.mesh = refine(self.mesh, edges, redistribute=False)
 			self.defineFunctionSpaces()
 			# Interpolate Newton results on finer mesh
-			Q=copy(self.Q)
-			self.Q.interpolate(Q)
+			self.Q.interpolate(q)
 
 		if save:  # Memoisation
-			if S==0: app=f"_S={S:d}_Re={Re:d}"
-			else: 	 app=f"_S={S:00.3f}_Re={Re:d}"
+			if type(S)==int: app=f"_S={S:d}_Re={Re:d}_nut={nut:d}"
+			else: 	 		 app=f"_S={S:00.1f}_Re={Re:d}_nut={nut:d}".replace('.',',')
 			self.saveBaseflow(app)
-			U,_,_=self.Q.split()
+			U,_=q.split()
 			self.printStuff(self.print_path,"u"+app,U)
 		
 		return n

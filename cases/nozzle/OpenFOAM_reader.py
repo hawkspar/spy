@@ -1,6 +1,6 @@
 import numpy as np
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
-from setup import Re, S, params
+from setup import Re, nut, S, params
 from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
@@ -23,7 +23,7 @@ sin,cos=np.sin(O),np.cos(O)
 # Read OpenFOAM, write mesh
 if p0:
     # Searching closest file with respect to setup parameters
-    closest_file_name=findStuff("./baseflow/OpenFOAM/",['S','Re'],[S,Re], lambda f: f[-3:]=="xmf",False)
+    closest_file_name=findStuff("./baseflow/OpenFOAM/",['S','Re'],[S,nut], lambda f: f[-3:]=="xmf",False)
     # Read OpenFOAM data
     openfoam_data = meshio.read(closest_file_name)
     print("Loaded "+closest_file_name+" successfully !", flush=True)
@@ -43,7 +43,7 @@ if p0:
     nutv = np.hstack((openfoam_data.point_data['nut'],openfoam_data.cell_data['nut'][0]))[msk]
 
     # Convert mesh
-    if convert: meshConvert("nozzle_2D_coarse","nozzle",cell_type)
+    if convert: meshConvert("perturbations",cell_type)
 else: uxv,urv,uthv,pv,nutv,fine_xy=None,None,None,None,None,None
 
 # Data available to all but not distributed
@@ -55,7 +55,7 @@ nutv = comm.bcast(nutv, root=0)
 fine_xy = comm.bcast(fine_xy, root=0)
 
 # Read it again in dolfinx - now it's a dolfinx object and it's split amongst procs
-with XDMFFile(comm, "nozzle.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
+with XDMFFile(comm, "perturbations.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
 
 # Create FiniteElement, FunctionSpace & Functions
 FE_vector =ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
@@ -64,7 +64,7 @@ FE_scalar2=ufl.FiniteElement("CG",mesh.ufl_cell(),2)
 V=FunctionSpace(mesh, FE_vector)
 W=FunctionSpace(mesh, FE_scalar)
 X=FunctionSpace(mesh, FE_scalar2)
-U, P, nut = Function(V), Function(W), Function(X)
+U, P, Nu = Function(V), Function(W), Function(X)
 
 # Handlers (still useful when !interpolate)
 def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'cubic')
@@ -77,14 +77,14 @@ if S==0: uthv[:]=0
 U.sub(0).interpolate(lambda x: interp(uxv, x))
 U.sub(1).interpolate(lambda x: interp(urv, x)*(x[1]>params['atol'])) # Enforce u_r=u_th=0 at r=0
 U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>params['atol']))
-P.interpolate(  lambda x: interp(pv,  x))
-nut.interpolate(lambda x: interp(nutv,x))
+P.interpolate( lambda x: interp(pv,  x))
+Nu.interpolate(lambda x: interp(nutv,x))
 # Fix negative eddy viscosity
-nut.x.array[nut.x.array<0] = 0
+Nu.x.array[Nu.x.array<0] = 0
 
 # Save pretty graphs
 if sanity_check:
-    for f in ['U','P','nut']:
+    for f in ['U','P','Nu']:
         with XDMFFile(comm, "sanity_check_"+f+"_reader.xdmf", "w") as xdmf:
             xdmf.write_mesh(mesh)
             eval("xdmf.write_function("+f+")")
@@ -93,9 +93,10 @@ if sanity_check:
 pre="./baseflow"
 dirCreator(pre)
 
-app=f"_S={S:.3f}_Re={Re:d}_nut={Re:d}"
+if type(S)==int: app=f"_S={S:d}_Re={nut:d}_nut={nut:d}"
+else:            app=f"_S={S:.1f}_Re={nut:d}_nut={nut:d}".replace('.',',')
 
 # Save
 saveStuff(pre+"/u/",  "u"  +app,U)
 saveStuff(pre+"/p/",  "p"  +app,P)
-saveStuff(pre+"/nut/","nut"+app,nut)
+saveStuff(pre+"/nut/","nut"+app,Nu)

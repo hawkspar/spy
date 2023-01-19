@@ -8,29 +8,32 @@ from setup import *
 from spyb import SPYB
 from copy import copy
 
-Re0,S=100,0
-dRe=1e-6
-spyb=SPYB(params,datapath,"perturbations",direction_map)
+Re,S=100,0
+spyb=SPYB(params,datapath,"baseflow",direction_map)
 boundaryConditionsBaseflow(spyb,S)
-Ref(spyb,Re0)
+Ref(spyb,Re)
 spyb.stabilise(0)
-spyb.baseflow(Re0,S,dist(spyb),baseflowInit=baseflowInit)
+# Shorthands
+d=dist(spyb)
+weak_bcs  =weakBoundaryConditions(spyb,spyb.trial,spyb.Q,spyb.test)
+weak_bcs_e=weakBoundaryConditions(spyb,spyb.qtrial,spyb.Qe,spyb.qtest)
+spyb.baseflow(Re,S,d,weak_bcs,baseflowInit=baseflowInit)
 
-def march_Re(Re0,Re1):
+h=1000
+dRe=1e-9
+while Re<400000:
 	Q0=copy(spyb.Q)
-	Ref(spyb,Re0+dRe)
-	spyb.baseflow(Re0+dRe,S,dist(spyb),save=False)
-	spyb.Q=Q0+(Q0-spyb.Q)/dRe*(Re1-Re1)
-	n=spyb.baseflow(Re1,S,dist(spyb))
-	_,P,Nu=spyb.Q.split()
-	spyb.printStuff(spyb.print_path,f"p_S={S:d}_Re={Re1:d}", P)
-	spyb.printStuff(spyb.print_path,f"nu_S={S:d}_Re={Re1:d}",Nu)
-	return n
-
-Re1=1000
-while Re1<400000:
-	n=march_Re(Re0,Re1)
-	Re0=Re1
-	if   n>=2: Re1*=2
-	elif n>=5: Re1+=Re1
-	else:	   Re1+=Re1/2
+	# Predictor
+	Ref(spyb,Re+dRe)
+	spyb.baseflow(Re+dRe,S,d,weak_bcs,save=False)
+	dQ=Q0-spyb.Q
+	spyb.Q=Q0+dQ/dRe*h
+	Re,n=spyb.corrector(Q0,dQ,dRe,h,Re,S,d,weak_bcs_e)
+	U,P,Nu=spyb.Q.split()
+	spyb.printStuff(spyb.print_path,f"u_S={S:d}_Re={Re:d}", U)
+	spyb.printStuff(spyb.print_path,f"p_S={S:d}_Re={Re:d}", P)
+	spyb.printStuff(spyb.print_path,f"nu_S={S:d}_Re={Re:d}",Nu)
+	# Cheap step size adaptation
+	if   n<=2: h*=1.5
+	elif n<=3: h*=1.2
+	else:	   h/=2

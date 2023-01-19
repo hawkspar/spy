@@ -173,7 +173,6 @@ class SPY:
 		with dfx.io.XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		if p0: print("Loaded "+meshpath,flush=True)
-
 		self.defineFunctionSpaces()
 	
 		# Forcing localisation
@@ -188,27 +187,53 @@ class SPY:
 		self.dofs = np.empty(0,dtype=np.int32)
 		self.bcs  = []
 
+	# TO be rerun if mesh changes
 	def defineFunctionSpaces(self):
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[self.direction_map['r']]
 		# Finite elements & function spaces
-		FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-		FE_scalar=ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		FE_vector =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+		FE_scalar =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		FE_scalar2=ufl.FiniteElement("CG",self.mesh.ufl_cell(),2)
+		#Constant =ufl.FiniteElement("Real",self.mesh.ufl_cell(),0)
 		self.FS0 = FunctionSpace(self.mesh,FE_vector)
 		self.FS1 = FunctionSpace(self.mesh,FE_scalar)
-		self.FS2 = FunctionSpace(self.mesh,FE_scalar)
+		self.FS2 = FunctionSpace(self.mesh,FE_scalar2)
 		# Taylor Hodd elements ; stable element pair + eddy viscosity
-		self.FS = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar,FE_scalar))
+		self.FS = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar))#,FE_scalar2))
 		self.FS0c, self.FS_to_FS0 = self.FS.sub(0).collapse()
 		self.FS1c, self.FS_to_FS1 = self.FS.sub(1).collapse()
-		self.FS2c, self.FS_to_FS2 = self.FS.sub(2).collapse()
+		#self.FS2c, self.FS_to_FS2 = self.FS.sub(2).collapse()
+		"""# Extended element for the corrector
+		self.FSe = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar,FE_scalar,Constant))
+		self.FSe0c, self.FSe_to_FSe0 = self.FSe.sub(0).collapse()
+		self.FSe1c, self.FSe_to_FSe1 = self.FSe.sub(1).collapse()
+		self.FSe2c, self.FSe_to_FSe2 = self.FSe.sub(2).collapse()
+		self.FSe3c, self.FSe_to_FSe3 = self.FSe.sub(3).collapse()"""
 		# Test & trial functions
 		self.trial = ufl.TrialFunction(self.FS)
 		self.test  = ufl.TestFunction( self.FS)
+		"""self.triale = ufl.split(ufl.TrialFunction(self.FSe))
+		self.teste  = ufl.split(ufl.TestFunction( self.FSe))"""
 		# Initialisation of baseflow
 		self.Q = Function(self.FS)
 		# Collapsed subspaces
 		self.U, self.P, self.Nu = Function(self.FS0), Function(self.FS1), Function(self.FS2)
+
+	def extend(self, Q:Function) -> Function:
+		Qe = Function(self.FSe)
+		Qe.x.array[self.FSe_to_FSe0]=Q.x.array[self.FS_to_FS0]
+		Qe.x.array[self.FSe_to_FSe1]=Q.x.array[self.FS_to_FS1]
+		Qe.x.array[self.FSe_to_FSe2]=Q.x.array[self.FS_to_FS2]
+		return Qe
+
+	def revert(self, Qe:Function) -> Function:
+		Q = Function(self.FS)
+		Q.x.array[self.FS_to_FS0]=Qe.x.array[self.FSe_to_FSe0]
+		Q.x.array[self.FS_to_FS1]=Qe.x.array[self.FSe_to_FSe1]
+		Q.x.array[self.FS_to_FS2]=Qe.x.array[self.FSe_to_FSe2]
+		Re=np.mean(Qe.x.array[self.FSe_to_FSe3])
+		return Q,Re
 
 	# Helper
 	def loadBaseflow(self,Re,nut,S,p=False):
@@ -218,7 +243,7 @@ class SPY:
 		if p: loadStuff(self.p_path,['S','nut','Re'],[S,nut,Re],self.P)
 		# Write inside MixedElement
 		self.Q.x.array[self.FS_to_FS0]=self.U.x.array
-		self.Q.x.array[self.FS_to_FS2]=self.Nu.x.array
+		#self.Q.x.array[self.FS_to_FS2]=self.Nu.x.array
 		if p:
 			self.Q.x.array[self.FS_to_FS1]=self.P.x.array
 		self.Q.x.scatter_forward()
@@ -228,13 +253,13 @@ class SPY:
 		# Write inside MixedElement
 		self.U.x.array[:] =self.Q.x.array[self.FS_to_FS0]
 		self.P.x.array[:] =self.Q.x.array[self.FS_to_FS1]
-		self.Nu.x.array[:]=self.Q.x.array[self.FS_to_FS2]
+		#self.Nu.x.array[:]=self.Q.x.array[self.FS_to_FS2]
 		dirCreator(self.u_path)
 		dirCreator(self.p_path)
 		dirCreator(self.nut_path)
-		saveStuff(self.u_path,str,self.U)
-		saveStuff(self.p_path,str,self.P)
-		saveStuff(self.nut_path,str,self.Nu)
+		saveStuff(self.u_path,'u'+str,self.U)
+		saveStuff(self.p_path,'p'+str,self.P)
+		saveStuff(self.nut_path,'nut'+str,self.Nu)
 	
 	# Pseudo-heat equation
 	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs):
@@ -253,8 +278,9 @@ class SPY:
 
 	def stabilise(self,m):
 		# Split arguments
-		U,_,Nu = ufl.split(self.Q)
-		v,_,_  = ufl.split(self.test)
+		U,_ = ufl.split(self.Q)
+		v,_ = ufl.split(self.test)
+		Nu=self.Nu
 		# Important ! Otherwise n is nonsense
 		self.U.x.array[:]=self.Q.x.array[self.FS_to_FS0]
 		# Shorthands
@@ -271,12 +297,9 @@ class SPY:
 		tau=z*h/2/n
 		self.SUPG = tau*gdv*U # Streamline Upwind Petrov Galerkin
 
-	def SA(self, d):
+	def SA(self, U, Nu, v, t, d):
 		# Shortforms
-		r, Q, Re = self.r, self.Q, self.Re
-		# Functions
-		U, _, Nu = ufl.split(Q)
-		v, _, t  = ufl.split(self.test)
+		r, Re = self.r, self.Re
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
@@ -294,12 +317,17 @@ class SPY:
 		return F+G*ufl.dx(degree=30)
 	
 	# Heart of this entire code
-	def navierStokes(self,weak_bcs,dist,stabilise=False) -> ufl.Form:
+	def navierStokes(self,Q,Qt,dist,stabilise=False,extended=False) -> ufl.Form:
 		# Shortforms
 		r, Re = self.r, self.Re
 		# Functions
-		U, P, _ = ufl.split(self.Q)
-		v, s, _ = ufl.split(self.test)
+		if extended:
+			U, P, Nu, _ = ufl.split(Q)
+			v, s, t,  _ = ufl.split(Qt)
+		else:
+			U, P = ufl.split(Q)
+			Nu = self.Nu
+			v, s  = ufl.split(Qt)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,i=0: div(r,dx,dr,dt,v,0,i),lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
@@ -309,11 +337,13 @@ class SPY:
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(gd(U)*U,r*(v+SUPG)) # Convection
 		F -= ufl.inner(	r*P,   dv(v,1)) # Pressure
-		F += ufl.inner(gd(U),  gd(v,1))/Re
+		#F += (1/Re+Nu)*ufl.inner(gd(U)+gd(U).T,gd(v,1)) # Diffusion (grad u.T significant with nut)
+		F += (1/Re+Nu)*ufl.inner(gd(U),gd(v,1))
+		#F += ufl.inner(gd(U),  gd(v,1))/Re
 		if stabilise:
 			F += ufl.inner(gd(P),r*SUPG)
 			F -= ufl.inner(r2vs,   SUPG)
-		return F*ufl.dx+weak_bcs(self,U,P)+self.SA(dist)
+		return F*ufl.dx#+self.SA(U,Nu,v,t,dist)
 	
 	# Heart of this entire code
 	def navierStokesError(self) -> ufl.Form:
@@ -332,13 +362,9 @@ class SPY:
 		mo2 = ufl.inner(mo,    mo)
 		return (dv2+mo2)*ufl.dx
 
-	def SAlin(self, m, d):
+	def SAlin(self, U, Nu, u, nu, v, t, m, d):
 		# Shortforms
-		r, q, Q, Re, atol = self.r, self.trial, self.Q, self.Re, self.params['atol']
-		# Functions
-		U, _, Nu = ufl.split(Q) # Baseflow
-		u, _, nu = ufl.split(q)
-		v, _, t  = ufl.split(self.test)
+		r, Re, atol = self.r, self.Re, self.params['atol']
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
@@ -359,13 +385,19 @@ class SPY:
 		return F+G*ufl.dx(degree=30)
 		
 	# Not automatic because of convection term
-	def linearisedNavierStokes(self,weak_bcs,m:int,dist,stabilise=False) -> ufl.Form:
+	def linearisedNavierStokes(self,q,Q,Qt,m:int,dist,stabilise=False,extended=False) -> ufl.Form:
 		# Shortforms
 		r,Re=self.r,self.Re
 		# Functions
-		u, p, _ = ufl.split(self.trial)
-		U, _, _ = ufl.split(self.Q) # Baseflow
-		v, s, _ = ufl.split(self.test)
+		if extended:
+			u, p, nu, _ = ufl.split(q)
+			U, _, Nu, _ = ufl.split(Q) # Baseflow
+			v, s, t,  _ = ufl.split(Qt)
+		else:
+			u, p = ufl.split(q)
+			U, _ = ufl.split(Q) # Baseflow
+			Nu = self.Nu 
+			v, s = ufl.split(Qt)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,m,i=0: div(r,dx,dr,dt,v,m,i),lambda v,m,i=0: grd(r,dx,dr,dt,v,m,i)
@@ -376,19 +408,19 @@ class SPY:
 		F += ufl.inner(gd(U,0)*u,r*(v+SUPG)) # Convection
 		F += ufl.inner(gd(u,m)*U,r*(v+SUPG))
 		F -= ufl.inner(  r*p,    dv(v,m,1)) # Pressure
-		#F += ufl.inner(nu*(grd(u,m)+grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		F += ufl.inner(gd(u,m),gd(v,m,1))/Re
+		#F += (1/Re+Nu)*ufl.inner(gd(u,m)+gd(u,m).T,gd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		F += (1/Re+Nu)*ufl.inner(gd(u,m),gd(v,m,1))
+		#F += ufl.inner(gd(u,m),gd(v,m,1))/Re
 		if stabilise:
 			F += ufl.inner(gd(p,m),r*SUPG)
 			F -= ufl.inner(r2vs,	 SUPG)
 		#F += ufl.inner(div(u,m),self.grd_div)
-		return F*ufl.dx+weak_bcs(self,u,p,m)+self.SAlin(m,dist)
+		return F*ufl.dx#+self.SAlin(U,Nu,u,nu,v,t,m,dist)
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary:bool, value:float=0, subspace_i:int=0) -> tuple:
 		subspace=self.FS.sub(subspace_i)
-		if subspace_i==0:
-			subspace=subspace.sub(self.direction_map[direction])
+		if subspace_i==0: subspace=subspace.sub(self.direction_map[direction])
 		subspace_collapsed,_=subspace.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)
 		dofs = dfx.fem.locate_dofs_geometrical((subspace, subspace_collapsed), boundary)
@@ -424,7 +456,7 @@ class SPY:
 	def sanityCheck(self,app=""):
 		self.U.x.array[:]=self.Q.x.array[self.FS_to_FS0]
 		self.P.x.array[:]=self.Q.x.array[self.FS_to_FS1]
-		self.Nu.x.array[:]=self.Q.x.array[self.FS_to_FS2]
+		#self.Nu.x.array[:]=self.Nu.x.array[:]
 
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		expr=dfx.fem.Expression(div_nor(self.r,dx,dr,dt,self.mesh,self.U,0),self.FS1.element.interpolation_points())

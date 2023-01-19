@@ -55,14 +55,15 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, direction_map:dict, forcing_indicator=None) -> None:
-		super().__init__(params, datapath, direction_map, forcing_indicator)
+	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict, forcing_indicator=None) -> None:
+		super().__init__(params, datapath, mesh_name, direction_map, forcing_indicator)
+		dirCreator(self.baseflow_path)
 
 	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self,m:int,stab=False,weak_bcs=lambda spy,u,p,m=0: 0) -> None:
 		# Functions
-		u,_,_ = ufl.split(self.trial)
-		v,_,_ = ufl.split(self.test)
+		u,_ = ufl.split(self.trial)
+		v,_ = ufl.split(self.test)
 
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(weak_bcs,m,stab)
@@ -117,8 +118,8 @@ class SPYP(SPY):
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,stab=False) -> None:
 		# Velocity and full space functions
-		u,_,_ = ufl.split(self.trial)
-		v,_,_ = ufl.split(self.test)
+		u,_ = ufl.split(self.trial)
+		v,_ = ufl.split(self.test)
 		w = ufl.TrialFunction(self.FS0c)
 		z = ufl.TestFunction( self.FS0c)
 

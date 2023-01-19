@@ -15,10 +15,10 @@ from matplotlib import pyplot as plt
 p0=COMM_WORLD.rank==0
 load=False
 m=2
-save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}"
+save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.1f}_m={m:d}".replace('.',',')
 
 # Eigenvalues
-spyp=SPYP(params, datapath, direction_map)
+spyp=SPYP(params, datapath, "perturbations", direction_map)
 Ref(spyp,Re)
 spyp.loadBaseflow(Re,nut,S) # Don't load pressure
 boundaryConditionsPerturbations(spyp,m)
@@ -32,11 +32,11 @@ if load and p0:
     vals_real,vals_imag = vals[:,0],vals[:,1]
 else:
     # Grid search
-    for re in np.linspace(2,-2,20):
-        for im in np.linspace(-2,2,20):
+    for re in np.linspace(2,0,100):
+        for im in np.linspace(-2,2,100):
             # Memoisation protocol
             sigma=re+1j*im
-            spyp.eigenvalues(sigma,5,Re,nut,S,m,isdir(spyp.eig_path)) # Actual computation shift value, nb of eigenmode
+            spyp.eigenvalues(sigma,5,Re,nut,S,m) # Actual computation shift value, nb of eigenmode
             if isdir(spyp.eig_path):
                 closest_file_name=findStuff(spyp.eig_path,["sig"],[sigma],lambda f: f[-4:]==".txt",False)
                 try:
