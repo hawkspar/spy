@@ -12,8 +12,7 @@ from spy import dirCreator, meshConvert, findStuff, saveStuff
 
 p0=comm.rank==0
 sanity_check=False
-convert=True
-cell_type="triangle"
+convert=False
 
 # Dimensionalised stuff
 L,H=36,7
@@ -43,7 +42,7 @@ if p0:
     nutv = np.hstack((openfoam_data.point_data['nut'],openfoam_data.cell_data['nut'][0]))[msk]
 
     # Convert mesh
-    if convert: meshConvert("perturbations",cell_type)
+    if convert: meshConvert("perturbations")
 else: uxv,urv,uthv,pv,nutv,fine_xy=None,None,None,None,None,None
 
 # Data available to all but not distributed
@@ -93,8 +92,8 @@ if sanity_check:
 pre="./baseflow"
 dirCreator(pre)
 
-if type(S)==int: app=f"_S={S:d}_Re={nut:d}_nut={nut:d}"
-else:            app=f"_S={S:.1f}_Re={nut:d}_nut={nut:d}".replace('.',',')
+if type(S)==int: app=f"_Re={nut:d}_nut={nut:d}_S={S:d}"
+else:            app=f"_Re={nut:d}_nut={nut:d}_S={S:.1f}".replace('.',',')
 
 # Save
 saveStuff(pre+"/u/",  "u"  +app,U)

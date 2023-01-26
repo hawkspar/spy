@@ -17,14 +17,14 @@ from spy import SPY, grd
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,nut,Re=0,400000,1000
+S,nut,Re=.5,400000,1000
 h=1e-5
 
 # Numerical Parameters
 params = {"rp":.9,    #relaxation_parameter
 		  "atol":1e-12, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
-		  "max_iter":1000}
+		  "max_iter":100}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
@@ -42,13 +42,14 @@ def dist(spy:SPY):
 	x,r=ufl.SpatialCoordinate(spy.mesh)[0],spy.r
 	return ufl.sqrt((r-1)**2 + ufl.conditional(ufl.ge(x,R),(x-R)**2,0))
 
-def Ref(spy:SPY,Re): spy.Re=Re # Kept here for backward compatibility
+def Ref(spy:SPY,Re:int): spy.Re=Re # Kept here for backward compatibility
 
 def forcingIndicator(x): return (x[1]<nozzle_top(x[0]))*(x[0]<1)+(x[1]<1+x[0]/3)*(x[0]>=1)*(x[0]<3)+(x[1]<2)*(x[0]>=3)
 
 def baseflowInit(x):
 	u=0*x
-	u[0,x[1]<1]=np.tanh(6*(1-x[1][x[1]<1]))
+	u[0]=np.tanh(6*(1-x[1]**2))*(x[1]<1)+\
+	 .05*np.tanh(6*(x[1]**2-1))*(x[1]>1)
 	return u
 
 def boundaryConditionsBaseflow(spy:SPY,S) -> None:

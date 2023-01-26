@@ -45,6 +45,7 @@ def configureKSP(KSP:pet.KSP,params:dict) -> None:
 	# Preconditioner
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
+	PC.setFactorSetUpSolverType(...)
 	KSP.setFromOptions()
 
 # Eigenvalue problem solver
@@ -60,13 +61,13 @@ class SPYP(SPY):
 		dirCreator(self.baseflow_path)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,m:int,stab=False,weak_bcs=lambda spy,u,p,m=0: 0) -> None:
+	def assembleJNMatrices(self,m:int,d,stab=False,weak_bcs=0) -> None:
 		# Functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(weak_bcs,m,stab)
+		J_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,m,d,stab)+weak_bcs
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		N_form = ufl.inner(u,v+stab*self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
 		
@@ -93,8 +94,18 @@ class SPYP(SPY):
 		ST = EPS.getST(); ST.setType('sinvert')
 		# Krylov subspace
 		KSP = ST.getKSP()
-		configureKSP(KSP,self.params)
+		KSP.setTolerances(rtol=self.params['rtol'], atol=self.params['atol'], max_it=self.params['max_iter'])
+		# Krylov subspace
+		KSP.setType('preonly')
+		# Preconditioner
+		PC = KSP.getPC(); PC.setType('lu')
+		PC.setFactorSolverType('mumps')
+		ST.getOperator()
+		PC.setFactorSetUpSolverType()
+		KSP.setFromOptions()
+		PC.getFactorMatrix().setMumpsIcntl(14,75)
 		EPS.setFromOptions()
+		if p0: print(f"Solver launch for sig={sigma:.1f}...",flush=True)
 		EPS.solve()
 		n=EPS.getConverged()
 		if n==0: return
@@ -104,14 +115,13 @@ class SPYP(SPY):
 		save_string=f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}".replace('.',',')
 		# Write eigenvalues
 		np.savetxt(self.eig_path+save_string+"_sig={:.2f}".format(sigma).replace('.',',')+".txt",np.column_stack([vals.real, vals.imag]))
-		# Memoisation of first eigenvector
 		q=Function(self.FS)
-		EPS.getEigenvector(0,q.vector)
-		saveStuff(self.eig_path+"q/",save_string+"_l={:.2f}".format(vals[0]).replace('.',','),q)
-		# Write eigenvectors back in xdmf (but not too many of them)
+		# Write a few eigenvectors back in xdmf
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
-			u,_,_ = q.split()
+			# Memoisation of first eigenvector
+			if i==0: saveStuff(self.eig_path+"q/",save_string+"_l={:.2f}".format(vals[0]).replace('.',','),q)
+			u,_ = q.split()
 			self.printStuff(self.eig_path+"u/",save_string+"_l={:.2f}".format(vals[i]).replace('.',','),u)
 		if p0: print("Eigenpairs written !",flush=True)
 

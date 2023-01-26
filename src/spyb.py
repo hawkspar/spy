@@ -29,7 +29,7 @@ class SPYB(SPY):
 		self.Q.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re is a more involved function
-	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple,refinement:bool=False,baseflowInit=None,stabilise=False) -> int:
+	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,baseflowInit=None,stabilise=False) -> int:
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_=self.Q.split()

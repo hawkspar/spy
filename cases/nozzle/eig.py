@@ -19,12 +19,13 @@ save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.1f}_m={m:d}".replace('.',',')
 
 # Eigenvalues
 spyp=SPYP(params, datapath, "perturbations", direction_map)
+d=dist(spyp)
 Ref(spyp,Re)
 spyp.loadBaseflow(Re,nut,S) # Don't load pressure
 boundaryConditionsPerturbations(spyp,m)
 spyp.stabilise(m)
 # For efficiency, matrix is assembled only once
-spyp.assembleJNMatrices(m)
+spyp.assembleJNMatrices(m,d)
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 if load and p0:
@@ -32,11 +33,11 @@ if load and p0:
     vals_real,vals_imag = vals[:,0],vals[:,1]
 else:
     # Grid search
-    for re in np.linspace(2,0,100):
-        for im in np.linspace(-2,2,100):
+    for re in np.linspace(-2,2,20):
+        for im in np.linspace(-2,2,20):
             # Memoisation protocol
             sigma=re+1j*im
-            spyp.eigenvalues(sigma,5,Re,nut,S,m) # Actual computation shift value, nb of eigenmode
+            spyp.eigenvalues(sigma,1,Re,nut,S,m) # Actual computation shift value, nb of eigenmode
             if isdir(spyp.eig_path):
                 closest_file_name=findStuff(spyp.eig_path,["sig"],[sigma],lambda f: f[-4:]==".txt",False)
                 try:
