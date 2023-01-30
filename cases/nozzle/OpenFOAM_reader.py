@@ -92,8 +92,8 @@ if sanity_check:
 pre="./baseflow"
 dirCreator(pre)
 
-if type(S)==int: app=f"_Re={nut:d}_nut={nut:d}_S={S:d}"
-else:            app=f"_Re={nut:d}_nut={nut:d}_S={S:.1f}".replace('.',',')
+if type(S)==int: app=f"_S={S:d}_Re={nut:d}_nut={nut:d}"
+else:            app=f"_S={S:.1f}_Re={nut:d}_nut={nut:d}".replace('.',',')
 
 # Save
 saveStuff(pre+"/u/",  "u"  +app,U)

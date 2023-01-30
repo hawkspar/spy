@@ -17,19 +17,19 @@ from spy import SPY, grd
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,nut,Re=.5,400000,1000
-h=1e-5
+S,nut,Re=0,400000,1000
+h=2.5e-4
 
 # Numerical Parameters
 params = {"rp":.9,    #relaxation_parameter
-		  "atol":1e-12, #absolute_tolerance
-		  "rtol":1e-9, #DOLFIN_EPS does not work well
+		  "atol":1e-9, #absolute_tolerance
+		  "rtol":1e-6, #DOLFIN_EPS does not work well
 		  "max_iter":100}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
-def nozzle_top(x): return R+(1-x/R)*h
-#def nozzle_top(x): return R+(x>.95*R)*(1-(x-.95*R)/.05/R)*h
+#def nozzle_top(x): return R+(1-x/R)*h
+def nozzle_top(x): return R+(x>.95*R)*(1-(x-.95*R)/.05/R)*h
 
 # Geometry
 def inlet(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,		   params['atol']) # Left border
@@ -52,6 +52,10 @@ def baseflowInit(x):
 	 .05*np.tanh(6*(x[1]**2-1))*(x[1]>1)
 	return u
 
+class inletTangential:
+	def __init__(self,S:float) -> None: self.S=S
+	def __call__(self,x) -> np.array: return self.S*x[1]*np.tanh(6*(1-x[1]**2))*(x[1]<1)
+
 def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	# Compute DoFs
 	sub_space_x=spy.FS.sub(0).sub(0)
@@ -72,7 +76,8 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	sub_space_th=spy.FS.sub(0).sub(2)
 	sub_space_th_collapsed,_=sub_space_th.collapse()
 	u_inlet_th=Function(sub_space_th_collapsed)
-	u_inlet_th.interpolate(lambda x: S*x[1]*np.tanh(6*(1-x[1]**2))*(x[1]<1))
+	class_th=inletTangential(S)
+	u_inlet_th.interpolate(class_th)
 	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
 	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM
 	spy.applyBCs(dofs_inlet_th[0],bcs_inlet_th)
@@ -82,6 +87,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	"""spy.applyHomogeneousBCs([(nozzle,'arbitrary')],2) # Enforce nu=0 at the wall
 	# Have small but !=0 nu at inlet
 	spy.applyBCs(spy.constantBC('arbitrary',inlet,1e-6,2))"""
+	return u_inlet_th,class_th
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

@@ -9,16 +9,16 @@ from spyb import SPYB
 from spy import loadStuff
 
 spyb=SPYB(params,datapath,"perturbations",direction_map)
-boundaryConditionsBaseflow(spyb,0)
+u_inlet_th,class_th=boundaryConditionsBaseflow(spyb,0)
 # Shorthands
 d=dist(spyb)
 Ref(spyb,Re)
 spyb.stabilise(0)
 loadStuff(spyb.nut_path,['S','nut','Re'],[0,nut,nut],spyb.Nu)
 spyb.baseflow(Re,nut,0,d,baseflowInit=baseflowInit)
-for S in np.linspace(.1,1,9):
-	spyb.dofs = np.empty(0,dtype=np.int32)
-	spyb.bcs=[]
-	boundaryConditionsBaseflow(spyb,S)
+#spyb.loadBaseflow(Re,nut,0,True)
+for S in np.linspace(1e-2,1,6):
+	class_th.S=S
+	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,['S','nut','Re'],[S,nut,nut],spyb.Nu)
 	spyb.baseflow(Re,nut,S,d)

@@ -333,12 +333,12 @@ class SPY:
 		dv,gd=lambda v,i=0: div(r,dx,dr,dt,v,0,i),lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
 		r2vs, SUPG = r2vis2(r,dx,dr,dt,1./Re,U,0), stabilise*self.SUPG
 		# Mass (variational formulation)
-		F  = ufl.inner(dv(U),     s)
+		F  = ufl.inner(dv(U),   r*s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(gd(U)*U,r*(v+SUPG)) # Convection
 		F -= ufl.inner(	r*P,   dv(v,1)) # Pressure
-		F += (1/Re+Nu)*ufl.inner(gd(U)+gd(U).T,gd(v,1)) # Diffusion (grad u.T significant with nut)
-		#F += (1/Re+Nu)*ufl.inner(gd(U),gd(v,1))
+		#F += (1/Re+Nu)*ufl.inner(gd(U)+gd(U).T,gd(v,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner((1/Re+Nu)*gd(U),gd(v,1))
 		#F += ufl.inner(gd(U),  gd(v,1))/Re
 		if stabilise:
 			F += ufl.inner(gd(P),r*SUPG)
@@ -403,13 +403,13 @@ class SPY:
 		dv,gd=lambda v,m,i=0: div(r,dx,dr,dt,v,m,i),lambda v,m,i=0: grd(r,dx,dr,dt,v,m,i)
 		r2vs, SUPG = r2vis2(r,dx,dr,dt,1./Re,u,m), stabilise*self.SUPG
 		# Mass (variational formulation)
-		F  = ufl.inner(dv(u,m),     s)
+		F  = ufl.inner(dv(u,m),   r*s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(gd(U,0)*u,r*(v+SUPG)) # Convection
 		F += ufl.inner(gd(u,m)*U,r*(v+SUPG))
 		F -= ufl.inner(  r*p,    dv(v,m,1)) # Pressure
-		F += (1/Re+Nu)*ufl.inner(gd(u,m)+gd(u,m).T,gd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		#F += (1/Re+Nu)*ufl.inner(gd(u,m),gd(v,m,1))
+		#F += (1/Re+Nu)*ufl.inner(gd(u,m)+gd(u,m).T,gd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner((1/Re+Nu)*gd(u,m),gd(v,m,1))
 		#F += ufl.inner(gd(u,m),gd(v,m,1))/Re
 		if stabilise:
 			F += ufl.inner(gd(p,m),r*SUPG)
