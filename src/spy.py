@@ -331,14 +331,14 @@ class SPY:
 			v, s  = ufl.split(Qt)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		dv,gd=lambda v,i=0: div(r,dx,dr,dt,v,0,i),lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		r2vs, SUPG = r2vis2(r,dx,dr,dt,1./Re,U,0), stabilise*self.SUPG
+		dv,gd=lambda v,i=0: div_nor(r,dx,dr,dt,self.mesh,v,0),lambda v: grd_nor(r,dx,dr,dt,v,0)
+		r2vs, SUPG = r2vis2(r,dx,dr,dt,1/Re,U,0), stabilise*self.SUPG
 		# Mass (variational formulation)
-		F  = ufl.inner(dv(U),   r*s)
+		F  = ufl.inner(dv(U),   s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(gd(U)*U, r*v)#+SUPG)) # Convection
-		F -= ufl.inner(	r*P,   dv(v,1)) # Pressure
-		F += ufl.inner((1/Re+Nu)*(gd(U)+gd(U).T),gd(v,1)) # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(gd(U)*U, v)#+SUPG)) # Convection
+		F -= ufl.inner(	  P, dv(v)) # Pressure
+		F += ufl.inner((1/Re+Nu)*(gd(U)+gd(U).T),gd(v)) # Diffusion (grad u.T significant with nut)
 		#F += ufl.inner((1/Re+Nu)*gd(U),gd(v,1))
 		#F += ufl.inner(gd(U),  gd(v,1))/Re
 		if stabilise:
@@ -401,15 +401,15 @@ class SPY:
 			v, s = ufl.split(Qt)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		dv,gd=lambda v,m,i=0: div(r,dx,dr,dt,v,m,i),lambda v,m,i=0: grd(r,dx,dr,dt,v,m,i)
-		r2vs, SUPG = r2vis2(r,dx,dr,dt,1./Re,u,m), stabilise*self.SUPG
+		dv,gd=lambda v,m: div_nor(r,dx,dr,dt,self.mesh,v,m),lambda v,m: grd_nor(r,dx,dr,dt,v,m)
+		r2vs, SUPG = r2vis2(r,dx,dr,dt,1/Re,u,m), stabilise*self.SUPG
 		# Mass (variational formulation)
-		F  = ufl.inner(dv(u,m),   r*s)
+		F  = ufl.inner(dv(u,m),     s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(gd(U,0)*u, r*v)#+SUPG)) # Convection
 		F += ufl.inner(gd(u,m)*U, r*v)#+SUPG))
-		F -= ufl.inner(  r*p,    dv(v,m,1)) # Pressure
-		F += ufl.inner((1/Re+Nu)*(gd(u,m)+gd(u,m).T),gd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		F -= ufl.inner(  r*p,    dv(v,m)) # Pressure
+		F += ufl.inner((1/Re+Nu)*(gd(u,m)+gd(u,m).T),gd(v,m)) # Diffusion (grad u.T significant with nut)
 		#F += ufl.inner((1/Re+Nu)*gd(u,m),gd(v,m,1))
 		#F += ufl.inner(gd(u,m),gd(v,m,1))/Re
 		if stabilise:

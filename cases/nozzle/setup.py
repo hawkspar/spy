@@ -17,11 +17,11 @@ from spy import SPY, grd
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,nut,Re=0,400000,1000
+S,nut,Re=0,1000,1000
 h=2.5e-4
 
 # Numerical Parameters
-params = {"rp":.9,    #relaxation_parameter
+params = {"rp":.95,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
 		  "max_iter":100}

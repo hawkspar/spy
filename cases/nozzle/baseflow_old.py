@@ -12,15 +12,14 @@ spyb=SPYB(params,datapath,"perturbations",direction_map)
 u_inlet_th,class_th=boundaryConditionsBaseflow(spyb,0)
 # Shorthands
 d=dist(spyb)
-Re=100
-spyb.Re=Re
+Re,nut=10,0
+spyb.Re,spyb.Nu=Re,0
 spyb.stabilise(0)
-spyb.Nu=0
-#spyb.sanityCheckBCs()
-#loadStuff(spyb.nut_path,['S','nut','Re'],[0,nut,nut],spyb.Nu)
-for Re in np.logspace(2,4,3):
+#spyb.loadBaseflow(Re,Re,0,True)
+spyb.baseflow(Re,nut,0,d,baseflowInit=baseflowInit)
+"""for Re in np.linspace(100,10000,30):
 	spyb.Re=Re
-	spyb.baseflow(Re,0,0,d,baseflowInit=baseflowInit)
+	spyb.baseflow(int(Re),nut,0,d)"""
 """for Re in np.logspace(4,5,5,True,10):
 	Re=int(Re)
 	Ref(spyb,Re)

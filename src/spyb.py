@@ -74,7 +74,7 @@ class SPYB(SPY):
 		ksp = solver.krylov_solver
 		opts = pet.Options()
 		option_prefix = ksp.getOptionsPrefix()
-		#opts[f"{option_prefix}ksp_type"] = "preonly"
+		opts[f"{option_prefix}ksp_type"] = "preonly"
 		opts[f"{option_prefix}pc_type"] = "lu"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 		ksp.setFromOptions()
