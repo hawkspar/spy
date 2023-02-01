@@ -29,14 +29,14 @@ datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
 #def nozzle_top(x): return R+(1-x/R)*h
-def nozzle_top(x): return R+(x>.95*R)*(1-(x-.95*R)/.05/R)*h
+def nozzle_top(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
 
 # Geometry
-def inlet(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,		   params['atol']) # Left border
+def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,			 params['atol']) # Axis of symmetry at r=0
+def inlet(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],0,		     params['atol']) # Left border
 def outlet(  x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.max(x[0]),params['atol']) # Right border
 def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top boundary (assumed straight)
 def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
-def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,params['atol']) # Axis of symmetry at r=0
 
 def dist(spy:SPY):
 	x,r=ufl.SpatialCoordinate(spy.mesh)[0],spy.r
@@ -46,6 +46,7 @@ def Ref(spy:SPY,Re:int): spy.Re=Re # Kept here for backward compatibility
 
 def forcingIndicator(x): return (x[1]<nozzle_top(x[0]))*(x[0]<1)+(x[1]<1+x[0]/3)*(x[0]>=1)*(x[0]<3)+(x[1]<2)*(x[0]>=3)
 
+# Simplistic profile
 def baseflowInit(x):
 	u=0*x
 	u[0]=np.tanh(6*(1-x[1]**2))*(x[1]<1)+\
@@ -83,7 +84,8 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	spy.applyBCs(dofs_inlet_th[0],bcs_inlet_th)
 
 	# Handle homogeneous boundary conditions
-	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
+	#spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
+	spy.applyHomogeneousBCs([(nozzle,['x','r','th']),(symmetry,['r','th'])])
 	"""spy.applyHomogeneousBCs([(nozzle,'arbitrary')],2) # Enforce nu=0 at the wall
 	# Have small but !=0 nu at inlet
 	spy.applyBCs(spy.constantBC('arbitrary',inlet,1e-6,2))"""

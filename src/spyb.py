@@ -28,7 +28,7 @@ class SPYB(SPY):
 		self.Q.x.array[self.FS_to_FS1]=self.smoothen(5e-2,self.P,self.FS1,[],lambda spy,p,s:0)
 		self.Q.x.scatter_forward()
 
-	# Careful here Re is only for printing purposes ; self.Re is a more involved function
+	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
 	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,baseflowInit=None,stabilise=False) -> int:
 		# Cold initialisation
 		if baseflowInit!=None:
@@ -36,8 +36,8 @@ class SPYB(SPY):
 			U.interpolate(baseflowInit)
 
 		# Compute form
-		base_form  = self.navierStokes(self.Q,self.test,dist,stabilise)+weak_bcs[0] # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist,stabilise)+weak_bcs[1] # m=0
+		base_form  = self.navierStokes(self.Q,self.test,dist,stabilise)#+weak_bcs[0] # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist,stabilise)#+weak_bcs[1] # m=0
 		return self.solver(Re,nut,S,base_form,dbase_form,self.Q,refinement=refinement)
 
 	def corrector(self,Q0,dQ,dRe,h,Re0:int,nut:int,S:float,d,weak_bcs:tuple) -> int:
@@ -59,6 +59,7 @@ class SPYB(SPY):
 		
 		return Re,n
 		
+	# Recomand running in real
 	def solver(self,Re:int,nut:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
 		# Encapsulations
 		problem = NonlinearProblem(base_form,q,bcs=self.bcs,J=dbase_form)
@@ -73,7 +74,7 @@ class SPYB(SPY):
 		ksp = solver.krylov_solver
 		opts = pet.Options()
 		option_prefix = ksp.getOptionsPrefix()
-		opts[f"{option_prefix}ksp_type"] = "preonly"
+		#opts[f"{option_prefix}ksp_type"] = "preonly"
 		opts[f"{option_prefix}pc_type"] = "lu"
 		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 		ksp.setFromOptions()
@@ -120,7 +121,6 @@ class SPYB(SPY):
 		
 		return n
 
-	# To be run in real mode
 	# DESTRUCTIVE !
 	def baseflowRange(self,Ss) -> None:
 		shutil.rmtree(self.u_path)

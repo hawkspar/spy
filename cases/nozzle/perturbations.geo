@@ -2,10 +2,10 @@
 Mesh.MshFileVersion = 2.2;
 R=1;
 L=35*R; H=6*R;
-r=8e-4; h = 2.5e-4;
+r=1e-3; h = 2.5e-4;
 
 // Base 'rectangle'
-Point(1) = {0, 0, 0,  20*r};
+Point(1) = {0, 0, 0,  50*r};
 Point(2) = {L, 0, 0, 150*r};
 Point(3) = {L, H, 0, 500*r};
 Point(4) = {0, H, 0, 500*r};

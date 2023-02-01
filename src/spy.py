@@ -247,6 +247,7 @@ class SPY:
 		if p:
 			self.Q.x.array[self.FS_to_FS1]=self.P.x.array
 		self.Q.x.scatter_forward()
+		self.Nu.x.scatter_forward()
 
 	def saveBaseflow(self,str):
 		self.Q.x.scatter_forward()
@@ -259,7 +260,7 @@ class SPY:
 		dirCreator(self.nut_path)
 		saveStuff(self.u_path,'u'+str,self.U)
 		saveStuff(self.p_path,'p'+str,self.P)
-		saveStuff(self.nut_path,'nut'+str,self.Nu)
+		if type(self.Nu)==Function: saveStuff(self.nut_path,'nut'+str,self.Nu)
 	
 	# Pseudo-heat equation
 	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs):
@@ -335,10 +336,10 @@ class SPY:
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(U),   r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(gd(U)*U,r*(v+SUPG)) # Convection
+		F += ufl.inner(gd(U)*U, r*v)#+SUPG)) # Convection
 		F -= ufl.inner(	r*P,   dv(v,1)) # Pressure
-		#F += (1/Re+Nu)*ufl.inner(gd(U)+gd(U).T,gd(v,1)) # Diffusion (grad u.T significant with nut)
-		F += ufl.inner((1/Re+Nu)*gd(U),gd(v,1))
+		F += ufl.inner((1/Re+Nu)*(gd(U)+gd(U).T),gd(v,1)) # Diffusion (grad u.T significant with nut)
+		#F += ufl.inner((1/Re+Nu)*gd(U),gd(v,1))
 		#F += ufl.inner(gd(U),  gd(v,1))/Re
 		if stabilise:
 			F += ufl.inner(gd(P),r*SUPG)
@@ -405,11 +406,11 @@ class SPY:
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(u,m),   r*s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(gd(U,0)*u,r*(v+SUPG)) # Convection
-		F += ufl.inner(gd(u,m)*U,r*(v+SUPG))
+		F += ufl.inner(gd(U,0)*u, r*v)#+SUPG)) # Convection
+		F += ufl.inner(gd(u,m)*U, r*v)#+SUPG))
 		F -= ufl.inner(  r*p,    dv(v,m,1)) # Pressure
-		#F += (1/Re+Nu)*ufl.inner(gd(u,m)+gd(u,m).T,gd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		F += ufl.inner((1/Re+Nu)*gd(u,m),gd(v,m,1))
+		F += ufl.inner((1/Re+Nu)*(gd(u,m)+gd(u,m).T),gd(v,m,1)) # Diffusion (grad u.T significant with nut)
+		#F += ufl.inner((1/Re+Nu)*gd(u,m),gd(v,m,1))
 		#F += ufl.inner(gd(u,m),gd(v,m,1))/Re
 		if stabilise:
 			F += ufl.inner(gd(p,m),r*SUPG)

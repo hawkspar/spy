@@ -55,6 +55,7 @@ fine_xy = comm.bcast(fine_xy, root=0)
 
 # Read it again in dolfinx - now it's a dolfinx object and it's split amongst procs
 with XDMFFile(comm, "perturbations.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
+if p0: print("Loaded perturbations.xdmf successfully !")
 
 # Create FiniteElement, FunctionSpace & Functions
 FE_vector =ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
