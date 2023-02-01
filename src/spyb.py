@@ -19,8 +19,17 @@ p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
-	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
-		super().__init__(params, datapath, mesh_name, direction_map)
+	def __init__(self, params:dict, datapath:str, Ref, nutf, direction_map:dict, InletAzimuthalVelocity, C:bool=False, full_TH:bool=True) -> None:
+		super().__init__(params, datapath, Ref, nutf, direction_map, C)
+		if full_TH: th_space,_=self.u_space.sub(direction_map['th']).collapse()
+		else:
+			FE_vector = ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
+			V = FunctionSpace(self.mesh,FE_vector)
+			th_space,_=V.sub(direction_map['th']).collapse()
+
+		# Modified vortex that goes to zero at top boundary
+		self.u_inlet_th=Function(th_space)
+		self.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
 		dirCreator(self.baseflow_path)
 	
 	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
@@ -28,42 +37,48 @@ class SPYB(SPY):
 		self.Q.x.array[self.FS_to_FS1]=self.smoothen(5e-2,self.P,self.FS1,[],lambda spy,p,s:0)
 		self.Q.x.scatter_forward()
 
-	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
-	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,baseflowInit=None,stabilise=False) -> int:
+	def smoothen(self,e):
+		FE_scalar = ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
+		V = FunctionSpace(self.mesh,FE_scalar)
+		u,v=ufl.TrialFunction(V),ufl.TestFunction(V)
+		P,r=self.P,self.r
+		grd,div=lambda v: self.grd_nor(v,0),lambda v: self.div_nor(v,0)
+		a=ufl.inner(u,v)
+		a+=e*ufl.inner(grd(u),grd(v))
+		L=ufl.inner(P,v)
+		pb = dfx.fem.petsc.LinearProblem(a*r*ufl.dx, L*r*ufl.dx, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+		self.P = pb.solve()
+		if p0: print("Smoothing finished !",flush=True)
+	
+	# Careful here Re is only for printing purposes ; self.Re is a more involved function
+	def baseflow(self,Re:int,S:float,hot_start:bool,save:bool=True,baseflowInit=None):
+		# Apply new BC
+		self.inlet_azimuthal_velocity.S=S
+		self.u_inlet_th.interpolate(self.inlet_azimuthal_velocity)
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_=self.Q.split()
 			U.interpolate(baseflowInit)
 
-		# Compute form
-		base_form  = self.navierStokes(self.Q,self.test,dist,stabilise)#+weak_bcs[0] # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist,stabilise)#+weak_bcs[1] # m=0
-		return self.solver(Re,nut,S,base_form,dbase_form,self.Q,refinement=refinement)
+		self.Q = Function(self.TH)
+		_, V_to_TH = self.TH.sub(0).collapse()
+		_, W_to_TH = self.TH.sub(1).collapse()
+		self.Q.x.array[V_to_TH] = self.U.x.array
+		self.Q.x.array[W_to_TH] = self.P.x.array
 
-	def corrector(self,Q0,dQ,dRe,h,Re0:int,nut:int,S:float,d,weak_bcs:tuple) -> int:
-		Qe=self.extend(self.Q)
-		Q0=self.extend(Q0)
-		dQ=self.extend(dQ)
-		u, p, nu, re= ufl.split(self.triale)
-		U, P, Nu, Re= ufl.split(Qe)
-		_, _, _,  w = ufl.split(self.teste)
-		U0,P0,Nu0,_ = ufl.split(Q0)
-		dU,dP,dNu,_ = ufl.split(dQ)
-		self.Re=Re
-		base_form  = self.navierStokes(Qe,self.teste,d,extended=True)+weak_bcs[0]+\
-					 ufl.inner(ufl.inner(dU,U-U0)+ufl.inner(dP,P-P0)+ufl.inner(dNu,Nu-Nu0)+dRe*(Re-Re0)-h,w) # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(self.triale,Qe,self.teste,0,d,extended=True)+weak_bcs[1]+\
-					 ufl.inner(ufl.inner(dU,u)+ufl.inner(dP,p)+ufl.inner(dNu,nu)+dRe*re,w) # No azimuthal decomposition for base flow
-		n=self.solver(Re0,nut,S,base_form,dbase_form,Qe,save=False)
-		self.Q,Re=self.revert(Qe)
+		# Compute form
+		base_form  = self.navierStokes() #no azimuthal decomposition for base flow
+		#dbase_form = self.linearisedNavierStokes(0) # m=0
 		
 		return Re,n
 		
 	# Recomand running in real
 	def solver(self,Re:int,nut:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
 		# Encapsulations
-		problem = NonlinearProblem(base_form,q,bcs=self.bcs,J=dbase_form)
+		problem = NonlinearProblem(base_form,self.Q,bcs=self.bcs)#,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
+
+		if p0: print("self.U.size=",self.U.x.array.size,flush=True)
 		
 		# Fine tuning
 		solver.convergence_criterion = "incremental"
@@ -113,13 +128,9 @@ class SPYB(SPY):
 			self.Q.interpolate(q)
 
 		if save:  # Memoisation
-			if type(S)==int: app=f"_S={S:d}_Re={Re:d}_nut={nut:d}"
-			else: 	 		 app=f"_S={S:00.1f}_Re={Re:d}_nut={nut:d}".replace('.',',')
-			self.saveBaseflow(app)
-			U,_=q.split()
-			self.printStuff(self.print_path,"u"+app,U)
-		
-		return n
+			self.printStuff(self.print_path,f"u_S={S:00.3f}_Re={Re:d}",self.U)
+			self.saveBaseflow("_S={S:00.3f}_Re={Re:d}")
+			if p0: print(".xmdf, .dat written!",flush=True)
 
 	# DESTRUCTIVE !
 	def baseflowRange(self,Ss) -> None:
