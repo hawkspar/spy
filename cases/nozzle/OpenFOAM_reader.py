@@ -11,11 +11,8 @@ sys.path.append('/home/shared/src')
 from spy import dirCreator, meshConvert, findStuff, saveStuff
 
 p0=comm.rank==0
-
-real_mode=False
-interpolate=True
-sanity_check=True
-cell_type="triangle"
+sanity_check=False
+convert=False
 
 # Dimensionalised stuff
 L,H=36,7

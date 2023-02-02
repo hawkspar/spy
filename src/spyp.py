@@ -131,8 +131,13 @@ class SPYP(SPY):
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 <<<<<<< HEAD
+<<<<<<< HEAD
 		w = ufl.TrialFunction(self.FS0c)
 		z = ufl.TestFunction( self.FS0c)
+=======
+		w = ufl.TrialFunction(self.u_space)
+		z = ufl.TestFunction( self.u_space)
+>>>>>>> parent of 6601a3e (Full chain working again)
 =======
 		w = ufl.TrialFunction(self.u_space)
 		z = ufl.TestFunction( self.u_space)
@@ -163,6 +168,9 @@ class SPYP(SPY):
 =======
 		tmp1, tmp2 = Function(self.TH), Function(self.TH)
 		tmp3 = Function(self.u_space)
+<<<<<<< HEAD
+>>>>>>> parent of 6601a3e (Full chain working again)
+=======
 >>>>>>> parent of 6601a3e (Full chain working again)
 
 		# Resolvent operator
@@ -252,6 +260,10 @@ class SPYP(SPY):
 				forcing_i=Function(self.FS0c)
 				# Obtain forcings as eigenvectors
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+				forcing_i=Function(self.u_space)
+>>>>>>> parent of 6601a3e (Full chain working again)
 =======
 				forcing_i=Function(self.u_space)
 >>>>>>> parent of 6601a3e (Full chain working again)

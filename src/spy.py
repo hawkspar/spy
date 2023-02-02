@@ -56,31 +56,18 @@ def fw(Nu,r,W,atol,Re,ikd2):
 	return gv*((1 + cw3**6)/(gv**6 + cw3**6))**(1/6)
 def fwp(Nu,nu,r,W,w,atol,Re,ikd2): return cw3**6*(1 + cw3**6)**(1/6)*gp(Nu,nu,r,W,w,atol,Re,ikd2)/(g(Nu,r,W,atol,Re,ikd2)**6 + cw3**6)**(7/6)
 
-# Vanilla operators
-def grd_nor(r,dx:int,dr:int,dt:int,v,m:int):
+# Cylindrical operators
+def grd(r,dx:int,dr:int,dt:int,v,m:int):
 	if len(v.ufl_shape)==0: return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
 	return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*1j*v[dx]		 /r],
 						  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
 						  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
 
-def div_nor(r,dx:int,dr:int,dt:int,mesh,v,m:int):
-	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*dfx.fem.Constant(mesh, 1j)*v[dt]/r
-	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+(v[dr,dx]+m*1j*v[dt,dx])/r,
-						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+(v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt])/r,
-						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+(v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr])/r])
-
-# Operators with r multiplication
-def grd(r,dx:int,dr:int,dt:int,				 v,m:int,i:int=0):
-	if len(v.ufl_shape)==0: return ufl.as_vector([r*v.dx(dx), i*v+r*v.dx(dr), m*1j*v])
-	return ufl.as_tensor([[r*v[dx].dx(dx), i*v[dx]+r*v[dx].dx(dr), m*1j*v[dx]],
-						  [r*v[dr].dx(dx), i*v[dr]+r*v[dr].dx(dr), m*1j*v[dr]-v[dt]],
-						  [r*v[dt].dx(dx), i*v[dt]+r*v[dt].dx(dr), m*1j*v[dt]+v[dr]]])
-
-def div(r,dx:int,dr:int,dt:int,				 v,m:int,i:int=0):
-	if len(v.ufl_shape)==1: return r*v[dx].dx(dx) + (1+i)*v[dr] + v[dr].dx(dr) + m*1j*v[dt]
-	return ufl.as_vector([r*v[dx,dx].dx(dx)+(1+i)*v[dr,dx].dx(dr)+v[dr,dx]+m*1j*v[dt,dx],
-						  r*v[dx,dr].dx(dx)+(1+i)*v[dr,dr].dx(dr)+v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt],
-						  r*v[dx,dt].dx(dx)+(1+i)*v[dr,dt].dx(dr)+v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr]])
+def div(r,dx:int,dr:int,dt:int,v,m:int):
+	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
+	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+v[dr,dx]+m*1j*v[dt,dx]/r,
+						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*1j*v[dt,dr]-v[dt,dt])/r,
+						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*1j*v[dt,dt]+v[dt,dr])/r])
 
 def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
 	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
@@ -173,46 +160,7 @@ class SPY:
 		with dfx.io.XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		if p0: print("Loaded "+meshpath,flush=True)
-<<<<<<< HEAD
 		self.defineFunctionSpaces()
-=======
-
-		# file handler and complex mode
-		self.io = PetscBinaryIO.PetscBinaryIO(complexscalars=C)
-		self.C=C
-
-		# Extraction of r
-		self.r = ufl.SpatialCoordinate(self.mesh)[direction_map['r']]
-		# Local cell number
-		tdim = self.mesh.topology.dim
-		num_cells = self.mesh.topology.index_map(tdim).size_local + self.mesh.topology.index_map(tdim).num_ghosts
-	
-		# Finite elements & function spaces
-		FE_vector  =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-		FE_scalar  =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-		FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
-		U = FunctionSpace(self.mesh,FE_vector)
-		V = FunctionSpace(self.mesh,FE_scalar)
-		W = FunctionSpace(self.mesh,FE_constant)
-		self.TH=FunctionSpace(self.mesh,FE_vector*FE_scalar) # Taylor Hodd elements ; stable element pair
-		self.u_space, self.u_dofs = self.TH.sub(0).collapse()
-		self.u_dofs=np.array(self.u_dofs)
-		
-		# Test & trial functions
-		self.trial = ufl.TrialFunction(self.TH)
-		self.test  = ufl.TestFunction( self.TH)
-		
-		# Re computation
-		self.Re = Ref(self)
-		# Initialisation of baseflow
-		self.Q = Function(self.TH)
-		# Turbulent viscosity
-		self.nut  = Function(V)
-		self.nutf = nutf
-		# Local mesh size
-		self.h = Function(W)
-		self.h.x.array[:]=dfx.cpp.mesh.h(self.mesh, tdim, range(num_cells))
->>>>>>> parent of 6601a3e (Full chain working again)
 	
 		# Forcing localisation
 		if forcingIndicator==None: self.indic=1
@@ -275,7 +223,6 @@ class SPY:
 		return Q,Re
 
 	# Helper
-<<<<<<< HEAD
 	def loadBaseflow(self,Re:int,nut:int,S:float,p=False):
 		# Load separately
 		loadStuff(self.u_path,['S','nut','Re'],[S,nut,Re],self.U)
@@ -303,7 +250,7 @@ class SPY:
 		if type(self.Nu)==Function: saveStuff(self.nut_path,'nut'+str,self.Nu)
 	
 	# Pseudo-heat equation
-	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs):
+	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs=lambda spy,u,v:0):
 		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		r=self.r
@@ -316,35 +263,6 @@ class SPY:
 		res=pb.solve()
 		res.x.scatter_forward()
 		return res.x.array
-=======
-	def loadBaseflow(self,S,Re,p=False):
-		typ=self.C*"complex/"+(1-self.C)*"real/"
-		# Collapsed subspaces
-		V, u_dofs = self.TH.sub(0).collapse()
-		W, p_dofs = self.TH.sub(0).collapse()
-		U,P = Function(V), Function(W)
-		# Load separetly
-		loadStuff(self.u_path+typ,['S','Re'],[S,Re],U.vector,self.io)
-		if p: loadStuff(self.p_path+typ,['S','Re'],[S,Re],P.vector,self.io)
-		self.nutf(self,S,Re)
-		# Write inside MixedElement
-		self.Q.x.array[u_dofs]=U.x.array
-		self.Q.x.array[p_dofs]=P.x.array
-
-	def saveBaseflow(self,str):
-		typ=self.C*"complex/"+(1-self.C)*"real/"
-		# Collapsed subspaces
-		V, u_dofs = self.TH.sub(0).collapse()
-		W, p_dofs = self.TH.sub(0).collapse()
-		U,P = Function(V), Function(W)
-		# Write inside MixedElement
-		U.x.array[:]=self.Q.x.array[u_dofs]
-		P.x.array[:]=self.Q.x.array[p_dofs]
-		dirCreator(self.u_path)
-		dirCreator(self.p_path)
-		saveStuff(self.u_path+typ,"u"+str+".dat",U.vector,self.io)
-		saveStuff(self.p_path+typ,"p"+str+".dat",P.vector,self.io)
->>>>>>> parent of 6601a3e (Full chain working again)
 
 	def stabilise(self,m):
 		# Split arguments
@@ -400,20 +318,19 @@ class SPY:
 			v, s  = ufl.split(Qt)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		dv,gd=lambda v,i=0: div_nor(r,dx,dr,dt,self.mesh,v,0),lambda v: grd_nor(r,dx,dr,dt,v,0)
+		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
 		r2vs, SUPG = r2vis2(r,dx,dr,dt,1/Re,U,0), stabilise*self.SUPG
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(U),   s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(gd(U)*U, v)#+SUPG)) # Convection
 		F -= ufl.inner(	  P, dv(v)) # Pressure
-		F += ufl.inner((1/Re+Nu)*(gd(U)+gd(U).T),gd(v)) # Diffusion (grad u.T significant with nut)
-		#F += ufl.inner((1/Re+Nu)*gd(U),gd(v,1))
-		#F += ufl.inner(gd(U),  gd(v,1))/Re
+		F += ufl.inner(gd(U)+gd(U).T,
+							 gd(v))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
 		if stabilise:
 			F += ufl.inner(gd(P),r*SUPG)
 			F -= ufl.inner(r2vs,   SUPG)
-		return F*ufl.dx#+self.SA(U,Nu,v,t,dist)
+		return F*r*ufl.dx#+self.SA(U,Nu,v,t,dist)
 	
 	# Heart of this entire code
 	def navierStokesError(self) -> ufl.Form:
@@ -457,14 +374,7 @@ class SPY:
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,q,Q,Qt,m:int,dist,stabilise=False,extended=False) -> ufl.Form:
 		# Shortforms
-<<<<<<< HEAD
 		r,Re=self.r,self.Re
-=======
-		r,nu=self.r,1/self.Re+self.nut
-		div,grd=self.div,self.grd
-		SUPG,r2vis=self.SUPG,self.r2vis
-		
->>>>>>> parent of 6601a3e (Full chain working again)
 		# Functions
 		if extended:
 			u, p, nu, _ = ufl.split(q)
@@ -477,49 +387,26 @@ class SPY:
 			v, s = ufl.split(Qt)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		dv,gd=lambda v,m: div_nor(r,dx,dr,dt,self.mesh,v,m),lambda v,m: grd_nor(r,dx,dr,dt,v,m)
+		dv,gd=lambda v,m: div(r,dx,dr,dt,v,m),lambda v,m: grd(r,dx,dr,dt,v,m)
 		r2vs, SUPG = r2vis2(r,dx,dr,dt,1/Re,u,m), stabilise*self.SUPG
 		# Mass (variational formulation)
-		F  = ufl.inner(dv(u,m),     s)
+		F  = ufl.inner(dv(u,m),   s)
 		# Momentum (different test functions and IBP)
-<<<<<<< HEAD
-		F += ufl.inner(gd(U,0)*u, r*v)#+SUPG)) # Convection
-		F += ufl.inner(gd(u,m)*U, r*v)#+SUPG))
-		F -= ufl.inner(  r*p,    dv(v,m)) # Pressure
-		F += ufl.inner((1/Re+Nu)*(gd(u,m)+gd(u,m).T),gd(v,m)) # Diffusion (grad u.T significant with nut)
-		#F += ufl.inner((1/Re+Nu)*gd(u,m),gd(v,m,1))
-		#F += ufl.inner(gd(u,m),gd(v,m,1))/Re
+		F += ufl.inner(gd(U,0)*u, v)#+SUPG)) # Convection
+		F += ufl.inner(gd(u,m)*U, v)#+SUPG))
+		F -= ufl.inner(   p,   dv(v,m)) # Pressure
+		F += ufl.inner(gd(u,m)+gd(u,m).T,
+							   gd(v,m))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
 		if stabilise:
 			F += ufl.inner(gd(p,m),r*SUPG)
 			F -= ufl.inner(r2vs,	 SUPG)
-		#F += ufl.inner(div(u,m),self.grd_div)
-		return F*ufl.dx#+self.SAlin(U,Nu,u,nu,v,t,m,dist)
+		return F*r*ufl.dx#+self.SAlin(U,Nu,u,nu,v,t,m,dist)
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary:bool, value:float=0, subspace_i:int=0) -> tuple:
 		subspace=self.FS.sub(subspace_i)
 		if subspace_i==0: subspace=subspace.sub(self.direction_map[direction])
 		subspace_collapsed,_=subspace.collapse()
-=======
-		F += ufl.inner(	   grd(U,0)*u,   r*v+SUPG) # Convection
-		F += ufl.inner(	   grd(u,m)*U,   r*v+SUPG)
-		F -= ufl.inner(	       p,    r*div(v,m,1)) # Pressure
-		#F += ufl.inner(	   grd(p,m),	   	 r*SUPG)
-		F += ufl.inner(nu*(grd(u,m)+
-					   	   grd(u,m).T),grd(v,m,1)) # Diffusion (grad u.T significant with nut)
-		#F -= ufl.inner(  r2vis(u,m),		   SUPG)
-		return F*ufl.dx
-		
-	# Code factorisation
-	def constantBC(self, direction:chr, boundary, value=0) -> tuple:
-		if full_TH:
-			sub_space=self.TH.sub(0).sub(self.direction_map[direction])
-		else:
-			FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-			U = FunctionSpace(self.mesh,FE_vector)
-			sub_space=U.sub(self.direction_map[direction])
-		sub_space_collapsed,_=sub_space.collapse()
->>>>>>> parent of 6601a3e (Full chain working again)
 		# Compute unflattened DoFs (don't care for flattened ones)
 		dofs = dfx.fem.locate_dofs_geometrical((subspace, subspace_collapsed), boundary)
 		cst = Function(subspace_collapsed)
@@ -533,19 +420,11 @@ class SPY:
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.append(bcs)
 
-<<<<<<< HEAD
 	def applyHomogeneousBCs(self, tup:list, subspace_i:int=0) -> None:
 		for marker,directions in tup:
 			for direction in directions:
 				dofs,bcs=self.constantBC(direction,marker,subspace_i=subspace_i)
 				self.applyBCs(dofs,bcs)
-=======
-	def applyHomogeneousBCs(self, tup:list,full_TH:bool=True) -> None:
-		for marker,directions in tup:
-			for direction in directions:
-				dofs,bcs=self.constantBC(direction,marker,full_TH=full_TH)
-				self.applyBCs(dofs,[bcs])
->>>>>>> parent of 6601a3e (Full chain working again)
 
 	def printStuff(self,dir:str,name:str,fun:Function) -> None:
 		dirCreator(dir)
@@ -555,7 +434,6 @@ class SPY:
 		if p0: print("Printed "+dir+name.replace('.',',')+".xdmf",flush=True)
 	
 	# Quick check functions
-<<<<<<< HEAD
 	def sanityCheckU(self,app=""):
 		self.U.x.array[:]=self.Q.x.array[self.FS_to_FS0]
 		self.printStuff("./","sanity_check_u"+app,self.U)
@@ -585,23 +463,7 @@ class SPY:
 
 	def sanityCheckBCs(self):
 		v=Function(self.FS)
-=======
-	def sanityCheckU(self):
-		self.printStuff("./","sanity_check_u",self.U)
-
-	def sanityCheck(self):
-		self.printStuff("./","sanity_check_u",  self.U)
-		self.printStuff("./","sanity_check_p",  self.P)
-		self.printStuff("./","sanity_check_nut",self.nut)
-
-	def sanityCheckBCs(self,full_TH=True):
-		if full_TH: v=Function(self.TH)
-		else:
-			FE_vector=ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
-			U = FunctionSpace(self.mesh,FE_vector)
-			v=Function(U)
->>>>>>> parent of 6601a3e (Full chain working again)
 		v.vector.zeroEntries()
 		v.x.array[self.dofs]=np.ones(self.dofs.size)
-		if full_TH: v,_=v.split()
+		v,_=v.split()
 		self.printStuff("./","sanity_check_bcs",v)
