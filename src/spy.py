@@ -74,16 +74,6 @@ def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
     m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
 								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
 
-def r2vis( r,dx:int,dr:int,dt:int,nu,v,m:int):
-	return ufl.as_vector([2*r**2*(nu*v[dx].dx(dx)).dx(dx)			  +r*(r*nu*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dr)+m*1j*nu*(r*v[dt].dx(dx)+m*1j*v[dx]),
-							r**2*(nu*(v[dr].dx(dx)+v[dx].dx(dr))).dx(dx)+r*(2*r*nu*v[dr].dx(dr)).dx(dr)			  +m*1j*nu*(r*v[dt].dx(dr)+m*1j*v[dr])-2*m*1j*nu*v[dt],
-							r  *(nu*(r*v[dt].dx(dx)+m*1j*v[dx])).dx(dx) +r*(nu*(r*v[dt].dx(dr)+m*1j*v[dr])).dx(dr)-2*m**2*nu*v[dt]					  +nu*(r*v[dt].dx(dr)+m*1j*v[dr])])
-
-def r2vis2(r,dx:int,dr:int,dt:int,nu,v,m:int):
-	return ufl.as_vector([r**2*(nu*v[dx].dx(dx)).dx(dx)+r*(r*nu*v[dr].dx(dx)).dx(dr)+m*1j*nu*r*v[dt].dx(dx),
-							r**2*(nu*v[dx].dx(dr)).dx(dx)+r*(r*nu*v[dr].dx(dr)).dx(dr)+m*1j*nu*r*v[dt].dx(dr)-m*1j*nu*v[dt],
-							r   *m*1j*(nu*v[dx]).dx(dx)  +r*m*1j*(nu*v[dr]).dx(dr)	-m**2*nu*v[dt]		   +m*1j*nu*v[dr]])
-
 def checkComm(f:str):
 	match = re.search(r'n=(\d*)',f)
 	if int(match.group(1))!=comm.size: return False
@@ -108,22 +98,22 @@ def meshConvert(path:str,cell_type:str='triangle',prune=True) -> None:
 	print("Mesh "+path+".msh converted to "+path+".xdmf !",flush=True)
 
 # Memoisation routine - find closest in param
-def findStuff(path:str,keys:list,params:list,format=lambda f:True,distributed=True):
+def findStuff(path:str,params:dict,format=lambda f:True,distributed=True):
 	closest_file_name=path
 	file_names = [f for f in os.listdir(path) if format(f)]
 	d=np.infty
 	for file_name in file_names:
 		if not distributed or checkComm(file_name): # Lazy evaluation !
 			fd=0 # Compute distance according to all params
-			for param,key in zip(params,keys):
-				match = re.search(key+r'=(\d*(,|e|-|j|\+)?\d*)',file_name)
+			for param in params:
+				match = re.search(param+r'=(\d*(,|e|-|j|\+)?\d*)',file_name)
 				param_file = float(match.group(1).replace(',','.')) # Take advantage of file format
-				fd += abs(param-param_file)
+				fd += abs(params[param]-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
 	return closest_file_name
 
-def loadStuff(path:str,keys:list,params:list,fun:Function) -> None:
-	closest_file_name=findStuff(path,keys,params,lambda f: f[-3:]=="npy")
+def loadStuff(path:str,params:dict,fun:Function) -> None:
+	closest_file_name=findStuff(path,params,lambda f: f[-3:]=="npy")
 	fun.x.array[:]=np.load(closest_file_name,allow_pickle=True)
 	fun.x.scatter_forward()
 	# Loading eddy viscosity too
@@ -225,9 +215,9 @@ class SPY:
 	# Helper
 	def loadBaseflow(self,Re:int,nut:int,S:float,p=False):
 		# Load separately
-		loadStuff(self.u_path,['S','nut','Re'],[S,nut,Re],self.U)
-		loadStuff(self.nut_path,['S','nut','Re'],[S,nut,Re],self.Nu)
-		if p: loadStuff(self.p_path,['S','nut','Re'],[S,nut,Re],self.P)
+		loadStuff(self.u_path,{'Re':Re,'nut':nut,'S':S},self.U)
+		loadStuff(self.nut_path,{'Re':Re,'nut':nut,'S':S},self.Nu)
+		if p: loadStuff(self.p_path,{'Re':Re,'nut':nut,'S':S},self.P)
 		# Write inside MixedElement
 		self.Q.x.array[self.FS_to_FS0]=self.U.x.array
 		#self.Q.x.array[self.FS_to_FS2]=self.Nu.x.array
@@ -249,42 +239,6 @@ class SPY:
 		saveStuff(self.p_path,'p'+str,self.P)
 		if type(self.Nu)==Function: saveStuff(self.nut_path,'nut'+str,self.Nu)
 	
-	# Pseudo-heat equation
-	def smoothen(self, e:float, fun:Function, space:FunctionSpace, bcs, weak_bcs=lambda spy,u,v:0):
-		u,v=ufl.TrialFunction(space),ufl.TestFunction(space)
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		r=self.r
-		gd=lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		a=ufl.inner(u,v)*r**2
-		a+=e*ufl.inner(gd(u),gd(v,1))
-		L=ufl.inner(fun,v)
-		pb = dfx.fem.petsc.LinearProblem(a*ufl.dx+weak_bcs(self,u,v), L*r**2*ufl.dx, bcs=bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
-		if p0: print("Smoothing started...",flush=True)
-		res=pb.solve()
-		res.x.scatter_forward()
-		return res.x.array
-
-	def stabilise(self,m):
-		# Split arguments
-		U,_ = ufl.split(self.Q)
-		v,_ = ufl.split(self.test)
-		Nu=self.Nu
-		# Important ! Otherwise n is nonsense
-		self.U.x.array[:]=self.Q.x.array[self.FS_to_FS0]
-		# Shorthands
-		nu=1/self.Re+Nu
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		gdv=grd(self.r,dx,dr,dt,v,m)
-		# Local mesh size
-		h = ufl.CellDiameter(self.mesh)
-		# Weird Johann local tau (SUPG stabilisation)
-		i=ufl.Index()
-		n=ufl.sqrt(self.U[i]*self.U[i])
-		Pe=ufl.real(n*h/2/nu)
-		z=ufl.conditional(ufl.le(Pe,3),Pe/3,1)
-		tau=z*h/2/n
-		self.SUPG = tau*gdv*U # Streamline Upwind Petrov Galerkin
-
 	def SA(self, U, Nu, v, t, d):
 		# Shortforms
 		r, Re = self.r, self.Re
@@ -305,7 +259,7 @@ class SPY:
 		return F+G*ufl.dx(degree=30)
 	
 	# Heart of this entire code
-	def navierStokes(self,Q,Qt,dist,stabilise=False,extended=False) -> ufl.Form:
+	def navierStokes(self,Q,Qt,dist,extended=False) -> ufl.Form:
 		# Shortforms
 		r, Re = self.r, self.Re
 		# Functions
@@ -319,7 +273,6 @@ class SPY:
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
-		r2vs, SUPG = r2vis2(r,dx,dr,dt,1/Re,U,0), stabilise*self.SUPG
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(U),   s)
 		# Momentum (different test functions and IBP)
@@ -327,12 +280,9 @@ class SPY:
 		F -= ufl.inner(	  P, dv(v)) # Pressure
 		F += ufl.inner(gd(U)+gd(U).T,
 							 gd(v))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
-		if stabilise:
-			F += ufl.inner(gd(P),r*SUPG)
-			F -= ufl.inner(r2vs,   SUPG)
 		return F*r*ufl.dx#+self.SA(U,Nu,v,t,dist)
 	
-	# Heart of this entire code
+	# Direct expression to quantify error
 	def navierStokesError(self) -> ufl.Form:
 		# Shortforms
 		r, Re = self.r, self.Re
@@ -372,7 +322,7 @@ class SPY:
 		return F+G*ufl.dx(degree=30)
 		
 	# Not automatic because of convection term
-	def linearisedNavierStokes(self,q,Q,Qt,m:int,dist,stabilise=False,extended=False) -> ufl.Form:
+	def linearisedNavierStokes(self,q,Q,Qt,m:int,dist,extended=False) -> ufl.Form:
 		# Shortforms
 		r,Re=self.r,self.Re
 		# Functions
@@ -388,7 +338,6 @@ class SPY:
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,m: div(r,dx,dr,dt,v,m),lambda v,m: grd(r,dx,dr,dt,v,m)
-		r2vs, SUPG = r2vis2(r,dx,dr,dt,1/Re,u,m), stabilise*self.SUPG
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(u,m),   s)
 		# Momentum (different test functions and IBP)
@@ -397,9 +346,6 @@ class SPY:
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
-		if stabilise:
-			F += ufl.inner(gd(p,m),r*SUPG)
-			F -= ufl.inner(r2vs,	 SUPG)
 		return F*r*ufl.dx#+self.SAlin(U,Nu,u,nu,v,t,m,dist)
 
 	# Code factorisation
@@ -444,7 +390,8 @@ class SPY:
 		#self.Nu.x.array[:]=self.Nu.x.array[:]
 
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		expr=dfx.fem.Expression(div_nor(self.r,dx,dr,dt,self.mesh,self.U,0),self.FS1.element.interpolation_points())
+		expr=dfx.fem.Expression(self.U[dx].dx(dx) + (self.r*self.U[dr]).dx(dr)/self.r,
+								self.FS1.element.interpolation_points())
 		div = Function(self.FS1)
 		div.interpolate(expr)
 		self.printStuff("./","sanity_check_div"+app,div)

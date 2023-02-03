@@ -1,6 +1,6 @@
 import numpy as np
 import meshio, ufl, sys #pip3 install --no-binary=h5py h5py meshio
-from setup import Re, nut, S, params
+from setup import nut, S, params
 from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
@@ -22,7 +22,7 @@ sin,cos=np.sin(O),np.cos(O)
 # Read OpenFOAM, write mesh
 if p0:
     # Searching closest file with respect to setup parameters
-    closest_file_name=findStuff("./baseflow/OpenFOAM/",['S','Re'],[S,nut], lambda f: f[-3:]=="xmf",False)
+    closest_file_name=findStuff("./baseflow/OpenFOAM/",{'S':S,'Re':nut}, lambda f: f[-3:]=="xmf",False)
     # Read OpenFOAM data
     openfoam_data = meshio.read(closest_file_name)
     print("Loaded "+closest_file_name+" successfully !", flush=True)

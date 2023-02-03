@@ -9,6 +9,7 @@ import numpy as np
 from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm, MIN, MAX
+
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem import Function, Expression
 from dolfinx.fem.petsc import NonlinearProblem
@@ -22,24 +23,17 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, mesh_name, direction_map)
 		dirCreator(self.baseflow_path)
-	
-	def smoothenBaseflow(self,bcs_u,weak_bcs_u):
-		self.Q.x.array[self.FS_to_FS0]=self.smoothen(5e-3,self.U,self.FS0,bcs_u,weak_bcs_u)
-		self.Q.x.array[self.FS_to_FS1]=self.smoothen(5e-2,self.P,self.FS1,[])
-		self.Q.x.scatter_forward()
-		self.Nu.x.array[:]=self.smoothen(1,self.Nu,self.FS2,[])
-		self.Nu.x.scatter_forward()
 
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
-	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,baseflowInit=None,stabilise=False) -> int:
+	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,baseflowInit=None) -> int:
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_=self.Q.split()
 			U.interpolate(baseflowInit)
 
 		# Compute form
-		base_form  = self.navierStokes(self.Q,self.test,dist,stabilise)#+weak_bcs[0] # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist,stabilise)#+weak_bcs[1] # m=0
+		base_form  = self.navierStokes(self.Q,self.test,dist)#+weak_bcs[0] # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist)#+weak_bcs[1] # m=0
 		return self.solver(Re,nut,S,base_form,dbase_form,self.Q,refinement=refinement)
 
 	def corrector(self,Q0,dQ,dRe,h,Re0:int,nut:int,S:float,d,weak_bcs:tuple) -> int:

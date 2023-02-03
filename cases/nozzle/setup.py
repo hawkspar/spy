@@ -17,7 +17,7 @@ from spy import SPY, grd
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,nut,Re=0,400000,1000
+S,nut,Re=1,400000,1000
 h=2.5e-4
 
 # Numerical Parameters

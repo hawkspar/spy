@@ -12,30 +12,17 @@ spyb=SPYB(params,datapath,"perturbations",direction_map)
 u_inlet_th,class_th=boundaryConditionsBaseflow(spyb,0)
 # Shorthands
 d=dist(spyb)
-Re,nut=1000,400000
 
+loadStuff(spyb.nut_path,{'S':0,'nut':Re,'Re':Re},spyb.Nu)
 spyb.Re=Re
-spyb.stabilise(0)
-
-"""loadStuff(spyb.nut_path,['S','nut','Re'],[0,nut,nut],spyb.Nu)
-spyb.baseflow(Re,nut,0,d)
-for nut in [10000,100000,400000]:
-	loadStuff(spyb.nut_path,['S','nut','Re'],[0,nut,nut],spyb.Nu)
-	spyb.baseflow(Re,nut,0,d)"""
-
-spyb.loadBaseflow(1000,400000,0,True)
+spyb.baseflow(Re,Re,0,d,baseflowInit=baseflowInit)
 for Re in [10000,100000,400000]:
+	loadStuff(spyb.nut_path,{'S':0,'nut':Re,'Re':Re},spyb.Nu)
 	spyb.Re=Re
-	spyb.baseflow(Re,nut,0,d)
-
-"""for Re in np.logspace(4,5,5,True,10):
-	Re=int(Re)
-	Ref(spyb,Re)
-	loadStuff(spyb.nut_path,['S','nut','Re'],[0,Re,Re],spyb.Nu)
 	spyb.baseflow(Re,Re,0,d)
-#spyb.loadBaseflow(Re,nut,0,True)
-for S in np.linspace(.1,1,6):
+
+for S in np.linspace(.1,1,4):
 	class_th.S=S
 	u_inlet_th.interpolate(class_th)
-	loadStuff(spyb.nut_path,['S','nut','Re'],[S,nut,nut],spyb.Nu)
-	print("# iterations :",spyb.baseflow(Re,nut,S,d))"""
+	loadStuff(spyb.nut_path,{'S':S,'nut':nut,'Re':nut},spyb.Nu)
+	spyb.baseflow(nut,nut,S,d)
