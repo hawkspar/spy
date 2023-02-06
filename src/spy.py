@@ -88,7 +88,7 @@ def dirCreator(path:str):
 
 # Simple handler
 def meshConvert(path:str,cell_type:str='triangle',prune=True) -> None:
-	import meshio #pip3 install --no-binary=h5py h5py meshio
+	import meshio #pip3 install h5py meshio
 	gmsh_mesh = meshio.read(path+".msh")
 	# Write it out again
 	ps = gmsh_mesh.points[:,:(3-prune)]

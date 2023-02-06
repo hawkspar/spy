@@ -13,15 +13,14 @@ u_inlet_th,class_th=boundaryConditionsBaseflow(spyb,0)
 # Shorthands
 d=dist(spyb)
 
-loadStuff(spyb.nut_path,{'S':0,'nut':Re,'Re':Re},spyb.Nu)
-spyb.Re=Re
-spyb.baseflow(Re,Re,0,d,baseflowInit=baseflowInit)
+loadStuff(spyb.nut_path,{'S':0,'nut':1000,'Re':1000},spyb.Nu)
+spyb.Re=1000
+spyb.baseflow(1000,1000,0,d,baseflowInit=baseflowInit)
 for Re in [10000,100000,400000]:
 	loadStuff(spyb.nut_path,{'S':0,'nut':Re,'Re':Re},spyb.Nu)
 	spyb.Re=Re
 	spyb.baseflow(Re,Re,0,d)
-
-for S in np.linspace(.1,1,4):
+for S in np.linspace(.2,1,5):
 	class_th.S=S
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{'S':S,'nut':nut,'Re':nut},spyb.Nu)

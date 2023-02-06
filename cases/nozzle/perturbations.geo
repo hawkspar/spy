@@ -1,7 +1,7 @@
 // Gmsh project created on Fri May 15 17:21:02 2020
 Mesh.MshFileVersion = 2.2;
 R=1;
-L=35*R; H=6*R;
+L=40*R; H=8*R;
 r=1e-3; h = 2.5e-4;
 
 // Base 'rectangle'

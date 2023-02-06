@@ -130,18 +130,8 @@ class SPYP(SPY):
 		# Velocity and full space functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
-<<<<<<< HEAD
-<<<<<<< HEAD
 		w = ufl.TrialFunction(self.FS0c)
 		z = ufl.TestFunction( self.FS0c)
-=======
-		w = ufl.TrialFunction(self.u_space)
-		z = ufl.TestFunction( self.u_space)
->>>>>>> parent of 6601a3e (Full chain working again)
-=======
-		w = ufl.TrialFunction(self.u_space)
-		z = ufl.TestFunction( self.u_space)
->>>>>>> parent of 6601a3e (Full chain working again)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
 		B_form = ufl.inner(w,v+stab*self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
@@ -162,16 +152,8 @@ class SPYP(SPY):
 		m_local,n_local = B.getLocalSize()
 
 		# Temporary vectors
-<<<<<<< HEAD
 		tmp1, tmp2 = Function(self.FS), Function(self.FS)
 		tmp3 = Function(self.FS0c)
-=======
-		tmp1, tmp2 = Function(self.TH), Function(self.TH)
-		tmp3 = Function(self.u_space)
-<<<<<<< HEAD
->>>>>>> parent of 6601a3e (Full chain working again)
-=======
->>>>>>> parent of 6601a3e (Full chain working again)
 
 		# Resolvent operator
 		class R_class:
@@ -259,14 +241,6 @@ class SPYP(SPY):
 				# Save on a proper compressed space
 				forcing_i=Function(self.FS0c)
 				# Obtain forcings as eigenvectors
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-				forcing_i=Function(self.u_space)
->>>>>>> parent of 6601a3e (Full chain working again)
-=======
-				forcing_i=Function(self.u_space)
->>>>>>> parent of 6601a3e (Full chain working again)
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/",save_string+f"_i={i+1:d}",forcing_i)
