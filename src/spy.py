@@ -213,11 +213,11 @@ class SPY:
 		return Q,Re
 
 	# Helper
-	def loadBaseflow(self,Re:int,nut:int,S:float,p=False):
+	def loadBaseflow(self,Re:int,S:float,p=False):
 		# Load separately
-		loadStuff(self.u_path,{'Re':Re,'nut':nut,'S':S},self.U)
-		loadStuff(self.nut_path,{'Re':Re,'nut':nut,'S':S},self.Nu)
-		if p: loadStuff(self.p_path,{'Re':Re,'nut':nut,'S':S},self.P)
+		loadStuff(self.u_path,{'Re':Re,'S':S},self.U)
+		loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
+		if p: loadStuff(self.p_path,{'Re':Re,'S':S},self.P)
 		# Write inside MixedElement
 		self.Q.x.array[self.FS_to_FS0]=self.U.x.array
 		#self.Q.x.array[self.FS_to_FS2]=self.Nu.x.array

@@ -25,20 +25,19 @@ class SPYB(SPY):
 		dirCreator(self.baseflow_path)
 
 	def smoothen(self, e:float):
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		r=self.r
 		u, p  = ufl.split(self.trial)
 		U, P  = ufl.split(self.Q)
 		v, s  = ufl.split(self.test)
-		gd=lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		a=ufl.inner(u,v)+e*ufl.inner(gd(u),gd(v,1))+ufl.inner(p,s)
+		gd=lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		a=ufl.inner(u,v)+e*ufl.inner(gd(u),gd(v))+ufl.inner(p,s)
 		L=ufl.inner(U,v)+ufl.inner(P,s)
-		pb = LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+		pb = LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs, petsc_options={"ksp_type": "cg", "ksp_rtol":1e-6, "ksp_atol":1e-9, "ksp_max_it": 100, "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
 		if p0: print("Smoothing started...",flush=True)
 		self.Q=pb.solve()
 
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
-	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,baseflowInit=None) -> int:
+	def baseflow(self,Re:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_=self.Q.split()
@@ -47,9 +46,9 @@ class SPYB(SPY):
 		# Compute form
 		base_form  = self.navierStokes(self.Q,self.test,dist)#+weak_bcs[0] # No azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist)#+weak_bcs[1] # m=0
-		return self.solver(Re,nut,S,base_form,dbase_form,self.Q,refinement=refinement)
+		return self.solver(Re,S,base_form,dbase_form,self.Q,refinement=refinement,save=save)
 
-	def corrector(self,Q0,dQ,dRe,h,Re0:int,nut:int,S:float,d,weak_bcs:tuple) -> int:
+	def corrector(self,Q0,dQ,dRe,h,Re0:int,S:float,d,weak_bcs:tuple) -> int:
 		Qe=self.extend(self.Q)
 		Q0=self.extend(Q0)
 		dQ=self.extend(dQ)
@@ -63,13 +62,13 @@ class SPYB(SPY):
 					 ufl.inner(ufl.inner(dU,U-U0)+ufl.inner(dP,P-P0)+ufl.inner(dNu,Nu-Nu0)+dRe*(Re-Re0)-h,w) # No azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(self.triale,Qe,self.teste,0,d,extended=True)+weak_bcs[1]+\
 					 ufl.inner(ufl.inner(dU,u)+ufl.inner(dP,p)+ufl.inner(dNu,nu)+dRe*re,w) # No azimuthal decomposition for base flow
-		n=self.solver(Re0,nut,S,base_form,dbase_form,Qe,save=False)
+		n=self.solver(Re0,S,base_form,dbase_form,Qe,save=False)
 		self.Q,Re=self.revert(Qe)
 		
 		return Re,n
 		
 	# Recomand running in real
-	def solver(self,Re:int,nut:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
+	def solver(self,Re:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
 		# Encapsulations
 		problem = NonlinearProblem(base_form,q,bcs=self.bcs,J=dbase_form)
 		solver  = NewtonSolver(comm, problem)
@@ -122,8 +121,8 @@ class SPYB(SPY):
 			self.Q.interpolate(q)
 
 		if save:  # Memoisation
-			if type(S)==int: app=f"_S={S:d}_Re={Re:d}_nut={nut:d}"
-			else: 	 		 app=f"_S={S:00.1f}_Re={Re:d}_nut={nut:d}".replace('.',',')
+			if type(S)==int: app=f"_Re={Re:d}_S={S:d}"
+			else: 	 		 app=f"_Re={Re:d}_S={S:00.1f}".replace('.',',')
 			self.saveBaseflow(app)
 			U,_=q.split()
 			self.printStuff(self.print_path,"u"+app,U)

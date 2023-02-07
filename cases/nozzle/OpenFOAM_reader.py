@@ -1,6 +1,6 @@
 import numpy as np
 import meshio, ufl, sys #pip3 install h5py meshio
-from setup import nut, S, params
+from setup import params
 from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
@@ -15,27 +15,27 @@ sanity_check=False
 convert=False
 
 # Relevant parameters
-nuts=[1000,10000,100000,400000]
+Res=[1000,10000,100000,400000]
 Ss=[0,.2,.4,.6,.8,1]
 
 # Convert mesh
-if convert: meshConvert("perturbations")
+if convert: meshConvert("baseflow")
 # Read it again in dolfinx - now it's a dolfinx object and it's split amongst procs
-with XDMFFile(comm, "perturbations.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
-if p0: print("Loaded perturbations.xdmf successfully !")
+with XDMFFile(comm, "baseflow.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
+if p0: print("Loaded baseflow.xdmf successfully !")
 
 # Dimensionalised stuff
 L,H=50.5,10
 O=np.pi/360 # 0.5°
 sin,cos=np.sin(O),np.cos(O)
 
-for nut in nuts:
+for Re in Res:
     for S in Ss:
-        if S!=0 and nut!=400000: continue
+        if S!=0 and Re!=400000: continue
         # Read OpenFOAM, write mesh
         if p0:
             # Searching closest file with respect to setup parameters
-            closest_file_name=findStuff("./baseflow/OpenFOAM/",{'S':S,'Re':nut}, lambda f: f[-3:]=="xmf",False)
+            closest_file_name=findStuff("./baseflow/OpenFOAM/",{'S':S,'Re':Re}, lambda f: f[-3:]=="xmf",False)
             # Read OpenFOAM data
             openfoam_data = meshio.read(closest_file_name)
             print("Loaded "+closest_file_name+" successfully !", flush=True)
@@ -101,8 +101,8 @@ for nut in nuts:
         pre="./baseflow"
         dirCreator(pre)
 
-        if type(S)==int: app=f"_S={S:d}_Re={nut:d}_nut={nut:d}"
-        else:            app=f"_S={S:.1f}_Re={nut:d}_nut={nut:d}".replace('.',',')
+        if type(S)==int: app=f"_Re={Re:d}_S={S:d}"
+        else:            app=f"_Re={Re:d}_S={S:.1f}".replace('.',',')
 
         # Save
         saveStuff(pre+"/u/",  "u"  +app,U)

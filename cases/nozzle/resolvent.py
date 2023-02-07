@@ -12,14 +12,20 @@ from mpi4py.MPI import COMM_WORLD as comm
 
 ms=range(-5,5)
 Sts=np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.01,10)))
-Ss=[0,.4,1]
+Ss=[1]#0,.4,1]
 # Shorthands
 Re=400000
+L=50
+spy = SPY(params,datapath,'baseflow',direction_map)
+spy.loadBaseflow(Re,S)
 spyp=SPYP(params,datapath,"perturbations",direction_map)#,forcingIndicator)
 spyp.Re=Re
 d=dist(spyp)
 for S in Ss:
-	spyp.loadBaseflow(Re,Re,S)
+	spy.U.x.array[:]=spy.Q.x.array[spy.FS_to_FS0]
+	spyp.U.interpolate(spy.U)
+	spyp.Q.x.array[spyp.FS_to_FS0]=spyp.U.x.array
+	spyp.Nu.interpolate(spy.Nu)
 	for m in ms:
 		boundaryConditionsPerturbations(spyp,m)
 		# For efficiency, matrices assembled once per Sts

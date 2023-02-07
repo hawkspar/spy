@@ -70,6 +70,16 @@ class SPYP(SPY):
 		dirCreator(self.baseflow_path)
 
 	# To be run in complex mode, assemble crucial matrices
+	def loadBaseflowCut(self,datapath:str,Re:int,S:float,L:float) -> None:
+		spy = SPY(self.params,datapath,'baseflow',self.direction_map)
+		spy.loadBaseflow(Re,S)
+		X0 = spy.FS0.tabulate_dof_coordinates()
+		X1 = spy.FS2.tabulate_dof_coordinates()
+		msk0, msk1 = np.repeat(X0[:,0]<L,3), X1[:,0]<L
+		self.Q.x.array[self.FS_to_FS0]=spy.Q.x.array[self.FS_to_FS0][msk0]
+		self.Nu.x.array=spy.Nu.x.array[msk1]
+
+	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self,m:int,d,stab=False,weak_bcs=0) -> None:
 		# Functions
 		u,_ = ufl.split(self.trial)

@@ -27,9 +27,6 @@ Point(16) = { .3*R,  .7*R,   0,   4*r};
 Point(17) = { 30*R,  .2*R,   0, 150*r};
 Point(18) = { 30*R, 1.2*R,   0, 150*r};
 Point(19) = { .3*R, 1.1*R,   0,   5*r};
-// Extra padding zone
-Point(20) = {1.01*L,0,0,300*r};
-Point(21) = {1.01*L,H,0,300*r};
 
 // Main rectangle
 Line(1)  = {1,   2};
@@ -56,16 +53,11 @@ Line(18) = {13, 12};
 Line(19) = {12, 11};
 Line(20) = {11, 10};
 Line(21) = {10,  8};
-// Padding
-Line(22) = {2,  20};
-Line(23) = {20, 21};
-Line(24) = {21, 3};
 
 // Surfaces
 Line Loop(1) =  {1,  2,  3,  4,  6, 12, 13, 14, 15, 16, 11,  5};
 Line Loop(2) = {12, 13, 14, 15, 16,-10,-21,-20,-19,-18,-17, -7};
 Line Loop(3) = {17, 18, 19, 20, 21, -9, -8};
-Line Loop(4) = {22, 23, 24,-2};
-For i In {1:4}
+For i In {1:3}
 	Plane Surface(i) = {i};
 EndFor
