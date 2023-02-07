@@ -38,20 +38,29 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	return Mat
 
 # Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict) -> None:
+def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
 	# Krylov subspace
 	KSP.setType('preonly')
 	# Preconditioner
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
-	PC.setFactorSetUpSolverType(...)
 	KSP.setFromOptions()
+	#PC.setFactorSetUpSolverType()
+	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,75)
 
 # Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict) -> None:
+def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
+	# Spectral transform
+	ST = EPS.getST()
+	if shift:
+		ST.setType('sinvert')
+		ST.getOperator() # CRITICAL TO MUMPS ICNTL
+	KSP = ST.getKSP()
+	configureKSP(KSP,params,shift)
+	EPS.setFromOptions()
 	#EPS.setTrueResidual(True)
 
 # Swirling Parallel Yaj Perturbations
@@ -69,7 +78,7 @@ class SPYP(SPY):
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,m,d,stab)+weak_bcs
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,v+stab*self.SUPG)*self.r**2*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v)*self.r*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
@@ -85,26 +94,11 @@ class SPYP(SPY):
 		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is not hermitian, but M is semi-definite
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		EPS.setTarget(sigma)
-		configureEPS(EPS,k,self.params)
+		configureEPS(EPS,k,self.params,True)
 		if hot_start:
 			q_0=Function(self.FS)
 			loadStuff(self.eig_path+"q/",["Re","nut","S","m","l"],[Re,nut,S,m,sigma],q_0)
 			EPS.setInitialSpace(q_0.vector)
-		# Spectral transform
-		ST = EPS.getST(); ST.setType('sinvert')
-		# Krylov subspace
-		KSP = ST.getKSP()
-		KSP.setTolerances(rtol=self.params['rtol'], atol=self.params['atol'], max_it=self.params['max_iter'])
-		# Krylov subspace
-		KSP.setType('preonly')
-		# Preconditioner
-		PC = KSP.getPC(); PC.setType('lu')
-		PC.setFactorSolverType('mumps')
-		ST.getOperator()
-		PC.setFactorSetUpSolverType()
-		KSP.setFromOptions()
-		PC.getFactorMatrix().setMumpsIcntl(14,75)
-		EPS.setFromOptions()
 		if p0: print(f"Solver launch for sig={sigma:.1f}...",flush=True)
 		EPS.solve()
 		n=EPS.getConverged()
@@ -134,7 +128,7 @@ class SPYP(SPY):
 		z = ufl.TestFunction( self.FS0c)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form = ufl.inner(w,v+stab*self.SUPG)*self.r**2*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
+		B_form = ufl.inner(w,v)*self.r*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
@@ -207,13 +201,7 @@ class SPYP(SPY):
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			EPS.setProblemType(slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			configureEPS(EPS,k,self.params)
-			# Spectral transform (by default shift of 0)
-			ST = EPS.getST()
-			# Krylov subspace
-			KSP = ST.getKSP()
-			configureKSP(KSP,self.params)
 			# Heavy lifting
-			EPS.setFromOptions()
 			if p0: print("Solver launch...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
@@ -253,7 +241,7 @@ class SPYP(SPY):
 				# Save on a proper compressed space
 				velocity_i=Function(self.FS0c)
 				# Scale response so that it is still unitary
-				velocity_i.x.array[:]=response_i.x.array[self.FS_to_TH0]/gain_i
+				velocity_i.x.array[:]=response_i.x.array[self.FS_to_FS0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/",save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
 

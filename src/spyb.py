@@ -6,14 +6,14 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import shutil, ufl
 import numpy as np
-from spy import SPY, dirCreator
 from petsc4py import PETSc as pet
+from spy import SPY, dirCreator, grd
 from mpi4py.MPI import COMM_WORLD as comm, MIN, MAX
 
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem import Function, Expression
-from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.mesh import locate_entities, refine
+from dolfinx.fem.petsc import LinearProblem, NonlinearProblem
 from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
 
 p0=comm.rank==0
@@ -23,6 +23,19 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, mesh_name, direction_map)
 		dirCreator(self.baseflow_path)
+
+	def smoothen(self, e:float):
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		r=self.r
+		u, p  = ufl.split(self.trial)
+		U, P  = ufl.split(self.Q)
+		v, s  = ufl.split(self.test)
+		gd=lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
+		a=ufl.inner(u,v)+e*ufl.inner(gd(u),gd(v,1))+ufl.inner(p,s)
+		L=ufl.inner(U,v)+ufl.inner(P,s)
+		pb = LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs, petsc_options={"ksp_type": "cg", "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+		if p0: print("Smoothing started...",flush=True)
+		self.Q=pb.solve()
 
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
 	def baseflow(self,Re:int,nut:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,baseflowInit=None) -> int:

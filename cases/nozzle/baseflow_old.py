@@ -25,3 +25,5 @@ for S in np.linspace(.2,1,5):
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{'S':S,'nut':nut,'Re':nut},spyb.Nu)
 	spyb.baseflow(nut,nut,S,d)
+	spyb.smoothen(5e-3)
+	spyb.baseflow(nut,nut,S,d)

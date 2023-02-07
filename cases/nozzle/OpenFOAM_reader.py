@@ -14,11 +14,7 @@ p0=comm.rank==0
 sanity_check=False
 convert=False
 
-# Dimensionalised stuff
-L,H=45,10
-O=np.pi/360 # 0.5°
-sin,cos=np.sin(O),np.cos(O)
-
+# Relevant parameters
 nuts=[1000,10000,100000,400000]
 Ss=[0,.2,.4,.6,.8,1]
 
@@ -27,6 +23,11 @@ if convert: meshConvert("perturbations")
 # Read it again in dolfinx - now it's a dolfinx object and it's split amongst procs
 with XDMFFile(comm, "perturbations.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
 if p0: print("Loaded perturbations.xdmf successfully !")
+
+# Dimensionalised stuff
+L,H=50.5,10
+O=np.pi/360 # 0.5°
+sin,cos=np.sin(O),np.cos(O)
 
 for nut in nuts:
     for S in Ss:
@@ -45,7 +46,8 @@ for nut in nuts:
             fine_xy[:,1]/=cos # Plane tilted
 
             # Reducing problem size (coarse mesh is also smaller)
-            msk = (fine_xy[:,0]<L)*(fine_xy[:,1]<H)
+            msk = np.all(fine_xy[:,:2]<1.1*np.array([L,H]),1)
+
             fine_xy=fine_xy[msk,:2]
 
             # Dimensionless

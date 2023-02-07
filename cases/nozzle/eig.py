@@ -20,10 +20,9 @@ save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.1f}_m={m:d}".replace('.',',')
 # Eigenvalues
 spyp=SPYP(params, datapath, "perturbations", direction_map)
 d=dist(spyp)
-Ref(spyp,Re)
+spyp.Re=Re
 spyp.loadBaseflow(Re,nut,S) # Don't load pressure
 boundaryConditionsPerturbations(spyp,m)
-spyp.stabilise(m)
 # For efficiency, matrix is assembled only once
 spyp.assembleJNMatrices(m,d)
 # Modal analysis
