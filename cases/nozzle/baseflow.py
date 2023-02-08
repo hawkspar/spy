@@ -21,7 +21,7 @@ for Re in [10000,100000,400000]:
 	spyb.Re=Re
 	spyb.baseflow(Re,0,d)
 
-for S in np.linspace(.2,1,5):
+for S in np.linspace(.4,1,4):
 	class_th.S=S
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{'S':S,'Re':Re},spyb.Nu)

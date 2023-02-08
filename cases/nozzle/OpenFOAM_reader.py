@@ -1,6 +1,6 @@
 import numpy as np
 import meshio, ufl, sys #pip3 install h5py meshio
-from setup import params
+from setup import *
 from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
@@ -8,10 +8,10 @@ from dolfinx.fem import FunctionSpace, Function
 
 sys.path.append('/home/shared/src')
 
-from spy import dirCreator, meshConvert, findStuff, saveStuff
+from spy import SPY, dirCreator, meshConvert, findStuff, saveStuff
 
 p0=comm.rank==0
-sanity_check=False
+sanity_check=True#False
 convert=False
 
 # Relevant parameters
@@ -20,9 +20,7 @@ Ss=[0,.2,.4,.6,.8,1]
 
 # Convert mesh
 if convert: meshConvert("baseflow")
-# Read it again in dolfinx - now it's a dolfinx object and it's split amongst procs
-with XDMFFile(comm, "baseflow.xdmf", "r") as file: mesh = file.read_mesh(name="Grid")
-if p0: print("Loaded baseflow.xdmf successfully !")
+spy=SPY(params,datapath,'baseflow',direction_map)
 
 # Dimensionalised stuff
 L,H=50.5,10
@@ -65,21 +63,16 @@ for Re in Res:
         nutv = comm.bcast(nutv, root=0)
         fine_xy = comm.bcast(fine_xy, root=0)
 
-        # Create FiniteElement, FunctionSpace & Functions
-        FE_vector =ufl.VectorElement("CG",mesh.ufl_cell(),2,3)
-        FE_scalar =ufl.FiniteElement("CG",mesh.ufl_cell(),1)
-        FE_scalar2=ufl.FiniteElement("CG",mesh.ufl_cell(),2)
-        V=FunctionSpace(mesh, FE_vector)
-        W=FunctionSpace(mesh, FE_scalar)
-        X=FunctionSpace(mesh, FE_scalar2)
-        U, P, Nu = Function(V), Function(W), Function(X)
-
         # Handlers (still useful when !interpolate)
         def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'cubic')
         # Fix orientation
         urv,uthv=cos*urv+sin*uthv,-sin*urv+cos*uthv
         # Fix no swirl edge case
         if S==0: uthv[:]=0
+
+        # Handlers
+        U,P=spy.Q.split()
+        Nu=spy.Nu
 
         # Map data onto dolfinx vectors
         U.sub(0).interpolate(lambda x: interp(uxv, x))
@@ -90,21 +83,7 @@ for Re in Res:
         # Fix negative eddy viscosity
         Nu.x.array[Nu.x.array<0] = 0
 
-        # Save pretty graphs
-        if sanity_check:
-            for f in ['U','P','Nu']:
-                with XDMFFile(comm, "sanity_check_"+f+"_reader.xdmf", "w") as xdmf:
-                    xdmf.write_mesh(mesh)
-                    eval("xdmf.write_function("+f+")")
-
-        # Write all functions separately
-        pre="./baseflow"
-        dirCreator(pre)
-
-        if type(S)==int: app=f"_Re={Re:d}_S={S:d}"
-        else:            app=f"_Re={Re:d}_S={S:.1f}".replace('.',',')
-
         # Save
-        saveStuff(pre+"/u/",  "u"  +app,U)
-        saveStuff(pre+"/p/",  "p"  +app,P)
-        saveStuff(pre+"/nut/","nut"+app,Nu)
+        #spy.saveBaseflow(Re,S)
+        saveStuff(spy.nut_path,f'nut_S={S:.1f}_Re={Re:d}'.replace('.',','),Nu)
+        spy.printStuff('print_OpenFOAM',f"u_Re={Re:d}_S={S:.1f}".replace('.',','),U)

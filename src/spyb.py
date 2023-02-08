@@ -93,8 +93,8 @@ class SPYB(SPY):
 		if refinement:
 			# Locate high error areas
 			def high_error(points):
-				expr = Expression(self.navierStokesError(),self.FS1.element.interpolation_points())
-				res = Function(self.FS)
+				expr = Expression(self.navierStokesError(),self.TH1.element.interpolation_points())
+				res = Function(self.TH)
 				res.interpolate(expr)
 
 				bbtree = BoundingBoxTree(self.mesh, 2)
@@ -121,9 +121,7 @@ class SPYB(SPY):
 			self.Q.interpolate(q)
 
 		if save:  # Memoisation
-			if type(S)==int: app=f"_Re={Re:d}_S={S:d}"
-			else: 	 		 app=f"_Re={Re:d}_S={S:00.1f}".replace('.',',')
-			self.saveBaseflow(app)
+			self.saveBaseflow(Re,S)
 			U,_=q.split()
 			self.printStuff(self.print_path,"u"+app,U)
 		

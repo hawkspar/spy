@@ -125,7 +125,7 @@ def saveStuff(dir:str,name:str,fun:Function) -> None:
 	proc_name=dir+name+f"_n={comm.size:d}_p={comm.rank:d}"
 	fun.x.scatter_forward()
 	np.save(proc_name,fun.x.array)
-	if p0: print("Saved "+proc_name,flush=True)
+	if p0: print("Saved "+proc_name+".npy",flush=True)
 
 # Swirling Parallel Yaj
 class SPY:
@@ -138,8 +138,7 @@ class SPY:
 		# Paths
 		self.case_path	   ='/home/shared/cases/'+datapath
 		self.baseflow_path =self.case_path+'baseflow/'
-		self.u_path	 	   =self.baseflow_path+'u/'
-		self.p_path		   =self.baseflow_path+'p/'
+		self.q_path	 	   =self.baseflow_path+'q/'
 		self.nut_path	   =self.baseflow_path+'nut/'
 		self.print_path	   =self.baseflow_path+'print/'
 		self.resolvent_path=self.case_path+'resolvent/'
@@ -173,71 +172,30 @@ class SPY:
 		FE_scalar =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		FE_scalar2=ufl.FiniteElement("CG",self.mesh.ufl_cell(),2)
 		#Constant =ufl.FiniteElement("Real",self.mesh.ufl_cell(),0)
-		self.FS0 = FunctionSpace(self.mesh,FE_vector)
-		self.FS1 = FunctionSpace(self.mesh,FE_scalar)
-		self.FS2 = FunctionSpace(self.mesh,FE_scalar2)
+		self.TH0 = FunctionSpace(self.mesh,FE_vector)
+		self.TH1 = FunctionSpace(self.mesh,FE_scalar)
+		self.TH2 = FunctionSpace(self.mesh,FE_scalar2)
 		# Taylor Hodd elements ; stable element pair + eddy viscosity
-		self.FS = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar))#,FE_scalar2))
-		self.FS0c, self.FS_to_FS0 = self.FS.sub(0).collapse()
-		self.FS1c, self.FS_to_FS1 = self.FS.sub(1).collapse()
-		#self.FS2c, self.FS_to_FS2 = self.FS.sub(2).collapse()
-		"""# Extended element for the corrector
-		self.FSe = FunctionSpace(self.mesh,ufl.MixedElement(FE_vector,FE_scalar,FE_scalar,Constant))
-		self.FSe0c, self.FSe_to_FSe0 = self.FSe.sub(0).collapse()
-		self.FSe1c, self.FSe_to_FSe1 = self.FSe.sub(1).collapse()
-		self.FSe2c, self.FSe_to_FSe2 = self.FSe.sub(2).collapse()
-		self.FSe3c, self.FSe_to_FSe3 = self.FSe.sub(3).collapse()"""
+		self.TH = FunctionSpace(self.mesh,FE_vector*FE_scalar)
+		self.TH0c, self.TH_to_TH0 = self.TH.sub(0).collapse()
+		self.TH1c, self.TH_to_TH1 = self.TH.sub(1).collapse()
 		# Test & trial functions
-		self.trial = ufl.TrialFunction(self.FS)
-		self.test  = ufl.TestFunction( self.FS)
-		"""self.triale = ufl.split(ufl.TrialFunction(self.FSe))
-		self.teste  = ufl.split(ufl.TestFunction( self.FSe))"""
+		self.trial = ufl.TrialFunction(self.TH)
+		self.test  = ufl.TestFunction( self.TH)
 		# Initialisation of baseflow
-		self.Q = Function(self.FS)
+		self.Q = Function(self.TH)
 		# Collapsed subspaces
-		self.U, self.P, self.Nu = Function(self.FS0), Function(self.FS1), Function(self.FS2)
-
-	def extend(self, Q:Function) -> Function:
-		Qe = Function(self.FSe)
-		Qe.x.array[self.FSe_to_FSe0]=Q.x.array[self.FS_to_FS0]
-		Qe.x.array[self.FSe_to_FSe1]=Q.x.array[self.FS_to_FS1]
-		Qe.x.array[self.FSe_to_FSe2]=Q.x.array[self.FS_to_FS2]
-		return Qe
-
-	def revert(self, Qe:Function) -> Function:
-		Q = Function(self.FS)
-		Q.x.array[self.FS_to_FS0]=Qe.x.array[self.FSe_to_FSe0]
-		Q.x.array[self.FS_to_FS1]=Qe.x.array[self.FSe_to_FSe1]
-		Q.x.array[self.FS_to_FS2]=Qe.x.array[self.FSe_to_FSe2]
-		Re=np.mean(Qe.x.array[self.FSe_to_FSe3])
-		return Q,Re
+		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH2)
 
 	# Helper
 	def loadBaseflow(self,Re:int,S:float,p=False):
-		# Load separately
-		loadStuff(self.u_path,{'Re':Re,'S':S},self.U)
+		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
 		loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
-		if p: loadStuff(self.p_path,{'Re':Re,'S':S},self.P)
-		# Write inside MixedElement
-		self.Q.x.array[self.FS_to_FS0]=self.U.x.array
-		#self.Q.x.array[self.FS_to_FS2]=self.Nu.x.array
-		if p:
-			self.Q.x.array[self.FS_to_FS1]=self.P.x.array
-		self.Q.x.scatter_forward()
-		self.Nu.x.scatter_forward()
 
-	def saveBaseflow(self,str):
-		self.Q.x.scatter_forward()
-		# Write inside MixedElement
-		self.U.x.array[:] =self.Q.x.array[self.FS_to_FS0]
-		self.P.x.array[:] =self.Q.x.array[self.FS_to_FS1]
-		#self.Nu.x.array[:]=self.Q.x.array[self.FS_to_FS2]
-		dirCreator(self.u_path)
-		dirCreator(self.p_path)
-		dirCreator(self.nut_path)
-		saveStuff(self.u_path,'u'+str,self.U)
-		saveStuff(self.p_path,'p'+str,self.P)
-		if type(self.Nu)==Function: saveStuff(self.nut_path,'nut'+str,self.Nu)
+	def saveBaseflow(self,Re:int,S:float):
+		if type(S)==int: str_S=f'{S:d}'
+		else: 			 str_S=f'{S:.1f}'.replace('.',',')
+		saveStuff(self.q_path,'q_S='+str_S+f'_Re={Re:d}',self.Q)
 	
 	def SA(self, U, Nu, v, t, d):
 		# Shortforms
@@ -290,8 +248,7 @@ class SPY:
 		U, P, Nu = ufl.split(self.Q)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		dv,gd=lambda v,i=0: div(r,dx,dr,dt,v,0,i),lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		r2vs = r2vis2(r,dx,dr,dt,1/Re+Nu*fv1(Nu),U,0)
+		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
 		# Mass (variational formulation)
 		dv2 = ufl.inner(dv(U), dv(U))
 		# Momentum (different test functions and IBP)
@@ -350,7 +307,7 @@ class SPY:
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary:bool, value:float=0, subspace_i:int=0) -> tuple:
-		subspace=self.FS.sub(subspace_i)
+		subspace=self.TH.sub(subspace_i)
 		if subspace_i==0: subspace=subspace.sub(self.direction_map[direction])
 		subspace_collapsed,_=subspace.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)
@@ -381,18 +338,18 @@ class SPY:
 	
 	# Quick check functions
 	def sanityCheckU(self,app=""):
-		self.U.x.array[:]=self.Q.x.array[self.FS_to_FS0]
-		self.printStuff("./","sanity_check_u"+app,self.U)
+		U,_=self.Q.split()
+		self.printStuff("./","sanity_check_u"+app,U)
 
 	def sanityCheck(self,app=""):
-		self.U.x.array[:]=self.Q.x.array[self.FS_to_FS0]
-		self.P.x.array[:]=self.Q.x.array[self.FS_to_FS1]
+		self.U.x.array[:]=self.Q.x.array[self.TH_to_TH0]
+		self.P.x.array[:]=self.Q.x.array[self.TH_to_TH1]
 		#self.Nu.x.array[:]=self.Nu.x.array[:]
 
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		expr=dfx.fem.Expression(self.U[dx].dx(dx) + (self.r*self.U[dr]).dx(dr)/self.r,
-								self.FS1.element.interpolation_points())
-		div = Function(self.FS1)
+								self.TH1.element.interpolation_points())
+		div = Function(self.TH1)
 		div.interpolate(expr)
 		self.printStuff("./","sanity_check_div"+app,div)
 
@@ -409,7 +366,7 @@ class SPY:
 		except TypeError: pass
 
 	def sanityCheckBCs(self):
-		v=Function(self.FS)
+		v=Function(self.TH)
 		v.vector.zeroEntries()
 		v.x.array[self.dofs]=np.ones(self.dofs.size)
 		v,_=v.split()

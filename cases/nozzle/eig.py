@@ -15,13 +15,19 @@ from matplotlib import pyplot as plt
 p0=COMM_WORLD.rank==0
 load=False
 m=2
-save_string=f"_Re={Re:d}_nut={nut:d}_S={S:00.1f}_m={m:d}".replace('.',',')
+save_string=f"_Re={Re:d}_S={S:00.1f}_m={m:d}".replace('.',',')
 
+# Load baseflow
+spy = SPY(params,datapath,'baseflow',direction_map)
+spy.loadBaseflow(Re,S)
 # Eigenvalues
 spyp=SPYP(params, datapath, "perturbations", direction_map)
 d=dist(spyp)
 spyp.Re=Re
-spyp.loadBaseflow(Re,nut,S) # Don't load pressure
+# Interpolate and cut baseflow
+spyp.interpolateBaseflow(spy)
+spyp.sanityCheckU()
+# BCs
 boundaryConditionsPerturbations(spyp,m)
 # For efficiency, matrix is assembled only once
 spyp.assembleJNMatrices(m,d)
@@ -36,7 +42,7 @@ else:
         for im in np.linspace(-2,2,20):
             # Memoisation protocol
             sigma=re+1j*im
-            spyp.eigenvalues(sigma,1,Re,nut,S,m) # Actual computation shift value, nb of eigenmode
+            spyp.eigenvalues(sigma,1,Re,S,m) # Actual computation shift value, nb of eigenmode
             if isdir(spyp.eig_path):
                 closest_file_name=findStuff(spyp.eig_path,["sig"],[sigma],lambda f: f[-4:]==".txt",False)
                 try:

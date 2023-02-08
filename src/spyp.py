@@ -20,7 +20,7 @@ p0=comm.rank==0
 # Wrapper
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
-	form = dfx.fem.form(form, jit_params={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
+	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
 					  					  "cffi_libraries": ["m"]})
 	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag) 
 	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1) # Probably useless after assemble
@@ -69,15 +69,14 @@ class SPYP(SPY):
 		super().__init__(params, datapath, mesh_name, direction_map, forcing_indicator)
 		dirCreator(self.baseflow_path)
 
-	# To be run in complex mode, assemble crucial matrices
-	def loadBaseflowCut(self,datapath:str,Re:int,S:float,L:float) -> None:
-		spy = SPY(self.params,datapath,'baseflow',self.direction_map)
-		spy.loadBaseflow(Re,S)
-		X0 = spy.FS0.tabulate_dof_coordinates()
-		X1 = spy.FS2.tabulate_dof_coordinates()
-		msk0, msk1 = np.repeat(X0[:,0]<L,3), X1[:,0]<L
-		self.Q.x.array[self.FS_to_FS0]=spy.Q.x.array[self.FS_to_FS0][msk0]
-		self.Nu.x.array=spy.Nu.x.array[msk1]
+	# Handle
+	def interpolateBaseflow(self,spy:SPY) -> None:
+		spy.U.x.array[:]=spy.Q.x.array[spy.TH_to_TH0]
+		spy.U.x.scatter_forward()
+		self.U.interpolate(spy.U)
+		self.Q.x.array[self.TH_to_TH0]=self.U.x.array
+		self.Q.x.scatter_forward()
+		self.Nu.interpolate(spy.Nu)
 
 	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self,m:int,d,stab=False,weak_bcs=0) -> None:
@@ -97,7 +96,7 @@ class SPYP(SPY):
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
 	# Modal analysis
-	def eigenvalues(self,sigma:complex,k:int,Re:int,nut:int,S:float,m:int,hot_start:bool=False) -> None:
+	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int,hot_start:bool=False) -> None:
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
@@ -106,8 +105,8 @@ class SPYP(SPY):
 		EPS.setTarget(sigma)
 		configureEPS(EPS,k,self.params,True)
 		if hot_start:
-			q_0=Function(self.FS)
-			loadStuff(self.eig_path+"q/",["Re","nut","S","m","l"],[Re,nut,S,m,sigma],q_0)
+			q_0=Function(self.TH)
+			loadStuff(self.eig_path+"q/",["Re","S","m","l"],[Re,S,m,sigma],q_0)
 			EPS.setInitialSpace(q_0.vector)
 		if p0: print(f"Solver launch for sig={sigma:.1f}...",flush=True)
 		EPS.solve()
@@ -116,10 +115,10 @@ class SPYP(SPY):
 		# Conversion back into numpy 
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		dirCreator(self.eig_path)
-		save_string=f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}".replace('.',',')
+		save_string=f"Re={Re:d}_S={S:00.3f}_m={m:d}".replace('.',',')
 		# Write eigenvalues
 		np.savetxt(self.eig_path+save_string+"_sig={:.2f}".format(sigma).replace('.',',')+".txt",np.column_stack([vals.real, vals.imag]))
-		q=Function(self.FS)
+		q=Function(self.TH)
 		# Write a few eigenvectors back in xdmf
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
@@ -134,8 +133,8 @@ class SPYP(SPY):
 		# Velocity and full space functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
-		w = ufl.TrialFunction(self.FS0c)
-		z = ufl.TestFunction( self.FS0c)
+		w = ufl.TrialFunction(self.TH0c)
+		z = ufl.TestFunction( self.TH0c)
 
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
 		B_form = ufl.inner(w,v)*self.r*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
@@ -156,8 +155,8 @@ class SPYP(SPY):
 		m_local,n_local = B.getLocalSize()
 
 		# Temporary vectors
-		tmp1, tmp2 = Function(self.FS), Function(self.FS)
-		tmp3 = Function(self.FS0c)
+		tmp1, tmp2 = Function(self.TH), Function(self.TH)
+		tmp3 = Function(self.TH0c)
 
 		# Resolvent operator
 		class R_class:
@@ -189,7 +188,7 @@ class SPYP(SPY):
 		self.R   = pythonMatrix([[m_local,m],[n_local,n]],  R_class,comm)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_class,comm)
 
-	def resolvent(self,k:int,St_list,Re:int,nut:int,S:float,m:int,hot_start:bool=False) -> None:
+	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,hot_start:bool=False) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
 
@@ -203,8 +202,8 @@ class SPYP(SPY):
 			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 
 			if hot_start:
-				forcing_0=Function(self.FS0c)
-				loadStuff(self.resolvent_path+"forcing/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],forcing_0)
+				forcing_0=Function(self.TH0c)
+				loadStuff(self.resolvent_path+"forcing/npy/",{"Re":Re,"S":S,"m":m,"St":St},forcing_0)
 				EPS.setInitialSpace(forcing_0.vector)
 
 			# Eigensolver
@@ -220,7 +219,10 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path)
 			dirCreator(self.resolvent_path+"gains/")
 			dirCreator(self.resolvent_path+"forcing/")
-			save_string=f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}".replace('.',',')
+			save_string=f"Re={Re:d}"
+			if type(S)==int: save_string+=f"_S={S:d}"
+			else:			 save_string+=f"_S={S:00.2f}"
+			save_string+=f"_m={m:d}_St={St:00.2f}".replace('.',',')
 			if p0:
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
@@ -237,7 +239,7 @@ class SPYP(SPY):
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				# Save on a proper compressed space
-				forcing_i=Function(self.FS0c)
+				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				forcing_i.x.scatter_forward()
@@ -245,28 +247,28 @@ class SPYP(SPY):
 				saveStuff(self.resolvent_path+"forcing/npy/",save_string+f"_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
-				response_i=Function(self.FS)
+				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
 				response_i.x.scatter_forward()
 				# Save on a proper compressed space
-				velocity_i=Function(self.FS0c)
+				velocity_i=Function(self.TH0c)
 				# Scale response so that it is still unitary
-				velocity_i.x.array[:]=response_i.x.array[self.FS_to_FS0]/gain_i
+				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/",save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
 
-				"""expr=dfx.fem.Expression(self.div_nor(velocity_i,m),self.FS1.element.interpolation_points(),dtype=pet.ScalarType)
-				div = Function(self.FS1)
+				"""expr=dfx.fem.Expression(self.div_nor(velocity_i,m),self.TH1.element.interpolation_points(),dtype=pet.ScalarType)
+				div = Function(self.TH1)
 				div.interpolate(expr)
 				self.printStuff("./","sanity_check_div",div)"""
 
-	def visualiseCurls(self,str,Re,nut,S,m,St,x):
-		data = Function(self.FS0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
+	def visualiseCurls(self,str,Re,S,m,St,x):
+		data = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","S","m","St"],[Re,S,m,St],data)
 		
 		# Compute vorticity (curl)
-		expr = dfx.fem.Expression(self.crl(data,m)[0],self.FS1.element.interpolation_points())
-		crl = Function(self.FS1)
+		expr = dfx.fem.Expression(self.crl(data,m)[0],self.TH1.element.interpolation_points())
+		crl = Function(self.TH1)
 		crl.interpolate(expr)
 
 		n = 1000
@@ -307,24 +309,24 @@ class SPYP(SPY):
 
 			plt.colorbar(c)
 			plt.title("Rotational of "+str+" at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
+			plt.savefig(dir+f"Re={Re:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
 			plt.close()
 
-	def visualiseStreaks(self,str,Re,nut,S,m,St,x):
-		data = Function(self.FS0c)
-		loadStuff(self.resolvent_path+str+"/npy/",    ["Re","nut","S","m","St"],[Re,nut,S,m,St],data)
-		u = Function(self.FS0c)
-		loadStuff(self.resolvent_path+"response/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],u)
+	def visualiseStreaks(self,str,Re,S,m,St,x):
+		data = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",    ["Re","S","m","St"],[Re,S,m,St],data)
+		u = Function(self.TH0c)
+		loadStuff(self.resolvent_path+"response/npy/",["Re","S","m","St"],[Re,S,m,St],u)
 		
-		expr = dfx.fem.Expression(data[1],self.FS1.element.interpolation_points())
-		dr = Function(self.FS1)
+		expr = dfx.fem.Expression(data[1],self.TH1.element.interpolation_points())
+		dr = Function(self.TH1)
 		dr.interpolate(expr)
-		expr = dfx.fem.Expression(data[2],self.FS1.element.interpolation_points())
-		dt = Function(self.FS1)
+		expr = dfx.fem.Expression(data[2],self.TH1.element.interpolation_points())
+		dt = Function(self.TH1)
 		dt.interpolate(expr)
 		
-		expr = dfx.fem.Expression(u[0],self.FS1.element.interpolation_points())
-		u = Function(self.FS1)
+		expr = dfx.fem.Expression(u[0],self.TH1.element.interpolation_points())
+		u = Function(self.TH1)
 		u.interpolate(expr)
 
 		n = 500
@@ -380,20 +382,20 @@ class SPYP(SPY):
 
 			plt.colorbar(c)
 			#plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_nut={nut:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
+			plt.savefig(dir+f"Re={Re:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
 			plt.close()
 
-	def readMode(self,str:str,Re:int,nut:int,S:float,m:int,St:float,coord=0):
-		funs = Function(self.FS0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],funs)
+	def readMode(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
+		funs = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","S","m","St"],[Re,S,m,St],funs)
 		funs=funs.split()
 		return funs[coord]
 
-	def readCurl(self,str:str,Re:int,nut:int,S:float,m:int,St:float,coord=0):
-		funs = Function(self.FS0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","nut","S","m","St"],[Re,nut,S,m,St],funs)
-		expr=dfx.fem.Expression(self.crl(funs,m)[coord],self.FS1.element.interpolation_points())
-		crl = Function(self.FS1)
+	def readCurl(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
+		funs = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",["Re","S","m","St"],[Re,S,m,St],funs)
+		expr=dfx.fem.Expression(self.crl(funs,m)[coord],self.TH1.element.interpolation_points())
+		crl = Function(self.TH1)
 		crl.interpolate(expr)
 		return crl
 
