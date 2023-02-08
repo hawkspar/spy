@@ -22,15 +22,13 @@ spy = SPY(params,datapath,'baseflow',direction_map)
 spy.loadBaseflow(Re,S)
 # Eigenvalues
 spyp=SPYP(params, datapath, "perturbations", direction_map)
-d=dist(spyp)
 spyp.Re=Re
 # Interpolate and cut baseflow
 spyp.interpolateBaseflow(spy)
-spyp.sanityCheckU()
 # BCs
 boundaryConditionsPerturbations(spyp,m)
 # For efficiency, matrix is assembled only once
-spyp.assembleJNMatrices(m,d)
+spyp.assembleJNMatrices(m)
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
 if load and p0:

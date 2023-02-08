@@ -20,8 +20,7 @@ p0=comm.rank==0
 # Wrapper
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
-	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"],
-					  					  "cffi_libraries": ["m"]})
+	form = dfx.fem.form(form)#, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"],"cffi_libraries": ["m"]})
 	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag) 
 	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1) # Probably useless after assemble
 	A.setOption(A.Option.SYMMETRIC,sym)
@@ -71,27 +70,25 @@ class SPYP(SPY):
 
 	# Handle
 	def interpolateBaseflow(self,spy:SPY) -> None:
-		spy.U.x.array[:]=spy.Q.x.array[spy.TH_to_TH0]
-		spy.U.x.scatter_forward()
-		self.U.interpolate(spy.U)
-		self.Q.x.array[self.TH_to_TH0]=self.U.x.array
-		self.Q.x.scatter_forward()
+		U_spy,_=spy.Q.split()
+		U,	  _=self.Q.split()
+		U.interpolate(U_spy)
 		self.Nu.interpolate(spy.Nu)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,m:int,d,stab=False,weak_bcs=0) -> None:
+	def assembleJNMatrices(self,m:int) -> None:
 		# Functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,m,d,stab)+weak_bcs
+		J_form = self.linearisedNavierStokes(m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		N_form = ufl.inner(u,v)*self.r*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
-		self.N = assembleForm(N_form,self.bcs,not stab)
+		self.N = assembleForm(N_form,self.bcs,True)
 
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 

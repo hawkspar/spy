@@ -17,19 +17,16 @@ Ss=[0,.4,1]
 Re=400000
 for S in Ss:
 	# Load baseflow
-	spy = SPY(params,datapath,'baseflow',direction_map)
+	spy = SPY(params,datapath,"baseflow",     direction_map)
 	spy.loadBaseflow(Re,S)
-	spy.sanityCheckU()
 	# Initialise resolvent toolbox (careful order sensitive)
-	spyp=SPYP(params,datapath,"perturbations",direction_map)#,forcingIndicator)
+	spyp=SPYP(params,datapath,"perturbations",direction_map)
 	spyp.Re=Re
-	d=dist(spyp)
 	spyp.interpolateBaseflow(spy)
-	spyp.sanityCheckU()
 	for m in ms:
 		boundaryConditionsPerturbations(spyp,m)
 		# For efficiency, matrices assembled once per Sts
-		spyp.assembleJNMatrices(m,d)
+		spyp.assembleJNMatrices(m)
 		spyp.assembleMRMatrices()
 		# Resolvent analysis
 		spyp.resolvent(1,Sts,Re,S,m)

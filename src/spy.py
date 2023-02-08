@@ -13,49 +13,6 @@ from dolfinx.fem import FunctionSpace, Function
 
 p0=comm.rank==0
 
-# SA constants
-cb1,cb2 = .1355,.622
-sig = 2/3
-kap = .41
-cw1 = cb1/kap**2 + (1+cb2)/sig
-cw2,cw3 = .3,2
-cv1 = 7.1
-ct3,ct4 = 1.2,.5
-
-def ft2(C):    return ct3*ufl.exp(-ct4*C**2)
-def ft2p(C,c): return -2*ct4*ct3*C*c*ufl.exp(-ct4*C**2)
-
-def fv1(C):    return C**3/(C**3 + cv1**3)
-def fv1p(C,c): return 3*cv1**3*C**2*c/(C**3 + cv1**3)**2
-
-def fv2(C):    return 1 - C/(1 + C*fv1(C))
-def fv2p(C,c): return (C**2*fv1p(C,c) - c)/(1 + C*fv1(C))**2
-
-def Ome(W,atol): 	return ufl.sqrt(.5*ufl.dot(W,W)+atol)
-def Omep(W,w,atol): return .5*ufl.dot(W,w)/Ome(W,atol)
-
-# Actually S*r
-def S( Nu,	 r,W,  atol,Re,ikd2): return Ome(W,atol) 	+ r* Nu*fv2(Nu*Re)*ikd2
-def Sp(Nu,nu,r,W,w,atol,Re,ikd2): return Omep(W,w,atol) + r*(nu*fv2(Nu*Re) + Nu*fv2p(Nu*Re,nu*Re))*ikd2
-
-def ra(Nu,r,W,atol,Re,ikd2):
-	a = r*Nu/S(Nu,r,W,atol,Re,ikd2)*ikd2 # r to cancel out the multiplication
-	return ufl.conditional(ufl.le(a,10),a,10) # min(a,10)
-def rap(Nu,nu,r,W,w,atol,Re,ikd2):
-	Sv = S(Nu,r,W,atol,Re,ikd2)
-	a = r*Nu/Sv*ikd2
-	return ufl.conditional(ufl.le(a,10),nu-Nu*Sp(Nu,nu,r,W,w,atol,Re,ikd2)/Sv,0)*r/Sv*ikd2
-
-def g(Nu,r,W,atol,Re,ikd2):
-	rav=ra(Nu,r,W,atol,Re,ikd2)
-	return rav + cw2*(rav**6 - rav)
-def gp(Nu,nu,r,W,w,atol,Re,ikd2): return (1 + cw2*(6*ra(Nu,r,W,atol,Re,ikd2)**5 - 1))*rap(Nu,nu,r,W,w,atol,Re,ikd2)
-
-def fw(Nu,r,W,atol,Re,ikd2):
-	gv=g(Nu,r,W,atol,Re,ikd2)
-	return gv*((1 + cw3**6)/(gv**6 + cw3**6))**(1/6)
-def fwp(Nu,nu,r,W,w,atol,Re,ikd2): return cw3**6*(1 + cw3**6)**(1/6)*gp(Nu,nu,r,W,w,atol,Re,ikd2)/(g(Nu,r,W,atol,Re,ikd2)**6 + cw3**6)**(7/6)
-
 # Cylindrical operators
 def grd(r,dx:int,dr:int,dt:int,v,m:int):
 	if len(v.ufl_shape)==0: return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
@@ -188,7 +145,7 @@ class SPY:
 		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH2)
 
 	# Helper
-	def loadBaseflow(self,Re:int,S:float,p=False):
+	def loadBaseflow(self,Re:int,S:float):
 		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
 		loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 
@@ -197,113 +154,47 @@ class SPY:
 		else: 			 str_S=f'{S:.1f}'.replace('.',',')
 		saveStuff(self.q_path,'q_S='+str_S+f'_Re={Re:d}',self.Q)
 	
-	def SA(self, U, Nu, v, t, d):
-		# Shortforms
-		r, Re = self.r, self.Re
-		# More shortforms
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
-		gd=lambda v,i=0: grd(r,dx,dr,dt,v,0,i)
-		W=crl(r,dx,dr,dt,self.mesh,U,0)
-		fwv,Sv=fw(Nu,r,W,atol,Re,1/(kap*d)**2),S(Nu,r,W,atol,Re,1/(kap*d)**2)
-		# Eddy viscosity term
-		F  = ufl.inner(Nu*fv1(Nu*Re)*(gd(U)+gd(U).T),gd(v,1))*ufl.dx
-		# SA equations
-		G  = r*ufl.inner(ufl.dot(gd(Nu),U),t)
-		G -= r*cb1*(1-ft2(Nu*Re))*ufl.inner(Sv*Nu,t)
-		G += r**2*ufl.inner(cw1*fwv-cb1/kap**2*ft2(Nu*Re),t)*(Nu/d)**2
-		G += 1/sig*ufl.inner((1/Re+Nu)*gd(Nu),gd(t,1))
-		G -= cb2/sig*ufl.inner(ufl.dot(gd(Nu),gd(Nu)),t)
-		return F+G*ufl.dx(degree=30)
-	
 	# Heart of this entire code
-	def navierStokes(self,Q,Qt,dist,extended=False) -> ufl.Form:
+	def navierStokes(self) -> ufl.Form:
 		# Shortforms
 		r, Re = self.r, self.Re
 		# Functions
-		if extended:
-			U, P, Nu, _ = ufl.split(Q)
-			v, s, t,  _ = ufl.split(Qt)
-		else:
-			U, P = ufl.split(Q)
-			Nu = self.Nu
-			v, s  = ufl.split(Qt)
+		U, P = ufl.split(self.Q)
+		Nu = self.Nu
+		v, s  = ufl.split(self.test)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(U),   s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(gd(U)*U, v)#+SUPG)) # Convection
+		F += ufl.inner(gd(U)*U, v) # Convection
 		F -= ufl.inner(	  P, dv(v)) # Pressure
 		F += ufl.inner(gd(U)+gd(U).T,
 							 gd(v))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
-		return F*r*ufl.dx#+self.SA(U,Nu,v,t,dist)
+		return F*r*ufl.dx
 	
-	# Direct expression to quantify error
-	def navierStokesError(self) -> ufl.Form:
-		# Shortforms
-		r, Re = self.r, self.Re
-		# Functions
-		U, P, Nu = ufl.split(self.Q)
-		# More shortforms
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
-		# Mass (variational formulation)
-		dv2 = ufl.inner(dv(U), dv(U))
-		# Momentum (different test functions and IBP)
-		mo  = r*gd(U)*U+r*gd(P)-r2vs
-		mo2 = ufl.inner(mo,    mo)
-		return (dv2+mo2)*ufl.dx
-
-	def SAlin(self, U, Nu, u, nu, v, t, m, d):
-		# Shortforms
-		r, Re, atol = self.r, self.Re, self.params['atol']
-		# More shortforms
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
-		r,atol=self.r,dfx.fem.Constant(self.mesh,pet.ScalarType(self.params['atol']))
-		gd=lambda v,m,i=0: grd(r,dx,dr,dt,v,m,i)
-		W,w=crl(r,dx,dr,dt,self.mesh,U,0),crl(r,dx,dr,dt,self.mesh,u,m)
-		Sv, Spv = S(Nu,r,W,atol,Re,1/(kap*d)**2), Sp(Nu,nu,r,W,w,atol,Re,1/(kap*d)**2)
-		fwv,fwpv=fw(Nu,r,W,atol,Re,1/(kap*d)**2),fwp(Nu,nu,r,W,w,atol,Re,1/(kap*d)**2)
-		# Eddy viscosity term
-		F  = ufl.inner((nu*fv1(Nu*Re)
-				   +Nu*fv1p(Nu*Re,nu*Re))*(gd(U,0)+gd(U,0).T)
-				       +Nu*fv1(Nu*Re)    *(gd(u,m)+gd(u,m).T),gd(v,m,1))*ufl.dx
-		# SA equations
-		G  = r*ufl.inner(ufl.dot(gd(nu,m),U)+ufl.dot(gd(Nu,0),u),t)
-		G -= r*cb1*(ft2p(Nu*Re,nu*Re)*ufl.inner(Sv*Nu,t)+(1-ft2(Nu*Re))*ufl.inner(Spv*Nu+Sv*nu,t))
-		G += (r/d)**2*(ufl.inner(cw1*fwpv-cb1/kap**2*ft2p(Nu*Re,nu*Re),t)*Nu**2+2*ufl.inner(cw1*fwv-cb1/kap**2*ft2(Nu*Re),t)*nu*Nu)
-		G += 1/sig*ufl.inner(nu*gd(Nu,0)+(1/Re+Nu)*gd(nu,m),gd(t,m,1))
-		G -= cb2/sig*ufl.inner(2*ufl.dot(gd(nu,m),gd(Nu,0)),t)
-		return F+G*ufl.dx(degree=30)
-		
 	# Not automatic because of convection term
-	def linearisedNavierStokes(self,q,Q,Qt,m:int,dist,extended=False) -> ufl.Form:
+	def linearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
 		r,Re=self.r,self.Re
 		# Functions
-		if extended:
-			u, p, nu, _ = ufl.split(q)
-			U, _, Nu, _ = ufl.split(Q) # Baseflow
-			v, s, t,  _ = ufl.split(Qt)
-		else:
-			u, p = ufl.split(q)
-			U, _ = ufl.split(Q) # Baseflow
-			Nu = self.Nu 
-			v, s = ufl.split(Qt)
+		u, p = ufl.split(self.trial)
+		U, _ = ufl.split(self.Q) # Baseflow
+		Nu = self.Nu 
+		v, s = ufl.split(self.test)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,m: div(r,dx,dr,dt,v,m),lambda v,m: grd(r,dx,dr,dt,v,m)
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(u,m),   s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(gd(U,0)*u, v)#+SUPG)) # Convection
-		F += ufl.inner(gd(u,m)*U, v)#+SUPG))
+		F += ufl.inner(gd(U,0)*u, v) # Convection
+		F += ufl.inner(gd(u,m)*U, v)
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
-		return F*r*ufl.dx#+self.SAlin(U,Nu,u,nu,v,t,m,dist)
+		return F*r*ufl.dx
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary:bool, value:float=0, subspace_i:int=0) -> tuple:

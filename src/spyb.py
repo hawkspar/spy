@@ -37,15 +37,15 @@ class SPYB(SPY):
 		self.Q=pb.solve()
 
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
-	def baseflow(self,Re:int,S:float,dist,weak_bcs:tuple=(0,0),refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
+	def baseflow(self,Re:int,S:float,refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_=self.Q.split()
 			U.interpolate(baseflowInit)
 
 		# Compute form
-		base_form  = self.navierStokes(self.Q,self.test,dist)#+weak_bcs[0] # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(self.trial,self.Q,self.test,0,dist)#+weak_bcs[1] # m=0
+		base_form  = self.navierStokes() # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(0) # m=0
 		return self.solver(Re,S,base_form,dbase_form,self.Q,refinement=refinement,save=save)
 
 	def corrector(self,Q0,dQ,dRe,h,Re0:int,S:float,d,weak_bcs:tuple) -> int:
@@ -123,7 +123,7 @@ class SPYB(SPY):
 		if save:  # Memoisation
 			self.saveBaseflow(Re,S)
 			U,_=q.split()
-			self.printStuff(self.print_path,"u"+app,U)
+			self.printStuff(self.print_path,f"u_S={S:.1f}_Re={Re:d}".replace('.',','),U)
 		
 		return n
 
