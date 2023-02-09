@@ -12,13 +12,14 @@ from os.path import isdir
 from mpi4py.MPI import COMM_WORLD
 from matplotlib import pyplot as plt
 
+# Shorthands
 p0=COMM_WORLD.rank==0
 load=False
 m=2
 save_string=f"_Re={Re:d}_S={S:00.1f}_m={m:d}".replace('.',',')
 
 # Load baseflow
-spy = SPY(params,datapath,'baseflow',direction_map)
+spy = SPY(params, datapath, "baseflow",      direction_map)
 spy.loadBaseflow(Re,S)
 # Eigenvalues
 spyp=SPYP(params, datapath, "perturbations", direction_map)
@@ -42,7 +43,7 @@ else:
             sigma=re+1j*im
             spyp.eigenvalues(sigma,1,Re,S,m) # Actual computation shift value, nb of eigenmode
             if isdir(spyp.eig_path):
-                closest_file_name=findStuff(spyp.eig_path,["sig"],[sigma],lambda f: f[-4:]==".txt",False)
+                closest_file_name=findStuff(spyp.eig_path,{"sig":sigma},lambda f: f[-4:]==".txt",False)
                 try:
                     if p0:
                         sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)

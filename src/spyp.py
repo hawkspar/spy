@@ -32,7 +32,7 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	Mat=pet.Mat().create(comm=comm)
 	Mat.setSizes(dims)
 	Mat.setType(pet.Mat.Type.PYTHON)
-	Mat.setPythonContext(py())
+	Mat.setPythonContext(py)
 	Mat.setUp()
 	return Mat
 
@@ -45,8 +45,7 @@ def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
 	KSP.setFromOptions()
-	#PC.setFactorSetUpSolverType()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,75)
+	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,200)
 
 # Eigenvalue problem solver
 def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
@@ -60,7 +59,47 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
 	KSP = ST.getKSP()
 	configureKSP(KSP,params,shift)
 	EPS.setFromOptions()
-	#EPS.setTrueResidual(True)
+
+# Resolvent operator (L^-1B)
+class R_class:
+	def __init__(self,B,TH,TH0c) -> None:
+		self.B=B
+		self.KSP = pet.KSP().create(comm)
+		self.tmp1,self.tmp2=Function(TH),Function(TH)
+		self.tmp3=Function(TH0c)
+	
+	def setL(self,L,params):
+		self.KSP.setOperators(L)
+		configureKSP(self.KSP,params)
+
+	def mult(self,A,x:pet.Vec,y:pet.Vec) -> None:
+		self.B.mult(x,self.tmp1.vector)
+		self.tmp1.x.scatter_forward()
+		self.KSP.solve(self.tmp1.vector,self.tmp2.vector)
+		self.tmp2.x.scatter_forward()
+		self.tmp2.vector.copy(y)
+
+	def multHermitian(self,A,x:pet.Vec,y:pet.Vec) -> None:
+		# Hand made solveHermitianTranspose (save extra LU factorisation)
+		x.conjugate()
+		self.KSP.solveTranspose(x,self.tmp2.vector)
+		self.tmp2.vector.conjugate()
+		self.tmp2.x.scatter_forward()
+		self.B.multTranspose(self.tmp2.vector,self.tmp3.vector)
+		self.tmp3.x.scatter_forward()
+		self.tmp3.vector.copy(y)
+
+# Necessary for matrix-free routine (R^HQR)
+class LHS_class:
+	def __init__(self,R,Q,TH) -> None:
+		self.R,self.Q=R,Q
+		self.tmp1,self.tmp2=Function(TH),Function(TH)
+
+	def mult(self,A,x:pet.Vec,y:pet.Vec):
+		self.R.mult(x,self.tmp2.vector)
+		self.Q.mult(self.tmp2.vector,self.tmp1.vector)
+		self.tmp1.x.scatter_forward()
+		self.R.multHermitian(self.tmp1.vector,y)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -151,54 +190,20 @@ class SPYP(SPY):
 		m,		n 		= B.getSize()
 		m_local,n_local = B.getLocalSize()
 
-		# Temporary vectors
-		tmp1, tmp2 = Function(self.TH), Function(self.TH)
-		tmp3 = Function(self.TH0c)
-
-		# Resolvent operator
-		class R_class:
-			def mult(cls,A,x:pet.Vec,y:pet.Vec) -> None:
-				B.mult(x,tmp1.vector)
-				tmp1.x.scatter_forward()
-				self.KSP.solve(tmp1.vector,tmp2.vector)
-				tmp2.x.scatter_forward()
-				tmp2.vector.copy(y)
-
-			def multHermitian(cls,A,x:pet.Vec,y:pet.Vec) -> None:
-				# Hand made solveHermitianTranspose (save extra LU factorisation)
-				x.conjugate()
-				self.KSP.solveTranspose(x,tmp2.vector)
-				tmp2.vector.conjugate()
-				tmp2.x.scatter_forward()
-				B.multTranspose(tmp2.vector,tmp3.vector)
-				tmp3.x.scatter_forward()
-				tmp3.vector.copy(y)
-
-		# Necessary for matrix-free routine
-		class LHS_class:
-			def mult(cls,A,x:pet.Vec,y:pet.Vec):
-				self.R.mult(x,tmp2.vector)
-				Q.mult(tmp2.vector,tmp1.vector)
-				tmp1.x.scatter_forward()
-				self.R.multHermitian(tmp1.vector,y)
-
-		self.R   = pythonMatrix([[m_local,m],[n_local,n]],  R_class,comm)
-		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_class,comm)
+		self.R_obj =   R_class(B,self.TH,self.TH0c)
+		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
+		LHS_obj    = LHS_class(self.R,Q,self.TH)
+		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,hot_start:bool=False) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
-
-		# Useful solvers (here to put options for computing a smart R)
-		L=self.J-1j*np.pi*St_list[0]*self.N
-		self.KSP = pet.KSP().create(comm)
-		self.KSP.setOperators(L)
-		configureKSP(self.KSP,self.params)
 		
 		for St in St_list:
-			L=self.J-1j*np.pi*St*self.N # Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
+			# Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
+			self.R_obj.setL(self.J-1j*np.pi*St*self.N,self.params)
 
-			if hot_start:
+			if hot_start and St!=St_list[0]:
 				forcing_0=Function(self.TH0c)
 				loadStuff(self.resolvent_path+"forcing/npy/",{"Re":Re,"S":S,"m":m,"St":St},forcing_0)
 				EPS.setInitialSpace(forcing_0.vector)
@@ -216,6 +221,7 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path)
 			dirCreator(self.resolvent_path+"gains/")
 			dirCreator(self.resolvent_path+"forcing/")
+			dirCreator(self.resolvent_path+"response/")
 			save_string=f"Re={Re:d}"
 			if type(S)==int: save_string+=f"_S={S:d}"
 			else:			 save_string+=f"_S={S:00.2f}"
@@ -225,6 +231,7 @@ class SPYP(SPY):
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
 				# Write gains
 				np.savetxt(self.resolvent_path+"gains/"+save_string+".txt",gains)
+				print("Saved "+self.resolvent_path+"gains/"+save_string+".txt",flush=True)
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
@@ -253,11 +260,6 @@ class SPYP(SPY):
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/",save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
-
-				"""expr=dfx.fem.Expression(self.div_nor(velocity_i,m),self.TH1.element.interpolation_points(),dtype=pet.ScalarType)
-				div = Function(self.TH1)
-				div.interpolate(expr)
-				self.printStuff("./","sanity_check_div",div)"""
 
 	def visualiseCurls(self,str,Re,S,m,St,x):
 		data = Function(self.TH0c)

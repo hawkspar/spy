@@ -17,14 +17,14 @@ from spy import SPY, grd
 R=1
 
 # /!\ OpenFOAM coherence /!\
-S,Re=1,400000
+S,Re=0,400000
 h=2.5e-4
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
-		  "atol":1e-12, #absolute_tolerance
-		  "rtol":1e-9, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "atol":1e-15, #absolute_tolerance
+		  "rtol":1e-13, #DOLFIN_EPS does not work well
+		  "max_iter":1000}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
