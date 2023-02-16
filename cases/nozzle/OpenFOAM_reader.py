@@ -86,5 +86,6 @@ for Re in Res:
         # Save
         #spy.saveBaseflow(Re,S)
         dirCreator(spy.baseflow_path)
-        saveStuff(spy.nut_path,f'nut_S={S:.1f}_Re={Re:d}'.replace('.',','),Nu)
-        spy.printStuff(spy.baseflow_path+'print_OpenFOAM/',f"u_Re={Re:d}_S={S:.1f}".replace('.',','),U)
+        save_string=f"_Re={Re:d}_S={S:.1f}"
+        saveStuff(spy.nut_path,"nut"+save_string,Nu)
+        spy.printStuff(spy.baseflow_path+'print_OpenFOAM/',"u"+save_string,U)

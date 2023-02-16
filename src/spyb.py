@@ -123,7 +123,7 @@ class SPYB(SPY):
 		if save:  # Memoisation
 			self.saveBaseflow(Re,S)
 			U,_=q.split()
-			self.printStuff(self.print_path,f"u_S={S:.1f}_Re={Re:d}".replace('.',','),U)
+			self.printStuff(self.print_path,f"u_Re={Re:d}_S={S:.1f}",U)
 		
 		return n
 

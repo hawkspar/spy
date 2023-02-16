@@ -16,7 +16,7 @@ from matplotlib import pyplot as plt
 p0=COMM_WORLD.rank==0
 load=False
 m=2
-save_string=f"_Re={Re:d}_S={S:00.1f}_m={m:d}".replace('.',',')
+save_string=f"_Re={Re:d}_S={S}_m={m:d}".replace('.',',')
 
 # Load baseflow
 spy = SPY(params, datapath, "baseflow",      direction_map)

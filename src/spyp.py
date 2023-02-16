@@ -45,7 +45,7 @@ def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
 	KSP.setFromOptions()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,200)
+	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
 
 # Eigenvalue problem solver
 def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
@@ -103,8 +103,8 @@ class LHS_class:
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict, forcing_indicator=None) -> None:
-		super().__init__(params, datapath, mesh_name, direction_map, forcing_indicator)
+	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
+		super().__init__(params, datapath, mesh_name, direction_map)
 		dirCreator(self.baseflow_path)
 
 	# Handle
@@ -151,38 +151,38 @@ class SPYP(SPY):
 		# Conversion back into numpy 
 		vals=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
 		dirCreator(self.eig_path)
-		save_string=f"Re={Re:d}_S={S:00.3f}_m={m:d}".replace('.',',')
+		save_string=f"Re={Re:d}_S={S:.1f}_m={m:d}"
 		# Write eigenvalues
-		np.savetxt(self.eig_path+save_string+"_sig={:.2f}".format(sigma).replace('.',',')+".txt",np.column_stack([vals.real, vals.imag]))
+		np.savetxt(self.eig_path+save_string+f"_sig={sigma:.2f}.txt",np.column_stack([vals.real, vals.imag]))
 		q=Function(self.TH)
 		# Write a few eigenvectors back in xdmf
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
 			# Memoisation of first eigenvector
-			if i==0: saveStuff(self.eig_path+"q/",save_string+"_l={:.2f}".format(vals[0]).replace('.',','),q)
+			if i==0: saveStuff(self.eig_path+"q/",save_string+f"_l={vals[0]:.2f}",q)
 			u,_ = q.split()
-			self.printStuff(self.eig_path+"u/",save_string+"_l={:.2f}".format(vals[i]).replace('.',','),u)
+			self.printStuff(self.eig_path+"u/",save_string+f"_l={vals[i]:.2f}",u)
 		if p0: print("Eigenpairs written !",flush=True)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,stab=False) -> None:
+	def assembleMRMatrices(self,indic=None,stab=False) -> None:
 		# Velocity and full space functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
 		w = ufl.TrialFunction(self.TH0c)
 		z = ufl.TestFunction( self.TH0c)
 
-		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form = ufl.inner(w,v)*self.r*self.indic*ufl.dx # Also includes forcing indicator to enforce placement
-		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
-		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 		# Mass Q (m*m): norm is u^2
 		Q_form = ufl.inner(u,v)*self.r*ufl.dx
+		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
+		B_form = ufl.inner(w,v*(1+(indic-1)*(indic!=None)))*self.r*ufl.dx # Also includes forcing indicator to enforce placement
+		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
+		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
 
 		# Assembling matrices
+		Q 	   = assembleForm(Q_form,sym=True)
 		B 	   = assembleForm(B_form,self.bcs)
 		self.M = assembleForm(M_form,sym=True)
-		Q 	   = assembleForm(Q_form,sym=True)
 
 		if p0: print("Quadrature, Extractor & Mass matrices computed !",flush=True)
 
@@ -222,20 +222,21 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path+"gains/")
 			dirCreator(self.resolvent_path+"forcing/")
 			dirCreator(self.resolvent_path+"response/")
-			save_string=f"Re={Re:d}"
-			if type(S)==int: save_string+=f"_S={S:d}"
-			else:			 save_string+=f"_S={S:00.2f}"
-			save_string+=f"_m={m:d}_St={St:00.2f}".replace('.',',')
+			save_string=f"Re={Re:d}_S="
+			if type(S)==int: save_string+=f"{S:d}"
+			else: 			 save_string+=f"{S:.1f}"
+			save_string+=f"_m={m:d}_St={St:.2f}"
+			save_string=save_string.replace('.',',')
 			if p0:
+				# Pretty print
+				print("# of CV eigenvalues : "+str(n),flush=True)
+				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
+				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
 				# Write gains
 				np.savetxt(self.resolvent_path+"gains/"+save_string+".txt",gains)
 				print("Saved "+self.resolvent_path+"gains/"+save_string+".txt",flush=True)
-				# Pretty print
-				print("# of CV eigenvalues : "+str(n),flush=True)
-				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
-				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
 				# Get a list of all the file paths with the same parameters
 				fileList = glob.glob(self.resolvent_path+"(forcing/print|forcing/npy|response/print|response/npy)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
@@ -247,8 +248,8 @@ class SPYP(SPY):
 				# Obtain forcings as eigenvectors
 				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
 				forcing_i.x.scatter_forward()
-				self.printStuff(self.resolvent_path+"forcing/print/",save_string+f"_i={i+1:d}",forcing_i)
-				saveStuff(self.resolvent_path+"forcing/npy/",save_string+f"_i={i+1:d}",forcing_i)
+				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
+				saveStuff(self.resolvent_path+"forcing/npy/","f_"+save_string+f"_i={i+1:d}",forcing_i)
 
 				# Obtain response from forcing
 				response_i=Function(self.TH)
@@ -258,8 +259,8 @@ class SPYP(SPY):
 				velocity_i=Function(self.TH0c)
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
-				self.printStuff(self.resolvent_path+"response/print/",save_string+f"_i={i+1:d}",velocity_i)
-				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
+				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
+				saveStuff(self.resolvent_path+"response/npy/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 
 	def visualiseCurls(self,str,Re,S,m,St,x):
 		data = Function(self.TH0c)
@@ -308,7 +309,7 @@ class SPYP(SPY):
 
 			plt.colorbar(c)
 			plt.title("Rotational of "+str+" at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
+			plt.savefig(dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:00.3f}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
 	def visualiseStreaks(self,str,Re,S,m,St,x):
@@ -381,18 +382,18 @@ class SPYP(SPY):
 
 			plt.colorbar(c)
 			#plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_S={S:00.3f}_m={m:d}_St={St:00.3f}_x={x:00.1f}.png")
+			plt.savefig(dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:00.3f}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
 	def readMode(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
 		funs = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","S","m","St"],[Re,S,m,St],funs)
+		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St},funs)
 		funs=funs.split()
 		return funs[coord]
 
 	def readCurl(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
 		funs = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","S","m","St"],[Re,S,m,St],funs)
+		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St},funs)
 		expr=dfx.fem.Expression(self.crl(funs,m)[coord],self.TH1.element.interpolation_points())
 		crl = Function(self.TH1)
 		crl.interpolate(expr)

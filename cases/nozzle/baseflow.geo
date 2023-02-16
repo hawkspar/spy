@@ -5,10 +5,10 @@ L=50*R; H=10*R;
 r=1e-3; h = 2.5e-4;
 
 // Base 'rectangle'
-Point(1) = {0, 0, 0,  10*r};
-Point(2) = {L, 0, 0, 120*r};
-Point(3) = {L, H, 0, 500*r};
-Point(4) = {0, H, 0, 500*r};
+Point(1) = {0, 0, 0,  100*r};
+Point(2) = {L, 0, 0,  500*r};
+Point(3) = {L, H, 0, 2000*r};
+Point(4) = {0, H, 0, 2000*r};
 // Actual nozzle
 Point(5) = {0, R,   0, r};
 Point(6) = {0, R+h, 0, r};
@@ -23,13 +23,13 @@ Point(13) = {.95*R, 1.01*R,   0, r};
 // Less refined area
 Point(14) = { .3*R,     R,   0,     r};
 Point(15) = { .3*R,     R+h, 0,     r};
-Point(16) = { .3*R,  .7*R,   0,   4*r};
-Point(17) = { 30*R,  .2*R,   0, 150*r};
-Point(18) = { 30*R, 1.2*R,   0, 150*r};
-Point(19) = { .3*R, 1.1*R,   0,   5*r};
+Point(16) = { .3*R,  .7*R,   0,  10*r};
+Point(17) = { 30*R,  .2*R,   0, 200*r};
+Point(18) = { 30*R,   4*R,   0, 200*r};
+Point(19) = { .3*R, 1.1*R,   0,  10*r};
 // Extra padding zone
-Point(20) = {1.01*L,0,0,300*r};
-Point(21) = {1.01*L,H,0,300*r};
+Point(20) = {1.01*L,0,0,200*r};
+Point(21) = {1.01*L,H,0,500*r};
 
 // Main rectangle
 Line(1)  = {1,   2};

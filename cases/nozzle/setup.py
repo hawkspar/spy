@@ -11,7 +11,7 @@ from dolfinx.fem import Function
 
 sys.path.append('/home/shared/src')
 
-from spy import SPY, grd
+from spy import SPY
 
 # Geometry parameters (nozzle)
 R=1
@@ -22,8 +22,8 @@ h=2.5e-4
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
-		  "atol":1e-15, #absolute_tolerance
-		  "rtol":1e-13, #DOLFIN_EPS does not work well
+		  "atol":1e-14, #absolute_tolerance
+		  "rtol":1e-12, #DOLFIN_EPS does not work well
 		  "max_iter":1000}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
@@ -38,7 +38,7 @@ def outlet(  x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.m
 def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top boundary (assumed straight)
 def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
 
-def forcingIndicator(x): return (x[1]<nozzle_top(x[0]))*(x[0]<1)+(x[1]<1+x[0]/3)*(x[0]>=1)*(x[0]<3)+(x[1]<2)*(x[0]>=3)
+def forcing_indicator(x): return x[1]<1.1
 
 # Simplistic profile
 def baseflowInit(x):

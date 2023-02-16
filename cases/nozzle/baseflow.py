@@ -28,4 +28,4 @@ for S in np.linspace(.2,1,5):
 	spyb.smoothen(1e-6)
 	spyb.saveBaseflow(Re,S)
 	U,_=spyb.Q.split()
-	spyb.printStuff(spyb.print_path,f"u_Re={Re:d}_S={S:.1f}".replace('.',','),U)
+	spyb.printStuff(spyb.print_path,f"u_Re={Re:d}_S={S:.1f}",U)

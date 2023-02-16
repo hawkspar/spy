@@ -7,9 +7,8 @@ Created on Fri Dec 10 12:00:00 2021
 import os, ufl, re
 import numpy as np
 import dolfinx as dfx
-from petsc4py import PETSc as pet
+from dolfinx.fem import Function
 from mpi4py.MPI import COMM_WORLD as comm
-from dolfinx.fem import FunctionSpace, Function
 
 p0=comm.rank==0
 
@@ -79,14 +78,14 @@ def loadStuff(path:str,params:dict,fun:Function) -> None:
 # Naive save with dir creation
 def saveStuff(dir:str,name:str,fun:Function) -> None:
 	dirCreator(dir)
-	proc_name=dir+name+f"_n={comm.size:d}_p={comm.rank:d}"
+	proc_name=dir+name.replace('.',',')+f"_n={comm.size:d}_p={comm.rank:d}"
 	fun.x.scatter_forward()
 	np.save(proc_name,fun.x.array)
 	if p0: print("Saved "+proc_name+".npy",flush=True)
 
 # Swirling Parallel Yaj
 class SPY:
-	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict, forcingIndicator=None) -> None:
+	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
 		# Direction dependant
 		self.direction_map=direction_map
 		# Solver parameters (Newton mostly, but also eig)
@@ -107,14 +106,6 @@ class SPY:
 			self.mesh = file.read_mesh(name="Grid")
 		if p0: print("Loaded "+meshpath,flush=True)
 		self.defineFunctionSpaces()
-	
-		# Forcing localisation
-		if forcingIndicator==None: self.indic=1
-		else:
-			FE_constant=ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
-			W = FunctionSpace(self.mesh,FE_constant)
-			self.indic = Function(W)
-			self.indic.interpolate(forcingIndicator)
 
 		# BCs essentials
 		self.dofs = np.empty(0,dtype=np.int32)
@@ -129,11 +120,11 @@ class SPY:
 		FE_scalar =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
 		FE_scalar2=ufl.FiniteElement("CG",self.mesh.ufl_cell(),2)
 		#Constant =ufl.FiniteElement("Real",self.mesh.ufl_cell(),0)
-		self.TH0 = FunctionSpace(self.mesh,FE_vector)
-		self.TH1 = FunctionSpace(self.mesh,FE_scalar)
-		self.TH2 = FunctionSpace(self.mesh,FE_scalar2)
+		self.TH0 = dfx.fem.FunctionSpace(self.mesh,FE_vector)
+		self.TH1 = dfx.fem.FunctionSpace(self.mesh,FE_scalar)
+		self.TH2 = dfx.fem.FunctionSpace(self.mesh,FE_scalar2)
 		# Taylor Hodd elements ; stable element pair + eddy viscosity
-		self.TH = FunctionSpace(self.mesh,FE_vector*FE_scalar)
+		self.TH = dfx.fem.FunctionSpace(self.mesh,FE_vector*FE_scalar)
 		self.TH0c, self.TH_to_TH0 = self.TH.sub(0).collapse()
 		self.TH1c, self.TH_to_TH1 = self.TH.sub(1).collapse()
 		# Test & trial functions
@@ -149,10 +140,7 @@ class SPY:
 		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
 		loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 
-	def saveBaseflow(self,Re:int,S:float):
-		if type(S)==int: str_S=f'{S:d}'
-		else: 			 str_S=f'{S:.1f}'.replace('.',',')
-		saveStuff(self.q_path,'q_S='+str_S+f'_Re={Re:d}',self.Q)
+	def saveBaseflow(self,Re:int,S:float): saveStuff(self.q_path,f"q_S={S:.1f}_Re={Re:d}".replace('.',','),self.Q)
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -245,7 +233,7 @@ class SPY:
 		self.printStuff("./","sanity_check_div"+app,div)
 
 		FE = ufl.FiniteElement("DG",self.mesh.ufl_cell(),0)
-		W = FunctionSpace(self.mesh,FE)
+		W = dfx.fem.FunctionSpace(self.mesh,FE)
 		p = Function(W)
 		p.x.array[:]=comm.rank
 		self.printStuff("./","sanity_check_partition"+app,p)
