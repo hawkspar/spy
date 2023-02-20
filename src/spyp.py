@@ -11,9 +11,8 @@ from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 import plotly.graph_objects as go
-from matplotlib import pyplot as plt
 from mpi4py.MPI import COMM_WORLD as comm
-from spy import SPY, dirCreator, loadStuff, saveStuff
+from spy import SPY, dirCreator, loadStuff, saveStuff, configureKSP
 
 p0=comm.rank==0
 
@@ -36,17 +35,6 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	Mat.setUp()
 	return Mat
 
-# Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
-	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
-	# Krylov subspace
-	KSP.setType('preonly')
-	# Preconditioner
-	PC = KSP.getPC(); PC.setType('lu')
-	PC.setFactorSolverType('mumps')
-	KSP.setFromOptions()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
-
 # Eigenvalue problem solver
 def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
@@ -56,8 +44,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
 	if shift:
 		ST.setType('sinvert')
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
-	KSP = ST.getKSP()
-	configureKSP(KSP,params,shift)
+	configureKSP(ST.getKSP(),params,shift)
 	EPS.setFromOptions()
 
 # Resolvent operator (L^-1B)
@@ -261,129 +248,6 @@ class SPYP(SPY):
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/","r_"+save_string+f"_i={i+1:d}",velocity_i)
-
-	def visualiseCurls(self,str,Re,S,m,St,x):
-		data = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",["Re","S","m","St"],[Re,S,m,St],data)
-		
-		# Compute vorticity (curl)
-		expr = dfx.fem.Expression(self.crl(data,m)[0],self.TH1.element.interpolation_points())
-		crl = Function(self.TH1)
-		crl.interpolate(expr)
-
-		n = 1000
-		rs = np.linspace(0,1,n)
-		points = np.array([[x,r,0] for r in rs])
-		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
-		cells, points_on_proc = [], []
-		
-		# Find cells whose bounding-box collide with the the points
-		cell_candidates = dfx.geometry.compute_collisions(bbtree, points)
-		# Choose one of the cells that contains the point
-		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, points)
-		for i, point in enumerate(points):
-			if len(colliding_cells.links(i))>0:
-				points_on_proc.append(point)
-				cells.append(colliding_cells.links(i)[0])
-		
-		if len(points_on_proc)!=0:
-			rs_on_proc = np.array(points_on_proc, dtype=np.float64)[:,1]
-			crls = crl.eval(points_on_proc, cells)
-		else: rs_on_proc, crls = None, None
-		rs   = comm.gather(rs_on_proc, root=0)
-		crls = comm.gather(crls, 	   root=0)
-
-		# Actual plotting
-		dir=self.resolvent_path+str+"/rolls/"
-		dirCreator(dir)
-		if p0:
-			rs, crls = np.hstack([r for r in rs if r is not None]), np.hstack([crl.flatten() for crl in crls if crl is not None])
-			ids=np.argsort(rs)
-			crls,rs=crls[ids],rs[ids]
-			thetas = np.linspace(0,2*np.pi,n//10)
-			crls=np.real(np.outer(crls,np.exp(m*1j*thetas)))
-
-			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
-			c=ax.contourf(thetas,rs,crls)
-			ax.set_rorigin(0)
-
-			plt.colorbar(c)
-			plt.title("Rotational of "+str+" at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:00.3f}_x={x:00.1f}".replace('.',',')+".png")
-			plt.close()
-
-	def visualiseStreaks(self,str,Re,S,m,St,x):
-		data = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",    ["Re","S","m","St"],[Re,S,m,St],data)
-		u = Function(self.TH0c)
-		loadStuff(self.resolvent_path+"response/npy/",["Re","S","m","St"],[Re,S,m,St],u)
-		
-		expr = dfx.fem.Expression(data[1],self.TH1.element.interpolation_points())
-		dr = Function(self.TH1)
-		dr.interpolate(expr)
-		expr = dfx.fem.Expression(data[2],self.TH1.element.interpolation_points())
-		dt = Function(self.TH1)
-		dt.interpolate(expr)
-		
-		expr = dfx.fem.Expression(u[0],self.TH1.element.interpolation_points())
-		u = Function(self.TH1)
-		u.interpolate(expr)
-
-		n = 500
-		sr,st = 50, 1
-		a = 5e5
-		rs = np.linspace(0,1.6,n)
-		points = np.array([[x,r,0] for r in rs])
-		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
-		cells, points_on_proc = [], []
-		
-		# Find cells whose bounding-box collide with the the points
-		cell_candidates = dfx.geometry.compute_collisions(bbtree, points)
-		# Choose one of the cells that contains the point
-		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, points)
-		for i, point in enumerate(points):
-			if len(colliding_cells.links(i))>0:
-				points_on_proc.append(point)
-				cells.append(colliding_cells.links(i)[0])
-		
-		if len(points_on_proc)!=0:
-			rs_on_proc = np.array(points_on_proc, dtype=np.float64)[:,1]
-			us  =  u.eval(points_on_proc, cells)
-			drs = dr.eval(points_on_proc, cells)
-			dts = dt.eval(points_on_proc, cells)
-		else: rs_on_proc, us, drs, dts = None, None, None, None
-		rs  = comm.gather(rs_on_proc, root=0)
-		us  = comm.gather(us, 	   	  root=0)
-		drs = comm.gather(drs, 	   	  root=0)
-		dts = comm.gather(dts, 	   	  root=0)
-
-		# Actual plotting
-		dir=self.resolvent_path+str+"/streaks/"
-		dirCreator(dir)
-		if p0:
-			rs,  us  = np.hstack([r 		   for r  in rs  if r  is not None]), np.hstack([u.flatten()  for u  in us  if u  is not None])
-			drs, dts = np.hstack([dr.flatten() for dr in drs if dr is not None]), np.hstack([dt.flatten() for dt in dts if dt is not None])
-			ids=np.argsort(rs)
-			rs,us,drs,dts=rs[ids],us[ids],drs[ids],dts[ids]
-			thetas = np.linspace(0,2*np.pi,n//10)
-			rss,thetass = rs[::sr],thetas[::st]
-			drs,dts=drs[::sr],dts [::sr]
-			us  = np.real(np.outer(us, np.exp(m*1j*thetas)))
-			drs = np.real(np.outer(drs,np.exp(m*1j*thetass)))*a
-			dts = np.real(np.outer(dts,np.exp(m*1j*thetass)))*a
-
-			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
-			fig.set_size_inches(10,10)
-			plt.rcParams.update({'font.size': 20})
-			fig.set_dpi(200)
-			c=ax.contourf(thetas,rs,us,cmap='bwr')
-			ax.quiver(thetass,rss,drs*np.cos(thetass)-dts*np.sin(thetass),drs*np.sin(thetass)+dts*np.cos(thetass))
-			ax.set_rorigin(0)
-
-			plt.colorbar(c)
-			#plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:00.3f}_x={x:00.1f}".replace('.',',')+".png")
-			plt.close()
 
 	def readMode(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
 		funs = Function(self.TH0c)

@@ -2,7 +2,7 @@
 Mesh.MshFileVersion = 2.2;
 R=1;
 L=50*R; H=10*R;
-r=1e-3; h = 2.5e-4;
+r=1e-3; h = 2e-4;
 
 // Base 'rectangle'
 Point(1) = {0, 0, 0,  100*r};

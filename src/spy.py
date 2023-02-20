@@ -8,6 +8,7 @@ import os, ufl, re
 import numpy as np
 import dolfinx as dfx
 from dolfinx.fem import Function
+from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm
 
 p0=comm.rank==0
@@ -30,17 +31,17 @@ def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
     m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
 								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
 
+def dirCreator(path:str):
+	if not os.path.isdir(path):
+		if p0: os.mkdir(path)
+	comm.barrier() # Wait for all other processors
+
 def checkComm(f:str):
 	match = re.search(r'n=(\d*)',f)
 	if int(match.group(1))!=comm.size: return False
 	match = re.search(r'p=([0-9]*)',f)
 	if int(match.group(1))!=comm.rank: return False
 	return True
-
-def dirCreator(path:str):
-	if not os.path.isdir(path):
-		if p0: os.mkdir(path)
-	comm.barrier() # Wait for all other processors
 
 # Simple handler
 def meshConvert(path:str,cell_type:str='triangle',prune=True) -> None:
@@ -52,6 +53,25 @@ def meshConvert(path:str,cell_type:str='triangle',prune=True) -> None:
 	dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
 	meshio.write(path+".xdmf", dolfinx_mesh)
 	print("Mesh "+path+".msh converted to "+path+".xdmf !",flush=True)
+	
+# Krylov subspace
+def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
+	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
+	# Krylov subspace
+	KSP.setType('preonly')
+	# Preconditioner
+	PC = KSP.getPC(); PC.setType('lu')
+	PC.setFactorSolverType('mumps')
+	KSP.setFromOptions()
+	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,100)
+
+# Naive save with dir creation
+def saveStuff(dir:str,name:str,fun:Function) -> None:
+	dirCreator(dir)
+	proc_name=dir+name.replace('.',',')+f"_n={comm.size:d}_p={comm.rank:d}"
+	fun.x.scatter_forward()
+	np.save(proc_name,fun.x.array)
+	if p0: print("Saved "+proc_name+".npy",flush=True)
 
 # Memoisation routine - find closest in param
 def findStuff(path:str,params:dict,format=lambda f:True,distributed=True):
@@ -74,14 +94,6 @@ def loadStuff(path:str,params:dict,fun:Function) -> None:
 	fun.x.scatter_forward()
 	# Loading eddy viscosity too
 	if p0: print("Loaded "+closest_file_name,flush=True)
-
-# Naive save with dir creation
-def saveStuff(dir:str,name:str,fun:Function) -> None:
-	dirCreator(dir)
-	proc_name=dir+name.replace('.',',')+f"_n={comm.size:d}_p={comm.rank:d}"
-	fun.x.scatter_forward()
-	np.save(proc_name,fun.x.array)
-	if p0: print("Saved "+proc_name+".npy",flush=True)
 
 # Swirling Parallel Yaj
 class SPY:

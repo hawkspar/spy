@@ -58,7 +58,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 
 	u_inlet_x=Function(sub_space_x_collapsed)
 	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]**2))*(x[1]<1)+
-							    .05*np.tanh(6*(x[1]**2-1))*(x[1]>1))
+							    .05*np.tanh(6*(x[1]**2-1))*(x[1]>1)) # Actual OpenFOAM is 5%
 	
 	# Degrees of freedom
 	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)

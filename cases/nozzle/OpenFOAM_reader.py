@@ -1,10 +1,8 @@
 import numpy as np
-import meshio, ufl, sys #pip3 install h5py meshio
+import meshio, sys #pip3 install h5py meshio
 from setup import *
-from dolfinx.io import XDMFFile
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
-from dolfinx.fem import FunctionSpace, Function
 
 sys.path.append('/home/shared/src')
 
@@ -44,7 +42,7 @@ for Re in Res:
             fine_xy[:,1]/=cos # Plane tilted
 
             # Reducing problem size (coarse mesh is also smaller)
-            msk = np.all(fine_xy[:,:2]<1.1*np.array([L,H]),1)
+            msk = np.all(fine_xy[:,:2]<1.5*np.array([L,H]),1)
 
             fine_xy=fine_xy[msk,:2]
 

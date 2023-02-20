@@ -4,10 +4,9 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import shutil, ufl
+import ufl
 import numpy as np
-from petsc4py import PETSc as pet
-from spy import SPY, dirCreator, grd
+from spy import SPY, grd, dirCreator, configureKSP
 from mpi4py.MPI import COMM_WORLD as comm, MIN, MAX
 
 from dolfinx.nls.petsc import NewtonSolver
@@ -25,16 +24,17 @@ class SPYB(SPY):
 		dirCreator(self.baseflow_path)
 
 	def smoothen(self, e:float):
-		r=self.r
-		u, p  = ufl.split(self.trial)
-		U, P  = ufl.split(self.Q)
-		v, s  = ufl.split(self.test)
-		gd=lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
-		a=ufl.inner(u,v)+e*ufl.inner(gd(u),gd(v))+ufl.inner(p,s)
-		L=ufl.inner(U,v)+ufl.inner(P,s)
-		pb = LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs, petsc_options={"ksp_type": "cg", "ksp_rtol":1e-6, "ksp_atol":1e-9, "ksp_max_it": 100, "pc_type": "gamg", "pc_factor_mat_solver_type": "mumps"})
+		r = self.r
+		u, p = ufl.split(self.trial)
+		U, P = ufl.split(self.Q)
+		v, s = ufl.split(self.test)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		a = ufl.inner(u,v)+e*ufl.inner(gd(u),gd(v))+ufl.inner(p,s)
+		L = ufl.inner(U,v)+ufl.inner(P,s)
+		pb = LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs,
+						   petsc_options={"ksp_type":"cg", "ksp_rtol":1e-6, "ksp_atol":1e-9, "ksp_max_it":100, "pc_type":"gamg", "pc_factor_mat_solver_type":"mumps"})
 		if p0: print("Smoothing started...",flush=True)
-		self.Q=pb.solve()
+		self.Q = pb.solve()
 
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
 	def baseflow(self,Re:int,S:float,refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
@@ -46,7 +46,7 @@ class SPYB(SPY):
 		# Compute form
 		base_form  = self.navierStokes() # No azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(0) # m=0
-		return self.solver(Re,S,base_form,dbase_form,self.Q,refinement=refinement,save=save)
+		return self.solver(Re,S,base_form,dbase_form,self.Q,save,refinement)
 
 	def corrector(self,Q0,dQ,dRe,h,Re0:int,S:float,d,weak_bcs:tuple) -> int:
 		Qe=self.extend(self.Q)
@@ -70,7 +70,7 @@ class SPYB(SPY):
 	# Recomand running in real
 	def solver(self,Re:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
 		# Encapsulations
-		problem = NonlinearProblem(base_form,q,bcs=self.bcs,J=dbase_form)
+		problem = NonlinearProblem(base_form,q,self.bcs,dbase_form)
 		solver  = NewtonSolver(comm, problem)
 		
 		# Fine tuning
@@ -79,13 +79,7 @@ class SPYB(SPY):
 		solver.max_iter=self.params['max_iter']
 		solver.rtol=self.params['rtol']
 		solver.atol=self.params['atol']
-		ksp = solver.krylov_solver
-		opts = pet.Options()
-		option_prefix = ksp.getOptionsPrefix()
-		opts[f"{option_prefix}ksp_type"] = "preonly"
-		opts[f"{option_prefix}pc_type"] = "lu"
-		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-		ksp.setFromOptions()
+		configureKSP(solver.krylov_solver,self.params)
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
 		n,converged=solver.solve(q)
@@ -126,19 +120,6 @@ class SPYB(SPY):
 			self.printStuff(self.print_path,f"u_Re={Re:d}_S={S:.1f}",U)
 		
 		return n
-
-	# DESTRUCTIVE !
-	def baseflowRange(self,Ss) -> None:
-		shutil.rmtree(self.u_path)
-		shutil.rmtree(self.p_path)
-		shutil.rmtree(self.print_path)
-		for S in Ss: 	   # Then on swirl intensity
-			if p0:
-				print('#'*25)
-				print("Swirl intensity: ", S)
-			self.baseflow(S!=Ss[0],True,S)
-
-		if p0: print("Last checkpoint written!",flush=True)
 
 	def minimumAxial(self) -> float:
 		u=self.U.compute_point_values()[:,self.direction_map['x']]
