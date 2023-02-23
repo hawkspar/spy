@@ -10,9 +10,8 @@ import dolfinx as dfx
 from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
-import plotly.graph_objects as go
 from mpi4py.MPI import COMM_WORLD as comm
-from spy import SPY, dirCreator, loadStuff, saveStuff, configureKSP
+from spy import SPY, saveStuff, loadStuff, dirCreator, configureKSP
 
 p0=comm.rank==0
 
@@ -264,6 +263,8 @@ class SPYP(SPY):
 		return crl
 
 	def computeIsosurface(self,m:int,O:float,L:float,H:float,res_x:int,res_yz:int,r:float,f:Function,scale:str):
+		import plotly.graph_objects as go #pip3 install plotly
+
 		# New regular mesh
 		X,Y,Z = np.mgrid[O:L:res_x*1j, -H:H:res_yz*1j, -H:H:res_yz*1j]
 		X,Y,Z = X.flatten(),Y.flatten(),Z.flatten()

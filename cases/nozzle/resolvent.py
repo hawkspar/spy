@@ -9,11 +9,11 @@ from setup import *
 from spyp import SPYP # Must be after setup
 from dolfinx.fem import FunctionSpace
 
-#ms=range(-5,6)
+#ms=range(-2,3)
 ms=[0]
 Ss=[0]
 #Sts=np.flip(np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.01,10))))
-Sts=np.flip(np.hstack((np.linspace(1,.2,5,endpoint=False),np.linspace(.2,.1,3,endpoint=False),np.linspace(.1,.01,5))))
+Sts=np.linspace(.1,.01,5)
 for S in Ss:
 	# Load baseflow
 	spy = SPY(params,datapath,"baseflow",     direction_map)
@@ -26,7 +26,7 @@ for S in Ss:
 	FE_constant=ufl.FiniteElement("DG",spyp.mesh.ufl_cell(),0)
 	W = FunctionSpace(spyp.mesh,FE_constant)
 	indic = Function(W)
-	indic.interpolate(forcing_indicator)
+	indic.interpolate(lambda x: forcing_indicator(x,))
 	spyp.assembleMRMatrices(indic)
 
 	for m in ms:

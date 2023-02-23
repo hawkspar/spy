@@ -9,8 +9,9 @@ from spyb import SPYB
 from spy import loadStuff
 
 spyb=SPYB(params,datapath,"baseflow",direction_map)
+
 u_inlet_th,class_th=boundaryConditionsBaseflow(spyb,0)
-# 'Simple' first step
+# Highly viscous first step
 loadStuff(spyb.nut_path,{'S':0,'Re':1000},spyb.Nu)
 spyb.Re=1000
 spyb.baseflow(1000,0,baseflowInit=baseflowInit)
@@ -25,7 +26,7 @@ for S in np.linspace(.2,1,5):
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{'S':S,'Re':Re},spyb.Nu)
 	spyb.baseflow(Re,S,save=False)
-	spyb.smoothen(1e-6)
+	spyb.smoothen(1e-4)
 	spyb.saveBaseflow(Re,S)
 	U,_=spyb.Q.split()
 	spyb.printStuff(spyb.print_path,f"u_Re={Re:d}_S={S:.1f}",U)

@@ -7,11 +7,11 @@ Created on Fri Dec 10 12:00:00 2021
 import ufl
 import numpy as np
 from spy import SPY, grd, dirCreator, configureKSP
-from mpi4py.MPI import COMM_WORLD as comm, MIN, MAX
+from mpi4py.MPI import MIN, MAX, COMM_WORLD as comm
 
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem import Function, Expression
-from dolfinx.mesh import locate_entities, refine
+from dolfinx.mesh import refine, locate_entities
 from dolfinx.fem.petsc import LinearProblem, NonlinearProblem
 from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
 
@@ -47,25 +47,6 @@ class SPYB(SPY):
 		base_form  = self.navierStokes() # No azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(0) # m=0
 		return self.solver(Re,S,base_form,dbase_form,self.Q,save,refinement)
-
-	def corrector(self,Q0,dQ,dRe,h,Re0:int,S:float,d,weak_bcs:tuple) -> int:
-		Qe=self.extend(self.Q)
-		Q0=self.extend(Q0)
-		dQ=self.extend(dQ)
-		u, p, nu, re= ufl.split(self.triale)
-		U, P, Nu, Re= ufl.split(Qe)
-		_, _, _,  w = ufl.split(self.teste)
-		U0,P0,Nu0,_ = ufl.split(Q0)
-		dU,dP,dNu,_ = ufl.split(dQ)
-		self.Re=Re
-		base_form  = self.navierStokes(Qe,self.teste,d,extended=True)+weak_bcs[0]+\
-					 ufl.inner(ufl.inner(dU,U-U0)+ufl.inner(dP,P-P0)+ufl.inner(dNu,Nu-Nu0)+dRe*(Re-Re0)-h,w) # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(self.triale,Qe,self.teste,0,d,extended=True)+weak_bcs[1]+\
-					 ufl.inner(ufl.inner(dU,u)+ufl.inner(dP,p)+ufl.inner(dNu,nu)+dRe*re,w) # No azimuthal decomposition for base flow
-		n=self.solver(Re0,S,base_form,dbase_form,Qe,save=False)
-		self.Q,Re=self.revert(Qe)
-		
-		return Re,n
 		
 	# Recomand running in real
 	def solver(self,Re:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:

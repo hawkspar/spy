@@ -152,7 +152,7 @@ class SPY:
 		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
 		loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 
-	def saveBaseflow(self,Re:int,S:float): saveStuff(self.q_path,f"q_S={S:.1f}_Re={Re:d}".replace('.',','),self.Q)
+	def saveBaseflow(self,Re:int,S:float): saveStuff(self.q_path,f"q_Re={Re:d}_S={S:.1f}".replace('.',','),self.Q)
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -197,9 +197,8 @@ class SPY:
 		return F*r*ufl.dx
 
 	# Code factorisation
-	def constantBC(self, direction:chr, boundary:bool, value:float=0, subspace_i:int=0) -> tuple:
-		subspace=self.TH.sub(subspace_i)
-		if subspace_i==0: subspace=subspace.sub(self.direction_map[direction])
+	def constantBC(self, direction:chr, boundary:bool, value:float=0) -> tuple:
+		subspace=self.TH.sub(0).sub(self.direction_map[direction])
 		subspace_collapsed,_=subspace.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)
 		dofs = dfx.fem.locate_dofs_geometrical((subspace, subspace_collapsed), boundary)
@@ -214,10 +213,10 @@ class SPY:
 		self.dofs=np.union1d(dofs,self.dofs)
 		self.bcs.append(bcs)
 
-	def applyHomogeneousBCs(self, tup:list, subspace_i:int=0) -> None:
+	def applyHomogeneousBCs(self, tup:list) -> None:
 		for marker,directions in tup:
 			for direction in directions:
-				dofs,bcs=self.constantBC(direction,marker,subspace_i=subspace_i)
+				dofs,bcs=self.constantBC(direction,marker)
 				self.applyBCs(dofs,bcs)
 
 	def printStuff(self,dir:str,name:str,fun:Function) -> None:

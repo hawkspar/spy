@@ -14,21 +14,22 @@ sys.path.append('/home/shared/src')
 from spy import SPY
 
 # Geometry parameters (nozzle)
-R=1
+R,H=1,14
 
 # /!\ OpenFOAM coherence /!\
 S,Re=0,400000
-h=2.5e-4
+h=1e-4
+a=6
+U_m=.05
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
-		  "atol":1e-14, #absolute_tolerance
-		  "rtol":1e-12, #DOLFIN_EPS does not work well
-		  "max_iter":1000}
+		  "atol":1e-12, #absolute_tolerance
+		  "rtol":1e-9, #DOLFIN_EPS does not work well
+		  "max_iter":100}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
-#def nozzle_top(x): return R+(1-x/R)*h
 def nozzle_top(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
 
 # Geometry
@@ -38,18 +39,20 @@ def outlet(  x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.m
 def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top boundary (assumed straight)
 def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
 
-def forcing_indicator(x): return x[1]<1.1
+def forcing_indicator(x): return (x[1]<1.01)*(x[0]<.75)+(x[1]<.2*(x[0]-.75)+1.01)*(x[0]>=.75)*(x[0]<1.25)+(x[1]<1.11)*(x[0]>=1.25)
+
+def inletProfile(x): return np.tanh(a*(1-x[1]**2))			  *(x[1]<1)+\
+		 				    2*U_m*(1-.5*(x[1]-1)/H)*(x[1]-1)/H*(x[1]>1)
 
 # Simplistic profile
 def baseflowInit(x):
 	u=0*x
-	u[0]=np.tanh(6*(1-x[1]**2))*(x[1]<1)+\
-	 .05*np.tanh(6*(x[1]**2-1))*(x[1]>1)
+	u[0]=inletProfile(x)
 	return u
 
 class inletTangential:
 	def __init__(self,S:float) -> None: self.S=S
-	def __call__(self,x) -> np.array: return self.S*x[1]*np.tanh(6*(1-x[1]**2))*(x[1]<1)
+	def __call__(self,x) -> np.array: return self.S*x[1]*np.tanh(a*(1-x[1]**2))*(x[1]<1)
 
 def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	# Compute DoFs
@@ -57,9 +60,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	sub_space_x_collapsed,_=sub_space_x.collapse()
 
 	u_inlet_x=Function(sub_space_x_collapsed)
-	u_inlet_x.interpolate(lambda x: np.tanh(6*(1-x[1]**2))*(x[1]<1)+
-							    .05*np.tanh(6*(x[1]**2-1))*(x[1]>1)) # Actual OpenFOAM is 5%
-	
+	u_inlet_x.interpolate(inletProfile)
 	# Degrees of freedom
 	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
 	bcs_inlet_x = dfx.fem.dirichletbc(u_inlet_x, dofs_inlet_x, sub_space_x) # Same as OpenFOAM
@@ -79,9 +80,6 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 
 	# Handle homogeneous boundary conditions
 	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
-	"""spy.applyHomogeneousBCs([(nozzle,'arbitrary')],2) # Enforce nu=0 at the wall
-	# Have small but !=0 nu at inlet
-	spy.applyBCs(spy.constantBC('arbitrary',inlet,1e-6,2))"""
 	return u_inlet_th,class_th
 
 # Baseflow (really only need DirichletBC objects) enforces :
