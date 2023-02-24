@@ -63,7 +63,7 @@ def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
 	KSP.setFromOptions()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,100)
+	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
 
 # Naive save with dir creation
 def saveStuff(dir:str,name:str,fun:Function) -> None:

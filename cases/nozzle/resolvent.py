@@ -9,11 +9,11 @@ from setup import *
 from spyp import SPYP # Must be after setup
 from dolfinx.fem import FunctionSpace
 
-#ms=range(-2,3)
-ms=[0]
-Ss=[0]
-#Sts=np.flip(np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.01,10))))
-Sts=np.linspace(.1,.01,5)
+#ms=range(-5,6)
+ms=[-2,-1,0,1,2,3,4,5]
+Ss=[.4]
+Sts=np.flip(np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.05,6))))
+#Sts=np.linspace(.1,.05,6)
 for S in Ss:
 	# Load baseflow
 	spy = SPY(params,datapath,"baseflow",     direction_map)

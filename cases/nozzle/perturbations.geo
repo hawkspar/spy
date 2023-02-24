@@ -5,7 +5,7 @@ L=50*R; H=10*R;
 r=1e-3; h = 1e-4;
 
 // Base 'rectangle'
-Point(1) = {0, 0, 0,   20*r};
+Point(1) = {0, 0, 0,   10*r};
 Point(2) = {L, 0, 0,  200*r};
 Point(3) = {L, H, 0, 1000*r};
 Point(4) = {0, H, 0, 1000*r};
@@ -23,7 +23,7 @@ Point(13) = {.95*R, 1.01*R,   0, r};
 // Less refined area
 Point(14) = { .3*R,     R,   0,     r};
 Point(15) = { .3*R,     R+h, 0,     r};
-Point(16) = { .3*R,  .7*R,   0,  10*r};
+Point(16) = { .3*R,  .7*R,   0,   5*r};
 Point(17) = { 30*R,  .2*R,   0, 100*r};
 Point(18) = { 30*R,   4*R,   0, 200*r};
 Point(19) = { .3*R, 1.1*R,   0,  10*r};

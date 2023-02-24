@@ -17,10 +17,9 @@ from spy import SPY
 R,H=1,14
 
 # /!\ OpenFOAM coherence /!\
-S,Re=0,400000
+S,Re=1,400000
 h=1e-4
-a=6
-U_m=.05
+U_m,a=.05,6
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
@@ -30,7 +29,10 @@ params = {"rp":.95,    #relaxation_parameter
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
+# Reference coherent with OpenFOAM
 def nozzle_top(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
+def inletProfile(x): return np.tanh(a*(1-x[1]**2))			  *(x[1]<1)+\
+		 				    2*U_m*(1-.5*(x[1]-1)/H)*(x[1]-1)/H*(x[1]>1)
 
 # Geometry
 def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,			 params['atol']) # Axis of symmetry at r=0
@@ -39,20 +41,19 @@ def outlet(  x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.m
 def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top boundary (assumed straight)
 def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
 
-def forcing_indicator(x): return (x[1]<1.01)*(x[0]<.75)+(x[1]<.2*(x[0]-.75)+1.01)*(x[0]>=.75)*(x[0]<1.25)+(x[1]<1.11)*(x[0]>=1.25)
+# Necessary for resolvent stability at low St
+def forcing_indicator(x): return x[1]<1
 
-def inletProfile(x): return np.tanh(a*(1-x[1]**2))			  *(x[1]<1)+\
-		 				    2*U_m*(1-.5*(x[1]-1)/H)*(x[1]-1)/H*(x[1]>1)
-
-# Simplistic profile
+# Simplistic profile to initialise Newton
 def baseflowInit(x):
 	u=0*x
 	u[0]=inletProfile(x)
 	return u
 
+# Allows for more efficient change of S inside an iteration
 class inletTangential:
 	def __init__(self,S:float) -> None: self.S=S
-	def __call__(self,x) -> np.array: return self.S*x[1]*np.tanh(a*(1-x[1]**2))*(x[1]<1)
+	def __call__(self,x) -> np.array: return self.S*x[1]*inletProfile(x)*(x[1]<1)
 
 def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	# Compute DoFs

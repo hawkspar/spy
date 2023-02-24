@@ -31,6 +31,7 @@ for Re in dat.keys():
 			Sts,gains=[],[]
 			try:
 				for St in dat[Re][S][m].keys():
+					if float(St)<.05: continue
 					Sts.append(float(St))
 					gains.append(dat[Re][S][m][St])
 				Sts,gains=np.array(Sts),np.array(gains)
