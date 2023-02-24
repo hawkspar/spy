@@ -37,8 +37,11 @@ else:
     # Grid search
     X = np.linspace(-2, 2, 20)
     re, im = np.meshgrid(X, X)
-    eigs=spyp.eigenvalues(np.flip((re+1j*im).flatten()),1,Re,S,m) # Actual computation shift value, nb of eigenmode
-    eigs=np.array(eigs)
+    eigs={}
+    for sig in np.flip((re+1j*im).flatten()):
+        local_eigs=spyp.eigenvalues(sig,3,Re,S,m) # Actual computation shift value, nb of eigenmode
+        if local_eigs: eigs.update(list(local_eigs))
+    eigs=np.array(eigs,dtype=complex)
 if p0:
     # Sum them all, regroup them
     np.savetxt(spyp.eig_path+"evals"+save_string+".dat",eigs)

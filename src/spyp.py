@@ -118,38 +118,34 @@ class SPYP(SPY):
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
 	# Modal analysis
-	def eigenvalues(self,sigmas:complex,k:int,Re:int,S:float,m:int) -> None:
+	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None|np.array:
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
 		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is not hermitian, but M is semi-definite
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
+		EPS.setTarget(sigma)
 		configureEPS(EPS,k,self.params,True)
-		# Full eigenvalues
-		all_eigs={}
 		# Loop on targets
-		for sigma in sigmas:
-			EPS.setTarget(sigma)
-			if p0: print(f"Solver launch for sig={sigma:.1f}...",flush=True)
-			EPS.solve()
-			n=EPS.getConverged()
-			if n==0: continue
-			# Conversion back into numpy
-			eigs=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
-			save_string=f"Re={Re:d}_S={S:.1f}_m={m:d}"
-			# Write eigenvalues
-			np.savetxt(self.eig_path+save_string+f"_sig={sigma:.2f}.txt",eigs)
-			q=Function(self.TH)
-			# Write a few eigenvectors back in xdmf
-			for i in range(min(n,3)):
-				EPS.getEigenvector(i,q.vector)
-				# Memoisation of first eigenvector
-				if i==0: saveStuff(self.eig_path+"q/",save_string+f"_l={eigs[0]:.2f}",q)
-				u,_ = q.split()
-				self.printStuff(self.eig_path+"u/",save_string+f"_l={eigs[i]:.2f}",u)
-			if p0: print("Eigenpairs written !",flush=True)
-			all_eigs.update(list(np.round(eigs,3)))
-		return all_eigs
+		if p0: print(f"Solver launch for sig={sigma:.1f}...",flush=True)
+		EPS.solve()
+		n=EPS.getConverged()
+		if n==0: return
+		# Conversion back into numpy
+		eigs=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
+		save_string=f"Re={Re:d}_S={S}_m={m:d}".replace('.',',')
+		# Write eigenvalues
+		np.savetxt(self.eig_path+save_string+f"_sig={sigma:.2f}.txt".replace('.',','),eigs)
+		q=Function(self.TH)
+		# Write a few eigenvectors back in xdmf
+		for i in range(min(n,3)):
+			EPS.getEigenvector(i,q.vector)
+			# Memoisation of first eigenvector
+			if i==0: saveStuff(self.eig_path+"q/",save_string+f"_l={eigs[0]:.2f}".replace('.',','),q)
+			u,_ = q.split()
+			self.printStuff(self.eig_path+"u/",save_string+f"_l={eigs[i]:.2f}".replace('.',','),u)
+		if p0: print("Eigenpairs written !",flush=True)
+		return np.round(eigs,3)
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,indic=None,stab=False) -> None:
