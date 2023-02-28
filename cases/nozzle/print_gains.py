@@ -1,20 +1,21 @@
-import re, os
 import numpy as np
+from re import search
+from os import listdir
 from matplotlib import pyplot as plt
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 
 dat={}
 dir="/home/shared/cases/nozzle/resolvent/gains/"
-file_names = [f for f in os.listdir(dir) if f[-3:]=="txt"]
+file_names = [f for f in listdir(dir) if f[-3:]=="txt"]
 for file_name in file_names:
-	match = re.search(r'm=(-?\d*)', file_name)
+	match = search(r'm=(-?\d*)', file_name)
 	m=match.group(1)
-	match = re.search(r'St=(\d*\,?\d*)',file_name)
+	match = search(r'St=(\d*\,?\d*)',file_name)
 	St=match.group(1).replace(',','.')
-	match = re.search(r'Re=(\d*)',file_name)
+	match = search(r'Re=(\d*)',file_name)
 	Re=match.group(1)
-	match = re.search(r'S=(\d*\,?\d*)',file_name)
+	match = search(r'S=(\d*\,?\d*)',file_name)
 	S=match.group(1)
 	if not Re in dat.keys(): 		dat[Re]      ={}
 	if not S  in dat[Re].keys():	dat[Re][S]   ={}

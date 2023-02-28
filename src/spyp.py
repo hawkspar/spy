@@ -118,7 +118,7 @@ class SPYP(SPY):
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
 	# Modal analysis
-	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None|np.array:
+	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> list:
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
@@ -127,15 +127,18 @@ class SPYP(SPY):
 		EPS.setTarget(sigma)
 		configureEPS(EPS,k,self.params,True)
 		# Loop on targets
-		if p0: print(f"Solver launch for sig={sigma:.1f}...",flush=True)
+		if p0: print(f"Solver launch for sig={sigma:.2f}...",flush=True)
 		EPS.solve()
 		n=EPS.getConverged()
+		dirCreator(self.eig_path)
+		dirCreator(self.eig_path+"values/")
+		save_string=f"Re={Re:d}_S={S}_m={m:d}".replace('.',',')
+		eig_string=self.eig_path+"values/"+save_string+f"_sig={sigma:.2f}".replace('.',',')+".txt"
 		if n==0: return
 		# Conversion back into numpy
-		eigs=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=np.complex)
-		save_string=f"Re={Re:d}_S={S}_m={m:d}".replace('.',',')
+		eigs=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=complex)
 		# Write eigenvalues
-		np.savetxt(self.eig_path+save_string+f"_sig={sigma:.2f}.txt".replace('.',','),eigs)
+		np.savetxt(eig_string,eigs)
 		q=Function(self.TH)
 		# Write a few eigenvectors back in xdmf
 		for i in range(min(n,3)):
@@ -144,8 +147,6 @@ class SPYP(SPY):
 			if i==0: saveStuff(self.eig_path+"q/",save_string+f"_l={eigs[0]:.2f}".replace('.',','),q)
 			u,_ = q.split()
 			self.printStuff(self.eig_path+"u/",save_string+f"_l={eigs[i]:.2f}".replace('.',','),u)
-		if p0: print("Eigenpairs written !",flush=True)
-		return np.round(eigs,3)
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,indic=None,stab=False) -> None:
