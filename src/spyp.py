@@ -18,9 +18,8 @@ p0=comm.rank==0
 # Wrapper
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
-	form = dfx.fem.form(form)#, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"],"cffi_libraries": ["m"]})
-	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag) 
-	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1) # Probably useless after assemble
+	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
+	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag)
 	A.setOption(A.Option.SYMMETRIC,sym)
 	A.assemble()
 	return A
@@ -35,9 +34,10 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	return Mat
 
 # Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
+def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
+	EPS.setProblemType(pb_type)
 	# Spectral transform
 	ST = EPS.getST()
 	if shift:
@@ -45,7 +45,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,shift:bool=False) -> None:
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
 	configureKSP(ST.getKSP(),params,shift)
 	EPS.setFromOptions()
-
+	
 # Resolvent operator (L^-1B)
 class R_class:
 	def __init__(self,B,TH,TH0c) -> None:
@@ -122,12 +122,11 @@ class SPYP(SPY):
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
-		EPS.setProblemType(slp.EPS.ProblemType.PGNHEP) # Specify that A is not hermitian, but M is semi-definite
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		EPS.setTarget(sigma)
-		configureEPS(EPS,k,self.params,True)
+		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True)
 		# Loop on targets
-		if p0: print(f"Solver launch for sig={sigma:.2f}...",flush=True)
+		if p0: print(f"Solver launch for sig={sigma:.2f}...",flush=True) # Specify that A is not hermitian, but M is semi-definite
 		EPS.solve()
 		n=EPS.getConverged()
 		dirCreator(self.eig_path)
@@ -149,7 +148,7 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"u/",save_string+f"_l={eigs[i]:.2f}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,indic=None,stab=False) -> None:
+	def assembleMRMatrices(self,indic=1) -> None:
 		# Velocity and full space functions
 		u,_ = ufl.split(self.trial)
 		v,_ = ufl.split(self.test)
@@ -158,15 +157,15 @@ class SPYP(SPY):
 
 		# Mass Q (m*m): norm is u^2
 		Q_form = ufl.inner(u,v)*self.r*ufl.dx
-		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form = ufl.inner(w,v*(1+(indic-1)*(indic!=None)))*self.r*ufl.dx # Also includes forcing indicator to enforce placement
 		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
 		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
+		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
+		B_form = ufl.inner(w,v)*self.r*indic*ufl.dx # Also includes forcing indicator to enforce placement
 
 		# Assembling matrices
 		Q 	   = assembleForm(Q_form,sym=True)
-		B 	   = assembleForm(B_form,self.bcs)
 		self.M = assembleForm(M_form,sym=True)
+		B 	   = assembleForm(B_form,self.bcs)
 
 		if p0: print("Quadrature, Extractor & Mass matrices computed !",flush=True)
 
@@ -194,8 +193,7 @@ class SPYP(SPY):
 
 			# Eigensolver
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
-			EPS.setProblemType(slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
-			configureEPS(EPS,k,self.params)
+			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
 			if p0: print("Solver launch...",flush=True)
 			EPS.solve()
@@ -209,15 +207,14 @@ class SPYP(SPY):
 			save_string=f"Re={Re:d}_S="
 			if type(S)==int: save_string+=f"{S:d}"
 			else: 			 save_string+=f"{S:.1f}"
-			save_string+=f"_m={m:d}_St={St:.2f}"
-			save_string=save_string.replace('.',',')
+			save_string=(save_string+f"_m={m:d}_St={St:.2f}").replace('.',',')
 			if p0:
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
 				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
 				# Conversion back into numpy (we know gains to be real positive)
-				gains=np.sqrt(np.array([np.real(EPS.getEigenvalue(i)) for i in range(n)], dtype=np.float))
+				gains=np.array([EPS.getEigenvalue(i).real for i in range(n)], dtype=np.float)**.5
 				# Write gains
 				np.savetxt(self.resolvent_path+"gains/"+save_string+".txt",gains)
 				print("Saved "+self.resolvent_path+"gains/"+save_string+".txt",flush=True)
@@ -230,7 +227,7 @@ class SPYP(SPY):
 				# Save on a proper compressed space
 				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
-				gain_i=np.sqrt(np.real(EPS.getEigenpair(i,forcing_i.vector)))
+				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
 				saveStuff(self.resolvent_path+"forcing/npy/","f_"+save_string+f"_i={i+1:d}",forcing_i)
@@ -297,7 +294,7 @@ class SPYP(SPY):
 			# Reorder everything to match mgrid
 			ids=np.lexsort(np.flip(points,0))
 			X,Y,Z=points
-			V=np.real(V[ids]*np.exp(1j*m*np.arctan2(Y,Z))) # Proper azimuthal decomposition
+			V=(V[ids]*np.exp(1j*m*np.arctan2(Y,Z))).real # Proper azimuthal decomposition
 			return go.Isosurface(x=X,y=Y,z=Z,value=V,
 								 isomin=r*np.min(V),isomax=r*np.max(V),
 								 colorscale=scale,

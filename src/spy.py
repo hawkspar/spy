@@ -157,10 +157,10 @@ class SPY:
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
 		# Shortforms
-		r, Re = self.r, self.Re
+		r = self.r
 		# Functions
 		U, P = ufl.split(self.Q)
-		Nu = self.Nu
+		nu = 1/self.Re+self.Nu
 		v, s  = ufl.split(self.test)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
@@ -171,17 +171,17 @@ class SPY:
 		F += ufl.inner(gd(U)*U, v) # Convection
 		F -= ufl.inner(	  P, dv(v)) # Pressure
 		F += ufl.inner(gd(U)+gd(U).T,
-							 gd(v))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
+							 gd(v))*nu # Diffusion (grad u.T significant with nut)
 		return F*r*ufl.dx
 	
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
-		r,Re=self.r,self.Re
+		r = self.r
 		# Functions
 		u, p = ufl.split(self.trial)
 		U, _ = ufl.split(self.Q) # Baseflow
-		Nu = self.Nu 
+		nu = 1/self.Re + self.Nu 
 		v, s = ufl.split(self.test)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
@@ -193,7 +193,7 @@ class SPY:
 		F += ufl.inner(gd(u,m)*U, v)
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
-							   gd(v,m))*(1/Re+Nu) # Diffusion (grad u.T significant with nut)
+							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
 		return F*r*ufl.dx
 
 	# Code factorisation
@@ -234,9 +234,8 @@ class SPY:
 	def sanityCheck(self,app=""):
 		self.U.x.array[:]=self.Q.x.array[self.TH_to_TH0]
 		self.P.x.array[:]=self.Q.x.array[self.TH_to_TH1]
-		#self.Nu.x.array[:]=self.Nu.x.array[:]
 
-		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
+		dx,dr=self.direction_map['x'],self.direction_map['r']
 		expr=dfx.fem.Expression(self.U[dx].dx(dx) + (self.r*self.U[dr]).dx(dr)/self.r,
 								self.TH1.element.interpolation_points())
 		div = Function(self.TH1)

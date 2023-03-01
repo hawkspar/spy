@@ -27,8 +27,8 @@ boundaryConditionsPerturbations(spyp,m)
 # For efficiency, matrix is assembled only once
 spyp.assembleJNMatrices(m)
 # Grid search
-X = np.linspace(-2, 2, 21)
-re, im = np.meshgrid(X, X)
+RE, IM = np.linspace(-5, 5, 41), np.linspace(-.1, .1, 6)
+re, im = np.meshgrid(RE, IM)
 eigs=set()
 for sig in np.flip((re+1j*im).T.flatten()):
     if sig.real>.1: continue #TBM

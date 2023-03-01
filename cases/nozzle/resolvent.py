@@ -9,29 +9,28 @@ from setup import *
 from spyp import SPYP # Must be after setup
 from dolfinx.fem import FunctionSpace
 
-#ms=range(-5,6)
-ms=[-2,-1,0,1,2,3,4,5]
-Ss=[.4]
-Sts=np.flip(np.hstack((np.linspace(1,.2,20,endpoint=False),np.linspace(.2,.1,5,endpoint=False),np.linspace(.1,.05,6))))
-#Sts=np.linspace(.1,.05,6)
-for S in Ss:
-	# Load baseflow
-	spy = SPY(params,datapath,"baseflow",     direction_map)
-	spy.loadBaseflow(Re,S)
-	# Initialise resolvent toolbox (careful order sensitive)
-	spyp=SPYP(params,datapath,"perturbations",direction_map)
-	spyp.Re=Re
-	spyp.interpolateBaseflow(spy)
+ms=range(-5,6)
+S=0
+Sts=np.linspace(.05,2,20)
 
-	FE_constant=ufl.FiniteElement("DG",spyp.mesh.ufl_cell(),0)
-	W = FunctionSpace(spyp.mesh,FE_constant)
-	indic = Function(W)
-	indic.interpolate(lambda x: forcing_indicator(x,))
-	spyp.assembleMRMatrices(indic)
+# Load baseflow
+spy = SPY(params,datapath,"baseflow",     direction_map)
+spy.loadBaseflow(Re,S)
+# Initialise resolvent toolbox (careful order sensitive)
+spyp=SPYP(params,datapath,"perturbations",direction_map)
+spyp.Re=Re
+spyp.interpolateBaseflow(spy)
 
-	for m in ms:
-		boundaryConditionsPerturbations(spyp,m)
-		# For efficiency, matrices assembled once per Sts
-		spyp.assembleJNMatrices(m)
-		# Resolvent analysis
-		spyp.resolvent(1,Sts,Re,S,m)
+FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
+W = FunctionSpace(spyp.mesh,FE_constant)
+indic = Function(W)
+indic.interpolate(lambda x: forcing_indicator(x,))
+spyp.printStuff('./','indic',indic)
+spyp.assembleMRMatrices(indic)
+
+for m in ms:
+	boundaryConditionsPerturbations(spyp,m)
+	# For efficiency, matrices assembled once per Sts
+	spyp.assembleJNMatrices(m)
+	# Resolvent analysis
+	spyp.resolvent(1,Sts,Re,S,m)

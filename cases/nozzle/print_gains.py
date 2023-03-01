@@ -42,7 +42,7 @@ for Re in dat.keys():
 		plt.xlabel(r'$St$')
 		plt.ylabel(r'$\sigma^{(1)2}$')
 		plt.yscale('log')
-		plt.xticks([0,.5,1])
+		plt.xticks([0,.5,1,1.5,2])
 		box = ax.get_position()
 		ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))

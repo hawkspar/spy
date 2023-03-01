@@ -29,11 +29,11 @@ for file_name in file_names:
     if not m  in dat[Re][S].keys(): dat[Re][S][m]=set()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        local_eigs=np.round(np.loadtxt(dir+file_name),3)
+        local_eigs=np.round(np.loadtxt(dir+file_name,dtype=complex),3)
     if local_eigs.size==1: dat[Re][S][m].add(complex(local_eigs))
     else:                  dat[Re][S][m].update(local_eigs)
 
-plt.rcParams.update({'font.size': 26})
+#plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():
     for S in dat[Re].keys():
         for m in dat[Re][S].keys():
@@ -48,4 +48,4 @@ for Re in dat.keys():
             plt.axis([-2,2,-2,2])
             plt.xlabel(r'$\omega$')
             plt.ylabel(r'$\sigma$')
-            plt.savefig(f"eigenvalues_Re={Re:d}_S={S}_m={m:d}".replace('.',',')+".png")
+            plt.savefig(f"eigenvalues_Re={Re}_S={S}_m={m}".replace('.',',')+".png")
