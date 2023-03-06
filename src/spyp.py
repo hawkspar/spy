@@ -4,9 +4,11 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
+import ufl, glob
 import numpy as np #source /usr/local/bin/dolfinx-complex-mode
-import os, ufl, glob
 import dolfinx as dfx
+from os import remove
+from os.path import isfile
 from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
@@ -19,19 +21,21 @@ p0=comm.rank==0
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
 	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
-	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag)
-	A.setOption(A.Option.SYMMETRIC,sym)
-	A.assemble()
-	return A
+	M = dfx.cpp.fem.petsc.create_matrix(form)
+	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
+	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
+	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
+	M.assemble()
+	return M
 
 # PETSc Matrix free method
 def pythonMatrix(dims:list,py,comm) -> pet.Mat:
-	Mat=pet.Mat().create(comm=comm)
-	Mat.setSizes(dims)
-	Mat.setType(pet.Mat.Type.PYTHON)
-	Mat.setPythonContext(py)
-	Mat.setUp()
-	return Mat
+	M = pet.Mat().create(comm)
+	M.setSizes(dims)
+	M.setType(pet.Mat.Type.PYTHON)
+	M.setPythonContext(py)
+	M.setUp()
+	return M
 
 # Eigenvalue problem solver
 def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
@@ -48,44 +52,44 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	
 # Resolvent operator (L^-1B)
 class R_class:
-	def __init__(self,B,TH,TH0c) -> None:
+	def __init__(self,B) -> None:
 		self.B=B
 		self.KSP = pet.KSP().create(comm)
-		self.tmp1,self.tmp2=Function(TH),Function(TH)
-		self.tmp3=Function(TH0c)
+		self.v3,self.v1=B.getVecs()
+		self.v2=self.v1.__copy__()
 	
 	def setL(self,L,params):
 		self.KSP.setOperators(L)
 		configureKSP(self.KSP,params)
 
 	def mult(self,A,x:pet.Vec,y:pet.Vec) -> None:
-		self.B.mult(x,self.tmp1.vector)
-		self.tmp1.x.scatter_forward()
-		self.KSP.solve(self.tmp1.vector,self.tmp2.vector)
-		self.tmp2.x.scatter_forward()
-		self.tmp2.vector.copy(y)
+		self.B.mult(x,self.v1)
+		self.v1.ghostUpdate()
+		self.KSP.solve(self.v1,self.v2)
+		self.v2.ghostUpdate()
+		self.v2.copy(y)
 
 	def multHermitian(self,A,x:pet.Vec,y:pet.Vec) -> None:
 		# Hand made solveHermitianTranspose (save extra LU factorisation)
 		x.conjugate()
-		self.KSP.solveTranspose(x,self.tmp2.vector)
-		self.tmp2.vector.conjugate()
-		self.tmp2.x.scatter_forward()
-		self.B.multTranspose(self.tmp2.vector,self.tmp3.vector)
-		self.tmp3.x.scatter_forward()
-		self.tmp3.vector.copy(y)
+		self.KSP.solveTranspose(x,self.v2)
+		self.v2.conjugate()
+		self.v2.ghostUpdate()
+		self.B.multTranspose(self.v2,self.v3)
+		self.v3.ghostUpdate()
+		self.v3.copy(y)
 
 # Necessary for matrix-free routine (R^HQR)
 class LHS_class:
-	def __init__(self,R,Q,TH) -> None:
+	def __init__(self,R,Q) -> None:
 		self.R,self.Q=R,Q
-		self.tmp1,self.tmp2=Function(TH),Function(TH)
+		self.v2,self.v1=Q.getVecs()
 
 	def mult(self,A,x:pet.Vec,y:pet.Vec):
-		self.R.mult(x,self.tmp2.vector)
-		self.Q.mult(self.tmp2.vector,self.tmp1.vector)
-		self.tmp1.x.scatter_forward()
-		self.R.multHermitian(self.tmp1.vector,y)
+		self.R.mult(x,self.v2)
+		self.Q.mult(self.v2,self.v1)
+		self.v1.ghostUpdate()
+		self.R.multHermitian(self.v1,y)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -166,16 +170,25 @@ class SPYP(SPY):
 		Q 	   = assembleForm(Q_form,sym=True)
 		self.M = assembleForm(M_form,sym=True)
 		B 	   = assembleForm(B_form,self.bcs)
+		
+		# Eliminate zero columns in B (relatively inefficient but only done once)
+		B.transpose()
+		self.IS, _=B.getOwnershipIS()
+		self.IS=self.IS.difference(B.findZeroRows())
+		B=B.createSubMatrix(self.IS)
+		self.M=self.M.createSubMatrix(self.IS,self.IS)
+		B.transpose()
 
 		if p0: print("Quadrature, Extractor & Mass matrices computed !",flush=True)
 
 		# Sizes
 		m,		n 		= B.getSize()
 		m_local,n_local = B.getLocalSize()
+		if p0: print("m=",m,"n=",n)
 
-		self.R_obj =   R_class(B,self.TH,self.TH0c)
+		self.R_obj =   R_class(B)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
-		LHS_obj    = LHS_class(self.R,Q,self.TH)
+		LHS_obj    = LHS_class(self.R,Q)
 		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,hot_start:bool=False) -> None:
@@ -183,6 +196,20 @@ class SPYP(SPY):
 		EPS = slp.EPS(); EPS.create(comm)
 		
 		for St in St_list:
+			# Folder creation
+			dirCreator(self.resolvent_path)
+			dirCreator(self.resolvent_path+"gains/")
+			dirCreator(self.resolvent_path+"forcing/")
+			dirCreator(self.resolvent_path+"response/")
+			save_string=f"Re={Re:d}_S="
+			if type(S)==int: save_string+=f"{S:d}"
+			else: 			 save_string+=f"{S:.1f}"
+			save_string=(save_string+f"_m={m:d}_St={St:.2f}").replace('.',',')
+			# Memoisation
+			if isfile(self.resolvent_path+"gains/"+save_string+".txt"):
+				if p0: print("Found "+self.resolvent_path+"gains/"+save_string+".txt file, moving on...",flush=True)
+				continue
+
 			# Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 			self.R_obj.setL(self.J-1j*np.pi*St*self.N,self.params)
 
@@ -199,15 +226,6 @@ class SPYP(SPY):
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0: continue
-
-			dirCreator(self.resolvent_path)
-			dirCreator(self.resolvent_path+"gains/")
-			dirCreator(self.resolvent_path+"forcing/")
-			dirCreator(self.resolvent_path+"response/")
-			save_string=f"Re={Re:d}_S="
-			if type(S)==int: save_string+=f"{S:d}"
-			else: 			 save_string+=f"{S:.1f}"
-			save_string=(save_string+f"_m={m:d}_St={St:.2f}").replace('.',',')
 			if p0:
 				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
@@ -221,13 +239,13 @@ class SPYP(SPY):
 				# Get a list of all the file paths with the same parameters
 				fileList = glob.glob(self.resolvent_path+"(forcing/print|forcing/npy|response/print|response/npy)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
-				for filePath in fileList: os.remove(filePath)
+				for filePath in fileList: remove(filePath)
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				# Save on a proper compressed space
 				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
-				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
+				gain_i=EPS.getEigenpair(i,forcing_i.vector.getSubVector(self.IS)).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
 				saveStuff(self.resolvent_path+"forcing/npy/","f_"+save_string+f"_i={i+1:d}",forcing_i)
