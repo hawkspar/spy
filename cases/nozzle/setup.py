@@ -42,8 +42,8 @@ def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.m
 def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
 
 # Necessary for resolvent stability at low St
-def slope(x,xp,s=0): return np.minimum(np.maximum(10*(-1)**s*(xp-x)+1,0),1)
-def forcing_indicator(x): return ((x[1]<=1+params['atol'])+(x[1]>1+params['atol'])*slope(x[0],1,1)*slope(x[1],1.01))*slope(x[0],5)
+def slope(x,xp,s=0): return np.minimum(np.maximum(5*(-1)**s*(xp-x)+1,0),1)
+def forcing_indicator(x): return ((x[1]<=1+params['atol'])+(x[1]>1+params['atol'])*slope(x[1],1+x[0]*.5/5))*slope(x[0],2)
 
 # Simplistic profile to initialise Newton
 def baseflowInit(x):

@@ -32,7 +32,8 @@ class SPYB(SPY):
 		a = ufl.inner(u,v)+e*ufl.inner(gd(u),gd(v))+ufl.inner(p,s)
 		L = ufl.inner(U,v)+ufl.inner(P,s)
 		pb = LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs,
-						   petsc_options={"ksp_type":"cg", "ksp_rtol":1e-6, "ksp_atol":1e-9, "ksp_max_it":100, "pc_type":"gamg", "pc_factor_mat_solver_type":"mumps"})
+						   petsc_options={"ksp_type":"cg", "pc_type":"gamg", "pc_factor_mat_solver_type":"mumps",
+						   				  "ksp_rtol":self.params['rtol'], "ksp_atol":self.params['atol'], "ksp_max_it":self.params['max_iter']})
 		if p0: print("Smoothing started...",flush=True)
 		self.Q = pb.solve()
 

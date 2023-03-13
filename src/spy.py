@@ -195,6 +195,33 @@ class SPY:
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
 		return F*r*ufl.dx
+	
+	# Evaluate velocity at provided points
+	def evalU(self,x) -> np.array:
+		u, _ = self.Q.split()
+		points = np.hstack((x,np.zeros((x.shape[0],1))))
+		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
+		cells, points_on_proc = [], []
+		# Find cells whose bounding-box collide with the the points
+		cell_candidates = dfx.geometry.compute_collisions(bbtree, points)
+		# Choose one of the cells that contains the point
+		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, points)
+		for i, point in enumerate(points):
+			if len(colliding_cells.links(i))>0:
+				points_on_proc.append(point)
+				cells.append(colliding_cells.links(i)[0])
+		# Actual evaluation
+		if len(points_on_proc)!=0: U = u.eval(points_on_proc, cells)
+		else: U = None
+		# Gather data and points
+		U = comm.gather(U, root=0)
+		points_on_proc = comm.gather(points_on_proc, root=0)
+		if p0:
+			U = np.vstack([u for u in U if u is not None])
+			points_on_proc = np.vstack([np.array(pts) for pts in points_on_proc if len(pts)>0])
+			# Filter ghost values
+			points_on_proc, ids = np.unique(points_on_proc, return_index=True, axis=0)
+			return U[ids]
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary:bool, value:float=0) -> tuple:

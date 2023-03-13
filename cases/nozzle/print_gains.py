@@ -1,12 +1,14 @@
 import numpy as np
 from re import search
 from os import listdir
+from spy import dirCreator
 from matplotlib import pyplot as plt
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 
 dat={}
 dir="/home/shared/cases/nozzle/resolvent/gains/"
+dirCreator(dir+"plots/")
 file_names = [f for f in listdir(dir) if f[-3:]=="txt"]
 for file_name in file_names:
 	match = search(r'm=(-?\d*)', file_name)
@@ -46,5 +48,5 @@ for Re in dat.keys():
 		box = ax.get_position()
 		ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-		plt.savefig(f"Re={Re}_S={S}.png")
+		plt.savefig(dir+"plots/"+f"Re={Re}_S={S}.png")
 		plt.close()

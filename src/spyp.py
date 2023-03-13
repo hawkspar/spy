@@ -13,7 +13,7 @@ from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
-from spy import SPY, saveStuff, loadStuff, dirCreator, configureKSP
+from spy import SPY, crl, saveStuff, loadStuff, dirCreator, configureKSP
 
 p0=comm.rank==0
 
@@ -52,44 +52,44 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	
 # Resolvent operator (L^-1B)
 class R_class:
-	def __init__(self,B) -> None:
+	def __init__(self,B,TH,TH0c) -> None:
 		self.B=B
 		self.KSP = pet.KSP().create(comm)
-		self.v3,self.v1=B.getVecs()
-		self.v2=self.v1.__copy__()
+		self.tmp1,self.tmp2=Function(TH),Function(TH)
+		self.tmp3=Function(TH0c)
 	
 	def setL(self,L,params):
 		self.KSP.setOperators(L)
 		configureKSP(self.KSP,params)
 
 	def mult(self,A,x:pet.Vec,y:pet.Vec) -> None:
-		self.B.mult(x,self.v1)
-		self.v1.ghostUpdate()
-		self.KSP.solve(self.v1,self.v2)
-		self.v2.ghostUpdate()
-		self.v2.copy(y)
+		self.B.mult(x,self.tmp1.vector)
+		self.tmp1.x.scatter_forward()
+		self.KSP.solve(self.tmp1.vector,self.tmp2.vector)
+		self.tmp2.x.scatter_forward()
+		self.tmp2.vector.copy(y)
 
 	def multHermitian(self,A,x:pet.Vec,y:pet.Vec) -> None:
 		# Hand made solveHermitianTranspose (save extra LU factorisation)
 		x.conjugate()
-		self.KSP.solveTranspose(x,self.v2)
-		self.v2.conjugate()
-		self.v2.ghostUpdate()
-		self.B.multTranspose(self.v2,self.v3)
-		self.v3.ghostUpdate()
-		self.v3.copy(y)
+		self.KSP.solveTranspose(x,self.tmp2.vector)
+		self.tmp2.vector.conjugate()
+		self.tmp2.x.scatter_forward()
+		self.B.multTranspose(self.tmp2.vector,self.tmp3.vector)
+		self.tmp3.x.scatter_forward()
+		self.tmp3.vector.copy(y)
 
 # Necessary for matrix-free routine (R^HQR)
 class LHS_class:
-	def __init__(self,R,Q) -> None:
+	def __init__(self,R,Q,TH) -> None:
 		self.R,self.Q=R,Q
-		self.v2,self.v1=Q.getVecs()
+		self.tmp1,self.tmp2=Function(TH),Function(TH)
 
 	def mult(self,A,x:pet.Vec,y:pet.Vec):
-		self.R.mult(x,self.v2)
-		self.Q.mult(self.v2,self.v1)
-		self.v1.ghostUpdate()
-		self.R.multHermitian(self.v1,y)
+		self.R.mult(x,self.tmp2.vector)
+		self.Q.mult(self.tmp2.vector,self.tmp1.vector)
+		self.tmp1.x.scatter_forward()
+		self.R.multHermitian(self.tmp1.vector,y)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -170,25 +170,16 @@ class SPYP(SPY):
 		Q 	   = assembleForm(Q_form,sym=True)
 		self.M = assembleForm(M_form,sym=True)
 		B 	   = assembleForm(B_form,self.bcs)
-		
-		# Eliminate zero columns in B (relatively inefficient but only done once)
-		B.transpose()
-		self.IS, _=B.getOwnershipIS()
-		self.IS=self.IS.difference(B.findZeroRows())
-		B=B.createSubMatrix(self.IS)
-		self.M=self.M.createSubMatrix(self.IS,self.IS)
-		B.transpose()
 
 		if p0: print("Quadrature, Extractor & Mass matrices computed !",flush=True)
 
 		# Sizes
 		m,		n 		= B.getSize()
 		m_local,n_local = B.getLocalSize()
-		if p0: print("m=",m,"n=",n)
 
-		self.R_obj =   R_class(B)
+		self.R_obj =   R_class(B,self.TH,self.TH0c)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
-		LHS_obj    = LHS_class(self.R,Q)
+		LHS_obj    = LHS_class(self.R,Q,self.TH)
 		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,hot_start:bool=False) -> None:
@@ -205,9 +196,10 @@ class SPYP(SPY):
 			if type(S)==int: save_string+=f"{S:d}"
 			else: 			 save_string+=f"{S:.1f}"
 			save_string=(save_string+f"_m={m:d}_St={St:.2f}").replace('.',',')
+			gains_name=self.resolvent_path+"gains/"+save_string+".txt"
 			# Memoisation
-			if isfile(self.resolvent_path+"gains/"+save_string+".txt"):
-				if p0: print("Found "+self.resolvent_path+"gains/"+save_string+".txt file, moving on...",flush=True)
+			if isfile(gains_name) and np.loadtxt(gains_name).size>=k: # Lazy and
+				if p0: print("Found "+gains_name+" file with enough gains, moving on...",flush=True)
 				continue
 
 			# Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
@@ -234,8 +226,8 @@ class SPYP(SPY):
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.array([EPS.getEigenvalue(i).real for i in range(n)], dtype=np.float)**.5
 				# Write gains
-				np.savetxt(self.resolvent_path+"gains/"+save_string+".txt",gains)
-				print("Saved "+self.resolvent_path+"gains/"+save_string+".txt",flush=True)
+				np.savetxt(gains_name,gains)
+				print("Saved "+gains_name,flush=True)
 				# Get a list of all the file paths with the same parameters
 				fileList = glob.glob(self.resolvent_path+"(forcing/print|forcing/npy|response/print|response/npy)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
@@ -245,7 +237,7 @@ class SPYP(SPY):
 				# Save on a proper compressed space
 				forcing_i=Function(self.TH0c)
 				# Obtain forcings as eigenvectors
-				gain_i=EPS.getEigenpair(i,forcing_i.vector.getSubVector(self.IS)).real**.5
+				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
 				saveStuff(self.resolvent_path+"forcing/npy/","f_"+save_string+f"_i={i+1:d}",forcing_i)
@@ -260,20 +252,6 @@ class SPYP(SPY):
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/","r_"+save_string+f"_i={i+1:d}",velocity_i)
-
-	def readMode(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
-		funs = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St},funs)
-		funs=funs.split()
-		return funs[coord]
-
-	def readCurl(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
-		funs = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St},funs)
-		expr=dfx.fem.Expression(self.crl(funs,m)[coord],self.TH1.element.interpolation_points())
-		crl = Function(self.TH1)
-		crl.interpolate(expr)
-		return crl
 
 	def computeIsosurface(self,m:int,O:float,L:float,H:float,res_x:int,res_yz:int,r:float,f:Function,scale:str):
 		import plotly.graph_objects as go #pip3 install plotly
@@ -316,4 +294,19 @@ class SPYP(SPY):
 			return go.Isosurface(x=X,y=Y,z=Z,value=V,
 								 isomin=r*np.min(V),isomax=r*np.max(V),
 								 colorscale=scale,
-								 caps=dict(x_show=False, y_show=False, z_show=False))
+								 caps=dict(x_show=False, y_show=False, z_show=False),
+								 opacity=.9)
+
+	def readMode(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
+		funs = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
+		funs=funs.split()
+		return funs[coord]
+
+	def readCurl(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
+		funs = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
+		expr=dfx.fem.Expression(crl(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],self.mesh,funs,m)[coord],self.TH1.element.interpolation_points())
+		crls = Function(self.TH1)
+		crls.interpolate(expr)
+		return crls
