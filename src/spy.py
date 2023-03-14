@@ -199,30 +199,37 @@ class SPY:
 	# Evaluate velocity at provided points
 	def eval(self,f,proj_pts,ref_pts=None) -> np.array:
 		proj_pts = np.hstack((proj_pts,np.zeros((proj_pts.shape[0],1))))
-		if ref_pts is None: ref_pts=proj_pts
+		if ref_pts is None:
+			ref_pts=proj_pts
+			return_pts=False
+		else:
+			return_pts=True
 		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
-		cells, proj_on_proc, ref_on_proc = [], [], []
+		local_proj, local_ref, local_cells = [], [], []
 		# Find cells whose bounding-box collide with the the points
 		cell_candidates = dfx.geometry.compute_collisions(bbtree, proj_pts)
 		# Choose one of the cells that contains the point
 		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, proj_pts)
 		for i, pt in enumerate(proj_pts):
 			if len(colliding_cells.links(i))>0:
-				proj_on_proc.append(pt)
-				ref_on_proc.append(ref_pts[i])
-				cells.append(colliding_cells.links(i)[0])
+				local_proj.append(pt)
+				local_ref.append(ref_pts[i])
+				local_cells.append(colliding_cells.links(i)[0])
 		# Actual evaluation
-		if len(proj_on_proc)!=0: V = f.eval(proj_on_proc, cells)
+		if len(local_proj)!=0: V = f.eval(local_proj, local_cells)
 		else: V = None
 		# Gather data and points
 		V = comm.gather(V, root=0)
-		ref_on_proc = comm.gather(ref_on_proc, root=0)
+		ref_pts = comm.gather(local_ref, root=0)
 		if p0:
-			V = np.vstack([v for v in V if v is not None])
-			ref_on_proc = np.vstack([np.array(pts) for pts in ref_on_proc if len(pts)>0])
+			V = np.hstack([v.flatten() for v in V if v is not None])
+			ref_pts = np.vstack([np.array(pts) for pts in ref_pts if len(pts)>0])
 			# Filter ghost values
-			ref_on_proc, ids = np.unique(ref_on_proc, return_index=True, axis=0)
-			return V[ids]
+			ref_pts, ids_u = np.unique(ref_pts, return_index=True, axis=0)
+			# Return relevant evaluation points
+			if return_pts: return ref_pts, V[ids_u]
+			return V[ids_u]
+		if return_pts: return None, None
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary:bool, value:float=0) -> tuple:

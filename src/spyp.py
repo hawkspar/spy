@@ -257,12 +257,13 @@ class SPYP(SPY):
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ
-
 		# Evaluation of projected value
-		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2))).T
-		V = self.eval(f,XYZ_p,XYZ.T)
+		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
+		XYZ, V = self.eval(f,XYZ_p.T,XYZ.T)
 
 		if p0:
+			print("Evaluation done !",flush=True)
+			X,Y,Z = XYZ.T
 			# Now handling time
 			ts = np.linspace(0,1/St,res,endpoint=False)
 			surfs = []
@@ -270,7 +271,7 @@ class SPYP(SPY):
 				V = (V.flatten()*np.exp(1j*(m*np.arctan2(Y,Z)-np.pi*St*t))).real # Proper azimuthal decomposition & time-shift
 				surfs.append(go.Isosurface(x=X,y=Y,z=Z,value=V,
 										   isomin=r*np.min(V),isomax=r*np.max(V),
-										   colorscale=scale, opacity=.9, name=name,
+										   colorscale=scale, opacity=.8, name=name,
 										   caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 			return surfs
 

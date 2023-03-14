@@ -36,7 +36,7 @@ up_nozzle   = go.Surface(x=x, y=y, z= z, colorscale=[[0,'black'],[1,'black']], o
 down_nozzle = go.Surface(x=x, y=y, z=-z, colorscale=[[0,'black'],[1,'black']], opacity=.5, showscale=False, name="nozzle")
 
 # Custom nonuniform grids with maximum resolution at the nozzle
-Xf  = np.hstack((np.flip(1-np.geomspace(1e-2,1,30)),np.geomspace(1,2,20)))
+Xf  = np.hstack((np.flip(1-np.geomspace(1e-2,1,40)),np.geomspace(1,2,20)))
 YZf = np.hstack((np.linspace(0,1,20,endpoint=False),np.linspace(1,2,20))) # Much harder to do something smart about the radius
 YZf = np.hstack((np.flip(-YZf)[:-1],YZf))
 XYZf = np.meshgrid(Xf,YZf,YZf)
@@ -44,7 +44,7 @@ XYZf = np.vstack([C.flatten() for C in XYZf])
 #XYZf = XYZf[:,np.maximum(np.abs(XYZf[1]),np.abs(XYZf[2]))>.5] # Cut out central rectangle
 #XYZf = XYZf[:,(np.abs(XYZf[1])<1.5)+(np.abs(XYZf[2])<1.5)] # Cut out corners
 
-Xr  = np.hstack((np.flip(1-np.geomspace(1e-2,.9,25)),np.geomspace(1,10,30)))
+Xr  = np.hstack((np.flip(1-np.geomspace(1e-2,.9,20)),np.geomspace(1,10,30)))
 YZr = np.hstack((np.linspace(0,1,20,endpoint=False), np.linspace(1,1.5,10))) # Much harder to do something smart about the radius
 YZr = np.hstack((np.flip(-YZr)[:-1],YZr)) # Careful of 0 !
 XYZr = np.meshgrid(Xr,YZr,YZr)
@@ -61,9 +61,8 @@ for S in Ss:
 		for St in Sts:
 			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
 			#try:
-			f,r=spyp.readMode("forcing", Re,S,m,St),spyp.readMode("response", Re,S,m,St)
-			isos_f=spyp.computeIsosurfaces(m,XYZf,.1,f,St,4,'Earth',"axial forcing")
-			isos_r=spyp.computeIsosurfaces(m,XYZr,.1,r,St,4,'RdBu',"axial response")
+			isos_f=spyp.computeIsosurfaces(m,XYZf,.5,spyp.readMode("forcing", Re,S,m,St),St,4,'Earth',"axial forcing")
+			isos_r=spyp.computeIsosurfaces(m,XYZr,.1,spyp.readMode("response", Re,S,m,St),St,4,'RdBu',"axial response")
 			"""except ValueError:
 				if p0: print("There was a problem with the modes, moving on...",flush=True)
 				continue"""
