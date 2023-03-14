@@ -33,7 +33,7 @@ else:
 	ud,_=spy.Q.split()
 
 	def interp(_, target_xy):
-		r = spy.evalU(target_xy)
+		r = spy.eval(ud,target_xy)
 		if p0: return r[:,0]
 
 n = 1000

@@ -197,31 +197,32 @@ class SPY:
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points
-	def evalU(self,x) -> np.array:
-		u, _ = self.Q.split()
-		points = np.hstack((x,np.zeros((x.shape[0],1))))
+	def eval(self,f,proj_pts,ref_pts=None) -> np.array:
+		proj_pts = np.hstack((proj_pts,np.zeros((proj_pts.shape[0],1))))
+		if ref_pts is None: ref_pts=proj_pts
 		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
-		cells, points_on_proc = [], []
+		cells, proj_on_proc, ref_on_proc = [], [], []
 		# Find cells whose bounding-box collide with the the points
-		cell_candidates = dfx.geometry.compute_collisions(bbtree, points)
+		cell_candidates = dfx.geometry.compute_collisions(bbtree, proj_pts)
 		# Choose one of the cells that contains the point
-		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, points)
-		for i, point in enumerate(points):
+		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, proj_pts)
+		for i, pt in enumerate(proj_pts):
 			if len(colliding_cells.links(i))>0:
-				points_on_proc.append(point)
+				proj_on_proc.append(pt)
+				ref_on_proc.append(ref_pts[i])
 				cells.append(colliding_cells.links(i)[0])
 		# Actual evaluation
-		if len(points_on_proc)!=0: U = u.eval(points_on_proc, cells)
-		else: U = None
+		if len(proj_on_proc)!=0: V = f.eval(proj_on_proc, cells)
+		else: V = None
 		# Gather data and points
-		U = comm.gather(U, root=0)
-		points_on_proc = comm.gather(points_on_proc, root=0)
+		V = comm.gather(V, root=0)
+		ref_on_proc = comm.gather(ref_on_proc, root=0)
 		if p0:
-			U = np.vstack([u for u in U if u is not None])
-			points_on_proc = np.vstack([np.array(pts) for pts in points_on_proc if len(pts)>0])
+			V = np.vstack([v for v in V if v is not None])
+			ref_on_proc = np.vstack([np.array(pts) for pts in ref_on_proc if len(pts)>0])
 			# Filter ghost values
-			points_on_proc, ids = np.unique(points_on_proc, return_index=True, axis=0)
-			return U[ids]
+			ref_on_proc, ids = np.unique(ref_on_proc, return_index=True, axis=0)
+			return V[ids]
 
 	# Code factorisation
 	def constantBC(self, direction:chr, boundary:bool, value:float=0) -> tuple:

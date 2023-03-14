@@ -253,49 +253,26 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 
-	def computeIsosurface(self,m:int,O:float,L:float,H:float,res_x:int,res_yz:int,r:float,f:Function,scale:str):
+	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,St:float,res:float,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
-
-		# New regular mesh
-		X,Y,Z = np.mgrid[O:L:res_x*1j, -H:H:res_yz*1j, -H:H:res_yz*1j]
-		X,Y,Z = X.flatten(),Y.flatten(),Z.flatten()
+		
+		X,Y,Z = XYZ
 
 		# Evaluation of projected value
-		points = np.vstack((X,Y,Z)).T
-		projected_points = np.vstack((X,np.sqrt(Y**2+Z**2),np.zeros_like(X))).T
-		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
-		cells, points_on_proc, projected_points_on_proc = [], [], []
-		
-		# Find cells whose bounding-box collide with the the points
-		cell_candidates = dfx.geometry.compute_collisions(bbtree, projected_points)
-		# Choose one of the cells that contains the point
-		colliding_cells = dfx.geometry.compute_colliding_cells(self.mesh, cell_candidates, projected_points)
-		for i, point in enumerate(points):
-			if len(colliding_cells.links(i))>0:
-				points_on_proc.append(point)
-				projected_points_on_proc.append(projected_points[i])
-				cells.append(colliding_cells.links(i)[0])
-		# Heavy lifting
-		if len(points_on_proc)!=0: V = f.eval(projected_points_on_proc, cells)
-		else: V = None
-		# Gather data and points
-		V = comm.gather(V, root=0)
-		points_on_proc = comm.gather(points_on_proc, root=0)
+		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2))).T
+		V = self.eval(f,XYZ_p,XYZ.T)
+
 		if p0:
-			V = np.hstack([v.flatten() for v in V if v is not None])
-			points = np.vstack([np.array(pts) for pts in points_on_proc if len(pts)>0])
-			# Filter ghost values
-			points, ids = np.unique(points, return_index=True, axis=0)
-			points,V=points.T,V[ids]
-			# Reorder everything to match mgrid
-			ids=np.lexsort(np.flip(points,0))
-			X,Y,Z=points
-			V=(V[ids]*np.exp(1j*m*np.arctan2(Y,Z))).real # Proper azimuthal decomposition
-			return go.Isosurface(x=X,y=Y,z=Z,value=V,
-								 isomin=r*np.min(V),isomax=r*np.max(V),
-								 colorscale=scale,
-								 caps=dict(x_show=False, y_show=False, z_show=False),
-								 opacity=.9)
+			# Now handling time
+			ts = np.linspace(0,1/St,res,endpoint=False)
+			surfs = []
+			for t in ts:
+				V = (V.flatten()*np.exp(1j*(m*np.arctan2(Y,Z)-np.pi*St*t))).real # Proper azimuthal decomposition & time-shift
+				surfs.append(go.Isosurface(x=X,y=Y,z=Z,value=V,
+										   isomin=r*np.min(V),isomax=r*np.max(V),
+										   colorscale=scale, opacity=.9, name=name,
+										   caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
+			return surfs
 
 	def readMode(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
 		funs = Function(self.TH0c)

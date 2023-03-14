@@ -11,7 +11,7 @@ from dolfinx.fem import FunctionSpace
 from mpi4py.MPI import COMM_WORLD as comm
 
 with cProfile.Profile() as pr:
-	Ss=[.2,.4,0,1]
+	Ss=[0,.2,.4,1]
 	ms=range(-5,6)
 	Sts=np.linspace(.05,2,30)
 	spy = SPY(params,datapath,"baseflow",     direction_map) # Must be first !
