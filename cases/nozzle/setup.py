@@ -14,7 +14,7 @@ sys.path.append('/home/shared/src')
 from spy import SPY
 
 # Geometry parameters (nozzle)
-R,H=1,14
+R,H,L=1,15,50.5
 
 # /!\ OpenFOAM coherence /!\
 S,Re=1,400000
@@ -82,7 +82,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 
 	# Handle homogeneous boundary conditions
 	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
-	return u_inlet_th,class_th
+	return class_th
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

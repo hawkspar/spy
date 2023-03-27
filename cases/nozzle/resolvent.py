@@ -11,7 +11,7 @@ from dolfinx.fem import FunctionSpace
 from mpi4py.MPI import COMM_WORLD as comm
 
 with cProfile.Profile() as pr:
-	Ss=[0,.2,.4,1]
+	Ss=np.linspace(0,1.6,17)
 	ms=range(-5,6)
 	Sts=np.linspace(.05,2,30)
 	spy = SPY(params,datapath,"baseflow",     direction_map) # Must be first !
@@ -22,7 +22,7 @@ with cProfile.Profile() as pr:
 	indic = Function(W)
 	indic.interpolate(forcing_indicator)
 	spyp.printStuff('./','indic',indic)
-	spyp.assembleMRMatrices(indic)
+	spyp.assembleMRMatrices() # No box this time !
 
 	for S in Ss:
 		# Load baseflow

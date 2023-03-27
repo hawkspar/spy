@@ -1,12 +1,10 @@
+import meshio #pip3 install h5py meshio
 import numpy as np
-import meshio, sys #pip3 install h5py meshio
 from setup import *
+from spyb import SPYB
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
-
-sys.path.append('/home/shared/src')
-
-from spy import SPY, dirCreator, meshConvert, findStuff, saveStuff
+from spy import dirCreator, meshConvert, findStuff, saveStuff
 
 p0=comm.rank==0
 sanity_check=True#False
@@ -14,16 +12,18 @@ convert=False
 
 # Relevant parameters
 Res=[1000,10000,100000,400000]
-Ss=[0,.2,.4,.6,.8,1]
-
+Ss=np.linspace(0,1.6,17)
 # Convert mesh
 if convert: meshConvert("baseflow")
-spy=SPY(params,datapath,'baseflow',direction_map)
+spyb=SPYB(params,datapath,'baseflow',direction_map)
 
 # Dimensionalised stuff
-L,H=50.5,10
+r=1.2
 O=np.pi/360 # 0.5°
 sin,cos=np.sin(O),np.cos(O)
+
+# Handlers
+U,P=spyb.Q.split()
 
 for Re in Res:
     for S in Ss:
@@ -42,15 +42,13 @@ for Re in Res:
             fine_xy[:,1]/=cos # Plane tilted
 
             # Reducing problem size (coarse mesh is also smaller)
-            msk = np.all(fine_xy[:,:2]<1.5*np.array([L,H]),1)
-
+            msk = (fine_xy[:,0]<r*L)*(fine_xy[:,1]<r*H)
             fine_xy=fine_xy[msk,:2]
 
             # Dimensionless
             uxv,urv,uthv = np.vstack((openfoam_data.point_data['U'],openfoam_data.cell_data['U'][0]))[msk,:].T
             pv   = np.hstack((openfoam_data.point_data['p'],  openfoam_data.cell_data['p'][0])  )[msk]
             nutv = np.hstack((openfoam_data.point_data['nut'],openfoam_data.cell_data['nut'][0]))[msk]
-
         else: uxv,urv,uthv,pv,nutv,fine_xy=None,None,None,None,None,None
 
         # Data available to all but not distributed
@@ -61,29 +59,31 @@ for Re in Res:
         nutv = comm.bcast(nutv, root=0)
         fine_xy = comm.bcast(fine_xy, root=0)
 
-        # Handlers (still useful when !interpolate)
+        # Handlers (still useful when !interpolate, uses splines)
         def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'cubic')
         # Fix orientation
         urv,uthv=cos*urv+sin*uthv,-sin*urv+cos*uthv
         # Fix no swirl edge case
         if S==0: uthv[:]=0
 
-        # Handlers
-        U,P=spy.Q.split()
-        Nu=spy.Nu
-
         # Map data onto dolfinx vectors
         U.sub(0).interpolate(lambda x: interp(uxv, x))
         U.sub(1).interpolate(lambda x: interp(urv, x)*(x[1]>params['atol'])) # Enforce u_r=u_th=0 at r=0
         U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>params['atol']))
-        P.interpolate( lambda x: interp(pv,  x))
-        Nu.interpolate(lambda x: interp(nutv,x))
-        # Fix negative eddy viscosity
-        Nu.x.array[Nu.x.array<0] = 0
+        #P.interpolate( lambda x: interp(pv,  x))
+        spyb.Nu.interpolate(lambda x: interp(nutv,x))
+        spyb.Nu.x.scatter_forward()
+        # Fix negligible eddy viscosity
+        spyb.Nu.x.array[spyb.Nu.x.array<params['atol']] = 0
+        # Smoothen viscosity
+        spyb.smoothenNu(1e-6)
+        # Fix negligible eddy viscosity
+        spyb.Nu.x.array[spyb.Nu.x.array<params['atol']] = 0
 
         # Save
-        #spy.saveBaseflow(Re,S)
-        dirCreator(spy.baseflow_path)
+        #spyb.saveBaseflow(Re,S)
+        dirCreator(spyb.baseflow_path)
         save_string=f"_Re={Re:d}_S={S:.1f}"
-        saveStuff(spy.nut_path,"nut"+save_string,Nu)
-        spy.printStuff(spy.baseflow_path+'print_OpenFOAM/',"u"+save_string,U)
+        saveStuff(spyb.nut_path,"nut"+save_string,spyb.Nu)
+        spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"nu"+save_string,spyb.Nu)
+        spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"u"+save_string,U)

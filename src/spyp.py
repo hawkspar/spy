@@ -253,7 +253,7 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 
-	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,n:int,scale:str,name:str) -> list:
+	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,n:int,scale:str,name:str,box:bool) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ
@@ -267,7 +267,7 @@ class SPYP(SPY):
 			V *= np.exp(1j*m*np.arctan2(Y,Z)) # Proper azimuthal decomposition
 			# Now handling time
 			surfs = []
-			for t in np.linspace(0,2*np.pi,n,endpoint=False):
+			for t in np.linspace(0,np.pi/2,n,endpoint=False):
 				W = (V*np.exp(-1j*t)).real # Time-shift
 				surfs.append(go.Isosurface(x=X,y=Y,z=Z,value=W,
 										   isomin=r*np.min(W),isomax=r*np.max(W),

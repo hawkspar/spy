@@ -10,7 +10,7 @@ from spy import loadStuff
 
 spyb=SPYB(params,datapath,"baseflow",direction_map)
 
-u_inlet_th,class_th=boundaryConditionsBaseflow(spyb,0)
+class_th=boundaryConditionsBaseflow(spyb,0)
 # Highly viscous first step
 loadStuff(spyb.nut_path,{'S':0,'Re':1000},spyb.Nu)
 spyb.Re=1000
@@ -20,13 +20,15 @@ for Re in [10000,100000,400000]:
 	loadStuff(spyb.nut_path,{'S':0,'Re':Re},spyb.Nu)
 	spyb.Re=Re
 	spyb.baseflow(Re,0)
+"""spyb.loadBaseflow(400000,.3)
+spyb.Re=400000"""
 # Swirl
-for S in np.linspace(.2,1,5):
+for S in np.linspace(.1,1.6,16):
 	class_th.S=S
-	u_inlet_th.interpolate(class_th)
+	spyb.sanityCheckBCs(f"_S={S:.1f}".replace('.',','))
 	loadStuff(spyb.nut_path,{'S':S,'Re':Re},spyb.Nu)
-	spyb.baseflow(Re,S,save=False)
-	spyb.smoothen(1e-4)
+	spyb.baseflow(Re,S,save=True)
+	spyb.smoothenU(1e-3)
 	spyb.saveBaseflow(Re,S)
 	U,_=spyb.Q.split()
-	spyb.printStuff(spyb.print_path,f"u_Re={Re:d}_S={S:.1f}",U)
+	spyb.printStuff(spyb.print_path,f"us_Re={Re:d}_S={S:.1f}",U)

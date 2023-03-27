@@ -15,6 +15,9 @@ from dolfinx.mesh import refine, locate_entities
 from dolfinx.fem.petsc import LinearProblem, NonlinearProblem
 from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
 
+import dolfinx as dfx
+from petsc4py import PETSc as pet
+
 p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
@@ -22,21 +25,7 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, mesh_name, direction_map)
 		dirCreator(self.baseflow_path)
-
-	def smoothen(self, e:float):
-		r = self.r
-		u, p = ufl.split(self.trial)
-		U, P = ufl.split(self.Q)
-		v, s = ufl.split(self.test)
-		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
-		a = ufl.inner(u,v)+e*ufl.inner(gd(u),gd(v))+ufl.inner(p,s)
-		L = ufl.inner(U,v)+ufl.inner(P,s)
-		pb = LinearProblem(a*r*ufl.dx, L*r*ufl.dx, bcs=self.bcs,
-						   petsc_options={"ksp_type":"cg", "pc_type":"gamg", "pc_factor_mat_solver_type":"mumps",
-						   				  "ksp_rtol":self.params['rtol'], "ksp_atol":self.params['atol'], "ksp_max_it":self.params['max_iter']})
-		if p0: print("Smoothing started...",flush=True)
-		self.Q = pb.solve()
-
+		
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
 	def baseflow(self,Re:int,S:float,refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
 		# Cold initialisation
@@ -48,8 +37,8 @@ class SPYB(SPY):
 		base_form  = self.navierStokes() # No azimuthal decomposition for base flow
 		dbase_form = self.linearisedNavierStokes(0) # m=0
 		return self.solver(Re,S,base_form,dbase_form,self.Q,save,refinement)
-		
-	# Recomand running in real
+
+	# Recommand running in real
 	def solver(self,Re:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
 		# Encapsulations
 		problem = NonlinearProblem(base_form,q,self.bcs,dbase_form)
@@ -64,7 +53,7 @@ class SPYB(SPY):
 		configureKSP(solver.krylov_solver,self.params)
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
-		n,converged=solver.solve(q)
+		n,_=solver.solve(q)
 
 		if refinement:
 			# Locate high error areas
@@ -102,6 +91,31 @@ class SPYB(SPY):
 			self.printStuff(self.print_path,f"u_Re={Re:d}_S={S:.1f}",U)
 		
 		return n
+
+	# Helper
+	def smoother(self, a, L):
+		pb = LinearProblem(a*self.r*ufl.dx, L*self.r*ufl.dx, bcs=self.bcs,
+						   petsc_options={"ksp_type":"cg", "pc_type":"gamg", "pc_factor_mat_solver_type":"mumps",
+						   				  "ksp_rtol":self.params['rtol'], "ksp_atol":self.params['atol'], "ksp_max_it":self.params['max_iter']})
+		if p0: print("Smoothing started...",flush=True)
+		u = pb.solve()
+		u.x.scatter_forward()
+		return u
+	
+	def smoothenNu(self, e:float):
+		r, Nu = self.r, self.Nu
+		Nu2 = ufl.TrialFunction(self.TH2)
+		v  = ufl.TestFunction(self.TH2)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		self.Nu = self.smoother(ufl.inner(Nu2,v)+e*ufl.inner(gd(Nu2),gd(v)),ufl.inner(Nu,v))
+
+	def smoothenU(self, e:float):
+		r = self.r
+		u, p = ufl.split(self.trial)
+		U, P = ufl.split(self.Q)
+		v, s = ufl.split(self.test)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[self.direction_map['r']]),gd(v[self.direction_map['r']]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 
 	def minimumAxial(self) -> float:
 		u=self.U.compute_point_values()[:,self.direction_map['x']]

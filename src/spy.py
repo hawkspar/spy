@@ -197,7 +197,7 @@ class SPY:
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points
-	def eval(self,f,proj_pts,ref_pts=None) -> np.array:
+	def eval(self,f,proj_pts,ref_pts=None,box=None) -> np.array:
 		proj_pts = np.hstack((proj_pts,np.zeros((proj_pts.shape[0],1))))
 		if ref_pts is None:
 			ref_pts=proj_pts
@@ -216,7 +216,13 @@ class SPY:
 				local_ref.append(ref_pts[i])
 				local_cells.append(colliding_cells.links(i)[0])
 		# Actual evaluation
-		if len(local_proj)!=0: V = f.eval(local_proj, local_cells)
+		if len(local_proj)!=0:
+			if box is not None:
+				V = np.zeros_like(local_proj)
+				local_msk = box(np.array(local_proj))
+				V[local_msk] = f.eval(local_proj[local_msk], local_cells)
+			else:
+				V = f.eval(local_proj, local_cells)
 		else: V = None
 		# Gather data and points
 		V = comm.gather(V, root=0)
@@ -289,9 +295,9 @@ class SPY:
 		try: self.printStuff("./","sanity_check_nut"+app,self.Nu)
 		except TypeError: pass
 
-	def sanityCheckBCs(self):
+	def sanityCheckBCs(self,str=""):
 		v=Function(self.TH)
 		v.vector.zeroEntries()
 		v.x.array[self.dofs]=np.ones(self.dofs.size)
 		v,_=v.split()
-		self.printStuff("./","sanity_check_bcs",v)
+		self.printStuff("./","sanity_check_bcs"+str,v)
