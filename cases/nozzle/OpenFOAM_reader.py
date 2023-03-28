@@ -46,22 +46,22 @@ for Re in Res:
             fine_xy=fine_xy[msk,:2]
 
             # Dimensionless
-            uxv,urv,uthv = np.vstack((openfoam_data.point_data['U'],openfoam_data.cell_data['U'][0]))[msk,:].T
-            pv   = np.hstack((openfoam_data.point_data['p'],  openfoam_data.cell_data['p'][0])  )[msk]
+            """uxv,urv,uthv = np.vstack((openfoam_data.point_data['U'],openfoam_data.cell_data['U'][0]))[msk,:].T
+            pv   = np.hstack((openfoam_data.point_data['p'],  openfoam_data.cell_data['p'][0])  )[msk]"""
             nutv = np.hstack((openfoam_data.point_data['nut'],openfoam_data.cell_data['nut'][0]))[msk]
         else: uxv,urv,uthv,pv,nutv,fine_xy=None,None,None,None,None,None
 
         # Data available to all but not distributed
-        uxv  = comm.bcast(uxv,  root=0)
+        """uxv  = comm.bcast(uxv,  root=0)
         urv  = comm.bcast(urv,  root=0)
         uthv = comm.bcast(uthv, root=0)
-        pv   = comm.bcast(pv,   root=0)
+        pv   = comm.bcast(pv,   root=0)"""
         nutv = comm.bcast(nutv, root=0)
         fine_xy = comm.bcast(fine_xy, root=0)
 
         # Handlers (still useful when !interpolate, uses splines)
-        def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'cubic')
-        # Fix orientation
+        def interp(v,x): return griddata(fine_xy,v,x[:2,:].T,'linear')
+        """# Fix orientation
         urv,uthv=cos*urv+sin*uthv,-sin*urv+cos*uthv
         # Fix no swirl edge case
         if S==0: uthv[:]=0
@@ -69,16 +69,17 @@ for Re in Res:
         # Map data onto dolfinx vectors
         U.sub(0).interpolate(lambda x: interp(uxv, x))
         U.sub(1).interpolate(lambda x: interp(urv, x)*(x[1]>params['atol'])) # Enforce u_r=u_th=0 at r=0
-        U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>params['atol']))
+        U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>params['atol']))"""
         #P.interpolate( lambda x: interp(pv,  x))
         spyb.Nu.interpolate(lambda x: interp(nutv,x))
-        spyb.Nu.x.scatter_forward()
+        #spyb.Nu.x.scatter_forward()
         # Fix negligible eddy viscosity
-        spyb.Nu.x.array[spyb.Nu.x.array<params['atol']] = 0
+        #spyb.Nu.x.array[spyb.Nu.x.array<params['atol']] = 0
         # Smoothen viscosity
-        spyb.smoothenNu(1e-6)
+        #spyb.smoothenNu(1e-4)
+        #spyb.smoothenU(1e-4)
         # Fix negligible eddy viscosity
-        spyb.Nu.x.array[spyb.Nu.x.array<params['atol']] = 0
+        #spyb.Nu.x.array[spyb.Nu.x.array<params['atol']] = 0
 
         # Save
         #spyb.saveBaseflow(Re,S)
@@ -86,4 +87,4 @@ for Re in Res:
         save_string=f"_Re={Re:d}_S={S:.1f}"
         saveStuff(spyb.nut_path,"nut"+save_string,spyb.Nu)
         spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"nu"+save_string,spyb.Nu)
-        spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"u"+save_string,U)
+        #spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"u"+save_string,U)

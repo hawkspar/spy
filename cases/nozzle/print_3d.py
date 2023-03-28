@@ -14,9 +14,9 @@ _    =  SPY(params,datapath,"baseflow",     direction_map) # Must be first !
 spyp = SPYP(params,datapath,"perturbations",direction_map)
 
 # Parameters range
-Ss=[0,.2,.4,1]
-ms=range(-4,5,2)
-Sts=np.linspace(.05,2,5)
+Ss=[0]#[0,.2,.4,1]
+ms=[0]#range(-4,5,2)
+Sts=[1.02]#np.linspace(.05,2,5)
 # Actual plotting
 dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
@@ -82,19 +82,19 @@ for S in Ss:
 	for m in ms:
 		for St in Sts:
 			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
-			try:
+			"""try:
 				if St == Sts[0]:
 					isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),1,'Earth',"axial forcing", box_f_sk)
 					isos_r=spyp.computeIsosurfaces(m,XYZr_sk,.1,spyp.readMode("response",Re,S,m,St),1,'RdBu', "axial response",box_r_sk)
 				elif St == Sts[-1]:
 					isos_f=spyp.computeIsosurfaces(m,XYZf_kh, .1,spyp.readMode("forcing", Re,S,m,St),1,'Earth',"axial forcing", box_f_kh)
 					isos_r=spyp.computeIsosurfaces(m,XYZr_kh2,.1,spyp.readMode("response",Re,S,m,St),1,'RdBu', "axial response",box_r_kh)
-				else:
-					isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),1,'Earth',"axial forcing", box_f_kh)
-					isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),1,'RdBu', "axial response",box_r_kh)
-			except ValueError:
+				else:"""
+			isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),1,'Earth',"axial forcing", box_f_kh)
+			isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),1,'RdBu', "axial response",box_r_kh)
+			"""except ValueError:
 				if p0: print("There was a problem with the modes, moving on...",flush=True)
-				continue
+				continue"""
 			# Animation
 			if p0:
 				fig = go.Figure(data=[isos_f[0], isos_r[0], up_nozzle, down_nozzle],
