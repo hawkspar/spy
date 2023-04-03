@@ -4,16 +4,17 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-import cProfile
 from setup import *
 from spyp import SPYP # Must be after setup
+import cProfile, pstats
+from pstats import SortKey
 from dolfinx.fem import FunctionSpace
 from mpi4py.MPI import COMM_WORLD as comm
 
 with cProfile.Profile() as pr:
-	Ss=np.linspace(0,1.6,17)
+	Ss=np.linspace(0,1.3,14)
 	ms=range(-5,6)
-	Sts=np.linspace(.05,2,30)
+	Sts=np.linspace(.05,2,50)
 	spy = SPY(params,datapath,"baseflow",     direction_map) # Must be first !
 	spyp=SPYP(params,datapath,"perturbations",direction_map)
 
@@ -22,7 +23,7 @@ with cProfile.Profile() as pr:
 	indic = Function(W)
 	indic.interpolate(forcing_indicator)
 	spyp.printStuff('./','indic',indic)
-	spyp.assembleMRMatrices() # No box this time !
+	spyp.assembleMRMatrices(indic)
 
 	for S in Ss:
 		# Load baseflow
@@ -36,5 +37,8 @@ with cProfile.Profile() as pr:
 			# For efficiency, matrices assembled once per Sts
 			spyp.assembleJNMatrices(m)
 			# Resolvent analysis
-			spyp.resolvent(3,Sts,Re,S,m)
-	if comm.rank==0: pr.print_stats()
+			spyp.resolvent(10,Sts,Re,S,m)
+	if comm.rank==0:
+		pr.dump_stats('stats')
+		p = pstats.Stats('stats')
+		p.sort_stats(SortKey.CUMULATIVE).print_stats(10)

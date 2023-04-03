@@ -23,8 +23,8 @@ U_m,a=.05,6
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
-		  "atol":1e-9, #absolute_tolerance
-		  "rtol":1e-6, #DOLFIN_EPS does not work well
+		  "atol":1e-6, #absolute_tolerance
+		  "rtol":1e-4, #DOLFIN_EPS does not work well
 		  "max_iter":100}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}
@@ -82,7 +82,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 
 	# Handle homogeneous boundary conditions
 	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
-	return class_th
+	return class_th,u_inlet_th
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

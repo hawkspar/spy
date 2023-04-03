@@ -46,6 +46,8 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	ST = EPS.getST()
 	if shift:
 		ST.setType('sinvert')
+		"""ST.setType('shift')
+		ST.setShift(1e1)"""
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
 	configureKSP(ST.getKSP(),params,shift)
 	EPS.setFromOptions()
@@ -107,8 +109,7 @@ class SPYP(SPY):
 	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self,m:int) -> None:
 		# Functions
-		u,_ = ufl.split(self.trial)
-		v,_ = ufl.split(self.test)
+		u, v = self.u, self.v
 
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(m)
@@ -127,6 +128,7 @@ class SPYP(SPY):
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
+		#EPS.setWhichEigenpairs(EPS.Which.LARGEST_REAL)
 		EPS.setTarget(sigma)
 		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True)
 		# Loop on targets
@@ -136,7 +138,7 @@ class SPYP(SPY):
 		dirCreator(self.eig_path)
 		dirCreator(self.eig_path+"values/")
 		save_string=f"Re={Re:d}_S={S}_m={m:d}".replace('.',',')
-		eig_string=self.eig_path+"values/"+save_string+f"_sig={sigma:.2f}".replace('.',',')+".txt"
+		eig_string=self.eig_path+"values/"+save_string+".txt"#f"_sig={sigma:.2f}".replace('.',',')+".txt"
 		if n==0: return
 		# Conversion back into numpy
 		eigs=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=complex)
@@ -154,8 +156,7 @@ class SPYP(SPY):
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,indic=1) -> None:
 		# Velocity and full space functions
-		u,_ = ufl.split(self.trial)
-		v,_ = ufl.split(self.test)
+		u, v = self.u, self.v
 		w = ufl.TrialFunction(self.TH0c)
 		z = ufl.TestFunction( self.TH0c)
 

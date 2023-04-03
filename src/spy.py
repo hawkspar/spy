@@ -140,12 +140,12 @@ class SPY:
 		self.TH0c, self.TH_to_TH0 = self.TH.sub(0).collapse()
 		self.TH1c, self.TH_to_TH1 = self.TH.sub(1).collapse()
 		# Test & trial functions
-		self.trial = ufl.TrialFunction(self.TH)
-		self.test  = ufl.TestFunction( self.TH)
+		self.u, self.p = ufl.TrialFunctions(self.TH)
+		self.v, self.s = ufl.TestFunctions( self.TH)
 		# Initialisation of baseflow
 		self.Q = Function(self.TH)
 		# Collapsed subspaces
-		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH2)
+		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH1)
 
 	# Helper
 	def loadBaseflow(self,Re:int,S:float):
@@ -157,11 +157,10 @@ class SPY:
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
 		# Shortforms
-		r = self.r
+		r, v, s = self.r, self.v, self.s
 		# Functions
 		U, P = ufl.split(self.Q)
 		nu = 1/self.Re+self.Nu
-		v, s  = ufl.split(self.test)
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
@@ -177,12 +176,10 @@ class SPY:
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
 		# Shortforms
-		r = self.r
+		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
 		# Functions
-		u, p = ufl.split(self.trial)
 		U, _ = ufl.split(self.Q) # Baseflow
-		nu = 1/self.Re + self.Nu 
-		v, s = ufl.split(self.test)
+		nu = 1/self.Re + self.Nu
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,m: div(r,dx,dr,dt,v,m),lambda v,m: grd(r,dx,dr,dt,v,m)

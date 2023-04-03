@@ -15,9 +15,6 @@ from dolfinx.mesh import refine, locate_entities
 from dolfinx.fem.petsc import LinearProblem, NonlinearProblem
 from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
 
-import dolfinx as dfx
-from petsc4py import PETSc as pet
-
 p0=comm.rank==0
 
 # Swirling Parallel Yaj Baseflow
@@ -102,18 +99,10 @@ class SPYB(SPY):
 		u.x.scatter_forward()
 		return u
 	
-	def smoothenNu(self, e:float):
-		r, Nu = self.r, self.Nu
-		Nu2 = ufl.TrialFunction(self.TH2)
-		v  = ufl.TestFunction(self.TH2)
-		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
-		self.Nu = self.smoother(ufl.inner(Nu2,v)+e*ufl.inner(gd(Nu2),gd(v)),ufl.inner(Nu,v))
-
 	def smoothenU(self, e:float):
 		r = self.r
-		u, p = ufl.split(self.trial)
+		u, p, v, s = self.u, self.p, self.v, self.s
 		U, P = ufl.split(self.Q)
-		v, s = ufl.split(self.test)
 		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
 		self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[self.direction_map['r']]),gd(v[self.direction_map['r']]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 
