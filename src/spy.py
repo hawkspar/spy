@@ -148,9 +148,9 @@ class SPY:
 		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH1)
 
 	# Helper
-	def loadBaseflow(self,Re:int,S:float):
+	def loadBaseflow(self,Re:int,S:float,loadNu=True):
 		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
-		loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
+		if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 
 	def saveBaseflow(self,Re:int,S:float): saveStuff(self.q_path,f"q_Re={Re:d}_S={S:.1f}".replace('.',','),self.Q)
 	

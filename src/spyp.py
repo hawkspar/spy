@@ -42,12 +42,12 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
 	EPS.setProblemType(pb_type)
+	EPS.setTrueResidual(True)
+	EPS.setConvergenceTest(EPS.Conv.ABS)
 	# Spectral transform
 	ST = EPS.getST()
 	if shift:
 		ST.setType('sinvert')
-		"""ST.setType('shift')
-		ST.setShift(1e1)"""
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
 	configureKSP(ST.getKSP(),params,shift)
 	EPS.setFromOptions()
@@ -127,8 +127,7 @@ class SPYP(SPY):
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
-		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
-		#EPS.setWhichEigenpairs(EPS.Which.LARGEST_REAL)
+		EPS.setWhichEigenpairs(EPS.Which.TARGET_REAL) # Find eigenvalues close to sigma
 		EPS.setTarget(sigma)
 		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True)
 		# Loop on targets
@@ -138,8 +137,10 @@ class SPYP(SPY):
 		dirCreator(self.eig_path)
 		dirCreator(self.eig_path+"values/")
 		save_string=f"Re={Re:d}_S={S}_m={m:d}".replace('.',',')
-		eig_string=self.eig_path+"values/"+save_string+".txt"#f"_sig={sigma:.2f}".replace('.',',')+".txt"
-		if n==0: return
+		eig_string=self.eig_path+"values/"+save_string+f"_sig={sigma:.2f}".replace('.',',')+".txt"
+		if n==0:
+			if p0: open(eig_string, mode='w').close() # Memoisation is important !
+			return
 		# Conversion back into numpy
 		eigs=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=complex)
 		# Write eigenvalues

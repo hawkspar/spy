@@ -1,6 +1,7 @@
 **/__pycache__/**
 **/baseflow/**
 **/resolvent/**
+**/eigenvalues/**
 **MWE**
 **sanity_check**
 **test**

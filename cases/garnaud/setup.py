@@ -34,6 +34,7 @@ def baseflowInit(x):
 	return u
 
 # Geometry
+def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,			 params['atol']) # Axis of symmetry at r=0
 def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],x_p,	params['atol']) # Left border
 def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],x_max,params['atol']) # Right border
 def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],r_max,params['atol']) # Top boundary at r=R
@@ -41,13 +42,6 @@ def wall(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[0]<params['atol'])*
 
 # Restriction on forcing area
 def forcingIndicator(x): return x[0]<-params['atol']
-
-# No turbulent visosity for this case
-def nutf(spy:SPY,S:float, Re:float): spy.nut=0
-
-class InletAzimuthalVelocity():
-	def __init__(self, S): self.S = 0
-	def __call__(self, x): return self.S*x[0]
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u_x=1, u_r=0 & u_th=gb at inlet (velocity control)
@@ -75,38 +69,7 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 	spyb.applyBCs(dofs_inlet_x[0],bcs_inlet_x) # x=X entirely handled by implicit Neumann
 	
 	# Handle homogeneous boundary conditions
-	spyb.applyHomogeneousBCs([(inlet,['r','th']),(wall,['x','r','th']),(spyb.symmetry,['r','th'])])
-
-	# Dummy swirl
-	spyb.inlet_azimuthal_velocity=InletAzimuthalVelocity(0)
-
-	# Weak form
-	boundaries = [(1, lambda x: np.logical_or(top(x),outlet(x))), (2, spyb.symmetry)]
-
-	facet_indices, facet_markers = [], []
-	fdim = spyb.mesh.topology.dim - 1
-	for (marker, locator) in boundaries:
-		facets = dfx.mesh.locate_entities(spyb.mesh, fdim, locator)
-		facet_indices.append(facets)
-		facet_markers.append(np.full_like(facets, marker))
-	facet_indices = np.hstack(facet_indices).astype(np.int32)
-	facet_markers = np.hstack(facet_markers).astype(np.int32)
-	sorted_facets = np.argsort(facet_indices)
-	facet_tag = dfx.mesh.meshtags(spyb.mesh, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
-
-	spyb.mesh.topology.create_connectivity(spyb.mesh.topology.dim-1, spyb.mesh.topology.dim)
-	with dfx.io.XDMFFile(spyb.mesh.comm, "facet_tags.xdmf", "w") as xdmf:
-		xdmf.write_mesh(spyb.mesh)
-		xdmf.write_meshtags(facet_tag)
-
-	ds = ufl.Measure("ds", domain=spyb.mesh, subdomain_data=facet_tag)
-
-	n = ufl.FacetNormal(spyb.mesh)
-	U, _ = ufl.split(spyb.Q)
-	v,_=ufl.split(spyb.test)
-	r = ufl.SpatialCoordinate(spyb.mesh)[1]
-	spyb.weak_bcs =ufl.inner((1/spyb.Re+spyb.nut)* spyb.grd(U,0).T*ufl.as_vector([n[0],n[1],0]),    v)*	ds(1)
-	spyb.weak_bcs+=ufl.inner((1/spyb.Re+spyb.nut)*(spyb.grd(U,0).T*ufl.as_vector([n[0],n[1],0]))[0],v[0])*ds(2)
+	spyb.applyHomogeneousBCs([(inlet,['r','th']),(wall,['x','r','th']),(symmetry,['r','th'])])
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet (linearise as baseflow)
@@ -120,7 +83,7 @@ def boundaryConditionsBaseflow(spyb:SPYB) -> None:
 def boundaryConditionsPerturbations(spy:SPY, m:int) -> None:
 	# Handle homogeneous boundary conditions
 	homogeneous_boundaries=[(inlet,['x','r','th']),(wall,['x','r','th'])]
-	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
-	elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
-	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
+	if 	     m ==0: homogeneous_boundaries.append((symmetry,['r','th']))
+	elif abs(m)==1: homogeneous_boundaries.append((symmetry,['x']))
+	else:		    homogeneous_boundaries.append((symmetry,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)
