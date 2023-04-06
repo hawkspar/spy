@@ -44,6 +44,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	EPS.setProblemType(pb_type)
 	EPS.setTrueResidual(True)
 	EPS.setConvergenceTest(EPS.Conv.ABS)
+	EPS.setBalance(slp.EPS.Balance.TWOSIDE,params['max_iter'],params['atol'])
 	# Spectral transform
 	ST = EPS.getST()
 	if shift:
@@ -129,9 +130,9 @@ class SPYP(SPY):
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_REAL) # Find eigenvalues close to sigma
 		EPS.setTarget(sigma)
-		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True)
+		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True) # Specify that A is not hermitian, but M is semi-definite
 		# Loop on targets
-		if p0: print(f"Solver launch for sig={sigma:.2f}...",flush=True) # Specify that A is not hermitian, but M is semi-definite
+		if p0: print(f"Solver launch for sig={sigma:.2f}...",flush=True)
 		EPS.solve()
 		n=EPS.getConverged()
 		dirCreator(self.eig_path)
@@ -216,7 +217,7 @@ class SPYP(SPY):
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
-			if p0: print("Solver launch...",flush=True)
+			if p0: print(f"Solver launch for (S,m,St)=({S:.2f},{m},{St:.2f})...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0: continue

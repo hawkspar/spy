@@ -27,12 +27,11 @@ for file_name in file_names:
 	if not Re in dat.keys(): 		dat[Re]      ={}
 	if not S  in dat[Re].keys():	dat[Re][S]   ={}
 	if not m  in dat[Re][S].keys(): dat[Re][S][m]={}
-	dat[Re][S][m][St]=np.max(np.loadtxt(dir+file_name))
+	dat[Re][S][m][St]=np.loadtxt(dir+file_name)
 
 plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():
 	for S in dat[Re].keys():
-
 		fig = plt.figure(figsize=(13,10),dpi=200)
 		ax = plt.subplot(111)
 		for m in color_code.keys(): # pretty ms in order
@@ -41,7 +40,7 @@ for Re in dat.keys():
 				for St in dat[Re][S][m].keys():
 					if float(St)<.05: continue
 					Sts.append(float(St))
-					gains.append(dat[Re][S][m][St])
+					gains.append(np.max(dat[Re][S][m][St]))
 				Sts,gains=np.array(Sts),np.array(gains)
 				ids=np.argsort(Sts)
 				ax.plot(Sts[ids],gains[ids]**2,label=r'$m='+f'{int(m):d}$',color=color_code[str(m)],linewidth=3)
@@ -55,3 +54,28 @@ for Re in dat.keys():
 		plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
 		plt.savefig(dir+"plots/"+f"Re={Re}_S={S}.png")
 		plt.close()
+
+		n=10
+		fig = plt.figure(figsize=(13,10),dpi=200)
+		ax = plt.subplot(111)
+		for m in color_code.keys(): # pretty ms in order
+			Sts,gains=[[] for _ in range(n+1)],[[] for _ in range(n+1)]
+			try:
+				for St in dat[Re][S][m].keys():
+					for i in range(len(min(dat[Re][S][m][St],n+1))):
+						Sts[i].append(float(St))
+						gains[i].append([dat[Re][S][m][St][i]])
+				for i in range(n+1):
+					Sts[i],gains[i]=np.array(Sts[i]),np.array(gains[i])
+					ids=np.argsort(Sts[i])
+					ax.plot(Sts[i][ids],gains[i][ids]**2,label=r'$i='+f'{i:d}$',color=color_code[str(m)],alpha=i/2/n,linewidth=3)
+			except KeyError: pass
+			plt.xlabel(r'$St$')
+			plt.ylabel(r'$\sigma^{(1)2}$')
+			plt.yscale('log')
+			plt.xticks([0,.5,1,1.5,2])
+			box = ax.get_position()
+			ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
+			plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
+			plt.savefig(dir+"plots/"+f"Re={Re}_S={S}_m={m}.png")
+			plt.close()

@@ -14,7 +14,7 @@ from mpi4py.MPI import COMM_WORLD as comm
 with cProfile.Profile() as pr:
 	Ss=np.linspace(0,1.3,14)
 	ms=range(-5,6)
-	Sts=np.linspace(.05,2,50)
+	Sts=np.hstack((np.linspace(.05,.1,5,endpoint=False),np.linspace(.1,2,20)))
 	spy = SPY(params,datapath,"baseflow",     direction_map) # Must be first !
 	spyp=SPYP(params,datapath,"perturbations",direction_map)
 
