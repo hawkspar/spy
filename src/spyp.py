@@ -47,6 +47,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	EPS.setBalance(slp.EPS.Balance.TWOSIDE,params['max_iter'],params['atol'])
 	# Spectral transform
 	ST = EPS.getST()
+	ST.setMatMode(ST.MatMode.INPLACE)
 	if shift:
 		ST.setType('sinvert')
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL

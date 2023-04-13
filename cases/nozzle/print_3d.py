@@ -14,9 +14,9 @@ _    =  SPY(params,datapath,"baseflow",     direction_map) # Must be first !
 spyp = SPYP(params,datapath,"perturbations",direction_map)
 
 # Parameters range
-Ss=[0,.2,.4,1]
+Ss=[0,.1,.3,.5,1]
 ms=range(-4,5,2)
-Sts=np.linspace(.05,2,5)
+Sts=np.linspace(.05,2,10)
 # Actual plotting
 dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
@@ -120,11 +120,9 @@ for S in Ss:
 				continue
 			# Animation
 			if p0:
-				fig = go.Figure(data=[#isos_f[0],
-									isos_r[0], up_nozzle, down_nozzle],
+				fig = go.Figure(data=[isos_f[0], isos_r[0], up_nozzle, down_nozzle],
 								layout=go.Layout(updatemenus=[dict(type="buttons", buttons=[dict(label="Play", method="animate", args=[None])])]),
-								frames=[go.Frame(data=[#isos_f[i],
-								isos_r[i], up_nozzle, down_nozzle], name=str(i)) for i in range(len(isos_r))])
+								frames=[go.Frame(data=[isos_f[i], isos_r[i], up_nozzle, down_nozzle], name=str(i)) for i in range(len(isos_r))])
 				fig.update_layout(sliders=[{"pad": {"b": 10, "t": 60},
 											"len": .9, "x": .1, "y": 0,
 											"steps": [{"args": [[f.name], frame_args(0)],

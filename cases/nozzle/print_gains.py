@@ -8,8 +8,7 @@ sys.path.append('/home/shared/src')
 
 from spy import dirCreator
 
-#color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
-color_code={'-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red'}
+color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 
 dat={}
 dir="/home/shared/cases/nozzle/resolvent/gains/"
@@ -27,24 +26,29 @@ for file_name in file_names:
 	if not Re in dat.keys(): 		dat[Re]      ={}
 	if not S  in dat[Re].keys():	dat[Re][S]   ={}
 	if not m  in dat[Re][S].keys(): dat[Re][S][m]={}
-	dat[Re][S][m][St]=np.loadtxt(dir+file_name)
+	dat[Re][S][m][St] = np.loadtxt(dir+file_name).reshape(-1)
+
+Ss_ref=np.linspace(0,1.2,7)
+ms_ref = range(-3,4)
+Sts_ref=np.linspace(.05,2,10)
 
 plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():
 	for S in dat[Re].keys():
+		if not np.any(np.isclose(float(S.replace(',','.')),Ss_ref,atol=.05)): continue
 		fig = plt.figure(figsize=(13,10),dpi=200)
 		ax = plt.subplot(111)
-		for m in color_code.keys(): # pretty ms in order
+		for m in dat[Re][S].keys(): # pretty ms in order
+			if not np.any(np.isclose(int(m),ms_ref,atol=.5)): continue
 			Sts,gains=[],[]
-			try:
-				for St in dat[Re][S][m].keys():
-					if float(St)<.05: continue
-					Sts.append(float(St))
-					gains.append(np.max(dat[Re][S][m][St]))
-				Sts,gains=np.array(Sts),np.array(gains)
-				ids=np.argsort(Sts)
-				ax.plot(Sts[ids],gains[ids]**2,label=r'$m='+f'{int(m):d}$',color=color_code[str(m)],linewidth=3)
-			except KeyError: pass
+			for St in dat[Re][S][m].keys():
+				if not np.any(np.isclose(float(St),Sts_ref,atol=.005)): continue
+				#if float(St)<.05: continue
+				Sts.append(float(St))
+				gains.append(np.max(dat[Re][S][m][St]))
+			Sts,gains=np.array(Sts),np.array(gains)
+			ids=np.argsort(Sts)
+			ax.plot(Sts[ids],gains[ids]**2,label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 		plt.xlabel(r'$St$')
 		plt.ylabel(r'$\sigma^{(1)2}$')
 		plt.yscale('log')
@@ -55,21 +59,20 @@ for Re in dat.keys():
 		plt.savefig(dir+"plots/"+f"Re={Re}_S={S}.png")
 		plt.close()
 
-		n=10
-		fig = plt.figure(figsize=(13,10),dpi=200)
-		ax = plt.subplot(111)
-		for m in color_code.keys(): # pretty ms in order
+		n=5
+		for m in dat[Re][S].keys(): # pretty ms in order
+			fig = plt.figure(figsize=(13,10),dpi=200)
+			ax = plt.subplot(111)
 			Sts,gains=[[] for _ in range(n+1)],[[] for _ in range(n+1)]
-			try:
-				for St in dat[Re][S][m].keys():
-					for i in range(len(min(dat[Re][S][m][St],n+1))):
-						Sts[i].append(float(St))
-						gains[i].append([dat[Re][S][m][St][i]])
-				for i in range(n+1):
-					Sts[i],gains[i]=np.array(Sts[i]),np.array(gains[i])
-					ids=np.argsort(Sts[i])
-					ax.plot(Sts[i][ids],gains[i][ids]**2,label=r'$i='+f'{i:d}$',color=color_code[str(m)],alpha=i/2/n,linewidth=3)
-			except KeyError: pass
+			for St in dat[Re][S][m].keys():
+				if not np.any(np.isclose(float(St),Sts_ref,atol=.01)): continue
+				for i in range(min(dat[Re][S][m][St].size,n+1)):
+					Sts[i].append(float(St))
+					gains[i].append(dat[Re][S][m][St][i])
+			for i in range(n+1):
+				Sts[i],gains[i]=np.array(Sts[i]),np.array(gains[i])
+				ids=np.argsort(Sts[i])
+				ax.plot(Sts[i][ids],gains[i][ids]**2,label=r'$i='+f'{i}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3)
 			plt.xlabel(r'$St$')
 			plt.ylabel(r'$\sigma^{(1)2}$')
 			plt.yscale('log')
