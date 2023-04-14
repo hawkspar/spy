@@ -70,3 +70,26 @@ if p0:
 	plt.xlabel(r'$x$')
 	plt.ylabel(r'$u_{co}/Q d_x\theta$')
 	plt.savefig(dir+"Cdxtheta(x)"+save_str+".png")
+
+X = np.linspace(0,15,n)
+R = np.linspace(0,3,n)
+RR, XX = np.meshgrid(R,X)
+target_xy = np.vstack((XX.flatten(),RR.flatten())).T
+u = interp(ud,target_xy)
+
+if p0:
+	u = u.reshape((n,n))
+	R_n = R.reshape([1,-1])
+	ths = np.trapz((u-U_m)*(1-u)*R_n,R)
+	plt.plot(X, ths)
+	plt.xlabel(r'$x$')
+	plt.ylabel(r'$\theta$')
+	plt.savefig(dir+"theta(x)"+save_str+".png")
+	plt.close()
+
+	sgths = np.gradient(ths,X)*U_m/Q
+
+	plt.plot(X, sgths)
+	plt.xlabel(r'$x$')
+	plt.ylabel(r'$u_{co}/Q d_x\theta$')
+	plt.savefig(dir+"Cdxtheta(x)"+save_str+".png")

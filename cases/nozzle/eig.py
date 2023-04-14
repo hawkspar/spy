@@ -16,9 +16,9 @@ ms=range(-2,3)
 Ss=np.linspace(0,1.3,14)
 
 # Load baseflow
-spy = SPY(params, datapath, "baseflow",      direction_map)
+spy = SPY(params, datapath, base_mesh, direction_map)
 # Eigenvalues
-spyp=SPYP(params, datapath, "perturbations", direction_map)
+spyp=SPYP(params, datapath, pert_mesh, direction_map)
 spyp.Re=Re
 
 for S in Ss:

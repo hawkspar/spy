@@ -11,8 +11,8 @@ from os.path import isfile
 import plotly.graph_objects as go
 from mpi4py.MPI import COMM_WORLD as comm
 
-_    =  SPY(params,datapath,"baseflow",     direction_map) # Must be first !
-spyp = SPYP(params,datapath,"perturbations",direction_map)
+_    =  SPY(params,datapath,base_mesh,direction_map) # Must be first !
+spyp = SPYP(params,datapath,pert_mesh,direction_map)
 
 # Parameters range
 Ss=[0,.4,.8,1]
@@ -124,26 +124,26 @@ for S in Ss:
 				if p0: print("Found an html file, moving on...",flush=True)
 				continue
 			if St > .5 or m == 0:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),3,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),3,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			elif St == Sts[0] and S == 0:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),3,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_sh,.1,spyp.readMode("response",Re,S,m,St),3,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces(m,XYZr_sh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			elif St == Sts[0] and S < .5:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),3,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_sk,.1,spyp.readMode("response",Re,S,m,St),3,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces(m,XYZr_sk,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			elif St == Sts[0] and m > 0:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),3,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_st,.1,spyp.readMode("response",Re,S,m,St),3,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces(m,XYZr_st,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			elif St == Sts[0] and m < 0:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),3,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_sw,.1,spyp.readMode("response",Re,S,m,St),3,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces(m,XYZr_sw,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			elif St == Sts[-1]:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),3,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),3,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			else:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_cr,.1,spyp.readMode("forcing", Re,S,m,St),3,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_nr,.1,spyp.readMode("response",Re,S,m,St),3,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces(m,XYZf_cr,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces(m,XYZr_nr,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			# Animation
 			if p0:
 				fig = go.Figure(data=[#isos_f[0],

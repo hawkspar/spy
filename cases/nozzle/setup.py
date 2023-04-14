@@ -13,6 +13,9 @@ sys.path.append('/home/shared/src')
 
 from spy import SPY
 
+base_mesh="baseflow_no_nozzle"
+pert_mesh="perturbations_no_nozzle"
+
 # Geometry parameters (nozzle)
 R,H,L=1,15,50.5
 
@@ -43,7 +46,7 @@ def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0
 
 # Necessary for resolvent stability at low St
 def slope(x,xp,s=0): return np.minimum(np.maximum(5*(-1)**s*(xp-x)+1,0),1)
-def forcing_indicator(x): return ((x[1]<=1+params['atol'])+(x[1]>1+params['atol'])*slope(x[1],1+x[0]*.5/5))*slope(x[0],2)
+def forcing_indicator(x): return (x[1]>1+params['atol'])*slope(x[1],1+x[0]/10)*slope(x[1],2)
 
 # Simplistic profile to initialise Newton
 def baseflowInit(x):

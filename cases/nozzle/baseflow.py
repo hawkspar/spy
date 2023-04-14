@@ -8,12 +8,11 @@ from setup import *
 from spyb import SPYB
 from spy import loadStuff
 
-spyb=SPYB(params,datapath,"baseflow",direction_map)
+spyb=SPYB(params,datapath,base_mesh,direction_map)
 
 class_th,u_inlet_th=boundaryConditionsBaseflow(spyb,0)
 # Highly viscous first step
-spyb.Nu=0
-#loadStuff(spyb.nut_path,{'S':0,'Re':1000},spyb.Nu)
+loadStuff(spyb.nut_path,{'S':0,'Re':1000},spyb.Nu)
 #spyb.loadBaseflow(Re,S)
 spyb.Re=1000
 spyb.baseflow(1000,0,baseflowInit=baseflowInit)

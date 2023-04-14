@@ -14,8 +14,8 @@ convert=False
 Res=[1000,10000,100000,400000]
 Ss=np.linspace(0,1.6,17)
 # Convert mesh
-if convert: meshConvert("baseflow")
-spyb=SPYB(params,datapath,'baseflow',direction_map)
+if convert: meshConvert(base_mesh)
+spyb=SPYB(params,datapath,base_mesh,direction_map)
 
 # Dimensionalised stuff
 r=1.2

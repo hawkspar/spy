@@ -271,7 +271,7 @@ class SPYP(SPY):
 			V *= np.exp(1j*m*np.arctan2(Z,Y)) # Proper azimuthal decomposition
 			# Now handling time
 			surfs = []
-			for t in np.linspace(0,np.pi/2,n,endpoint=False):
+			for t in np.linspace(0,np.pi/4,n,endpoint=False):
 				W = (V*np.exp(-1j*t)).real # Time-shift
 				surfs.append(go.Isosurface(x=X,y=Y,z=Z,value=W,
 										   isomin=r*np.min(W),isomax=r*np.max(W),

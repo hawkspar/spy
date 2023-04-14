@@ -15,8 +15,8 @@ with cProfile.Profile() as pr:
 	Ss=np.linspace(0,1.2,7)
 	ms=range(-3,4)
 	Sts=np.linspace(.05,2,10)#np.hstack((np.linspace(.05,.1,3,endpoint=False),np.linspace(.1,2,10)))
-	spy = SPY(params,datapath,"baseflow",     direction_map) # Must be first !
-	spyp=SPYP(params,datapath,"perturbations",direction_map)
+	spy = SPY(params,datapath,base_mesh,direction_map) # Must be first !
+	spyp=SPYP(params,datapath,pert_mesh,direction_map)
 
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
 	W = FunctionSpace(spyp.mesh,FE_constant)
