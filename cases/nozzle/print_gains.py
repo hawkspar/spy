@@ -38,7 +38,10 @@ for Re in dat.keys():
 		if not np.any(np.isclose(float(S.replace(',','.')),Ss_ref,atol=.05)): continue
 		fig = plt.figure(figsize=(13,10),dpi=200)
 		ax = plt.subplot(111)
-		for m in dat[Re][S].keys(): # pretty ms in order
+		ms=[int(m) for m in dat[Re][S].keys()]
+		ms.sort()
+		ms=[str(m) for m in ms]
+		for m in ms: # pretty ms in order
 			if not np.any(np.isclose(int(m),ms_ref,atol=.5)): continue
 			Sts,gains=[],[]
 			for St in dat[Re][S][m].keys():

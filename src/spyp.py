@@ -268,7 +268,7 @@ class SPYP(SPY):
 		if p0:
 			print("Evaluation done !",flush=True)
 			X,Y,Z = XYZ.T
-			V *= np.exp(1j*m*np.arctan2(Y,Z)) # Proper azimuthal decomposition
+			V *= np.exp(1j*m*np.arctan2(Z,Y)) # Proper azimuthal decomposition
 			# Now handling time
 			surfs = []
 			for t in np.linspace(0,np.pi/2,n,endpoint=False):
