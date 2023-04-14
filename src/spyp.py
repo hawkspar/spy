@@ -202,8 +202,8 @@ class SPYP(SPY):
 			save_string=(save_string+f"_m={m:d}_St={St:.2f}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/"+save_string+".txt"
 			# Memoisation
-			if isfile(gains_name) and np.loadtxt(gains_name).size>=k: # Lazy and
-				if p0: print("Found "+gains_name+" file with enough gains, moving on...",flush=True)
+			if isfile(gains_name):# and np.loadtxt(gains_name).size>=k: # Lazy and
+				if p0: print("Found "+gains_name+" file, assuming it has enough gains, moving on...",flush=True)
 				continue
 
 			# Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
@@ -257,7 +257,7 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 
-	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,n:int,scale:str,name:str,box:bool) -> list:
+	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,n:int,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ

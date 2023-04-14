@@ -23,8 +23,8 @@ U_m,a=.05,6
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
-		  "atol":1e-6, #absolute_tolerance
-		  "rtol":1e-4, #DOLFIN_EPS does not work well
+		  "atol":1e-9, #absolute_tolerance
+		  "rtol":1e-6, #DOLFIN_EPS does not work well
 		  "max_iter":50}
 datapath='nozzle/' #folder for results
 direction_map={'x':0,'r':1,'th':2}

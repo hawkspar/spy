@@ -90,10 +90,9 @@ def findStuff(path:str,params:dict,format=lambda f:True,distributed=True):
 
 def loadStuff(path:str,params:dict,fun:Function) -> None:
 	closest_file_name=findStuff(path,params,lambda f: f[-3:]=="npy")
+	if p0: print("Loading "+closest_file_name,flush=True)
 	fun.x.array[:]=np.load(closest_file_name,allow_pickle=True)
 	fun.x.scatter_forward()
-	# Loading eddy viscosity too
-	if p0: print("Loaded "+closest_file_name,flush=True)
 
 # Swirling Parallel Yaj
 class SPY:
@@ -194,7 +193,7 @@ class SPY:
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points
-	def eval(self,f,proj_pts,ref_pts=None,box=None) -> np.array:
+	def eval(self,f,proj_pts,ref_pts=None) -> np.array:
 		proj_pts = np.hstack((proj_pts,np.zeros((proj_pts.shape[0],1))))
 		if ref_pts is None:
 			ref_pts=proj_pts
@@ -213,13 +212,7 @@ class SPY:
 				local_ref.append(ref_pts[i])
 				local_cells.append(colliding_cells.links(i)[0])
 		# Actual evaluation
-		if len(local_proj)!=0:
-			if box is not None:
-				V = np.zeros_like(local_proj)
-				local_msk = box(np.array(local_proj))
-				V[local_msk] = f.eval(local_proj[local_msk], local_cells)
-			else:
-				V = f.eval(local_proj, local_cells)
+		if len(local_proj)!=0: V = f.eval(local_proj, local_cells)
 		else: V = None
 		# Gather data and points
 		V = comm.gather(V, root=0)

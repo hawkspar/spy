@@ -59,7 +59,7 @@ for Re in dat.keys():
 		plt.savefig(dir+"plots/"+f"Re={Re}_S={S}.png")
 		plt.close()
 
-		n=5
+		n=3
 		for m in dat[Re][S].keys(): # pretty ms in order
 			fig = plt.figure(figsize=(13,10),dpi=200)
 			ax = plt.subplot(111)
