@@ -22,10 +22,10 @@ for Re in [1000,10000,100000,400000]:
 	#spyb.loadBaseflow(Re,S)
 	spyb.Re=Re
 	spyb.baseflow(Re,0)
-"""spyb.loadBaseflow(400000,0)
+"""spyb.loadBaseflow(400000,0,False)
 spyb.Re=400000"""
 # Swirl
-for S in np.linspace(.1,1.6,16):
+for S in np.linspace(.1,1.2,12):
 	class_th.S=S
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{'S':S,'Re':Re},spyb.Nu)

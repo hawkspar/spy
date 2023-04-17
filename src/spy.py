@@ -8,7 +8,6 @@ import os, ufl, re
 import numpy as np
 import dolfinx as dfx
 from dolfinx.fem import Function
-from petsc4py import PETSc as pet
 from mpi4py.MPI import COMM_WORLD as comm
 
 p0=comm.rank==0
@@ -53,17 +52,6 @@ def meshConvert(path:str,cell_type:str='triangle',prune=True) -> None:
 	dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
 	meshio.write(path+".xdmf", dolfinx_mesh)
 	print("Mesh "+path+".msh converted to "+path+".xdmf !",flush=True)
-	
-# Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
-	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
-	# Krylov subspace
-	KSP.setType('preonly')
-	# Preconditioner
-	PC = KSP.getPC(); PC.setType('lu')
-	PC.setFactorSolverType('mumps')
-	KSP.setFromOptions()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
 
 # Naive save with dir creation
 def saveStuff(dir:str,name:str,fun:Function) -> None:

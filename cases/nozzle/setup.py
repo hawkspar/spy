@@ -17,7 +17,7 @@ base_mesh="baseflow"
 pert_mesh="perturbations"
 
 # Geometry parameters (nozzle)
-R,H,L=1,15,50.5
+R,H=1,15 # H as in OpenFOAM for BC compatibility
 
 # /!\ OpenFOAM coherence /!\
 S,Re=1,400000
@@ -28,7 +28,7 @@ U_m,a=.05,6
 params = {"rp":.95,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "max_iter":500}
 datapath='nozzle' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 

@@ -15,7 +15,6 @@ with cProfile.Profile() as pr:
 	Ss=[0]
 	ms=[-2,0]
 	Sts=[.05]
-	spy = SPY(params,datapath,base_mesh,direction_map) # Must be first !
 	spyp=SPYP(params,datapath,pert_mesh,direction_map)
 
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
@@ -27,10 +26,10 @@ with cProfile.Profile() as pr:
 
 	for S in Ss:
 		# Load baseflow
-		spy.loadBaseflow(Re,S)
+		spy_nozzle.loadBaseflow(Re,S)
 		# Initialise resolvent toolbox (careful order sensitive)
 		spyp.Re=Re
-		spyp.interpolateBaseflow(spy)
+		spyp.interpolateBaseflow(spy_nozzle)
 
 		for m in ms:
 			boundaryConditionsPerturbations(spyp,m)

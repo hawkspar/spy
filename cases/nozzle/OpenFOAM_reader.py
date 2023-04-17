@@ -21,6 +21,7 @@ spyb=SPYB(params,datapath,base_mesh,direction_map)
 r=1.2
 O=np.pi/360 # 0.5°
 sin,cos=np.sin(O),np.cos(O)
+H,L=10,50.5 # ACtual dolfinx mesh size
 
 # Handlers
 U,P=spyb.Q.split()

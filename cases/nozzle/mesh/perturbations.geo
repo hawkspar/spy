@@ -35,7 +35,7 @@ Point(24) = {.3*R, 1.1*R,   0,  10*r};
 Point(25) = {.3*R,     R+h, 0,     r};
 // Less refined area (center)
 Point(26) = { 30*R, .25*R,   0, 200*r};
-Point(27) = { 30*R,   4*R,   0, 500*r};
+Point(27) = { 30*R,   6*R,   0, 500*r};
 
 // Largest Loop
 Line(1)  = {1,  2};

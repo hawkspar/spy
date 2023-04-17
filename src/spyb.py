@@ -6,7 +6,8 @@ Created on Fri Dec 10 12:00:00 2021
 """
 import ufl
 import numpy as np
-from spy import SPY, grd, dirCreator, configureKSP
+from petsc4py import PETSc as pet
+from spy import SPY, grd, dirCreator
 from mpi4py.MPI import MIN, MAX, COMM_WORLD as comm
 
 from dolfinx.nls.petsc import NewtonSolver
@@ -14,6 +15,7 @@ from dolfinx.fem import Function, Expression
 from dolfinx.mesh import refine, locate_entities
 from dolfinx.fem.petsc import LinearProblem, NonlinearProblem
 from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
+
 
 p0=comm.rank==0
 
@@ -47,7 +49,14 @@ class SPYB(SPY):
 		solver.max_iter=self.params['max_iter']
 		solver.rtol=self.params['rtol']
 		solver.atol=self.params['atol']
-		configureKSP(solver.krylov_solver,self.params)
+		ksp = solver.krylov_solver
+		opts = pet.Options()
+		option_prefix = ksp.getOptionsPrefix()
+		opts[f"{option_prefix}ksp_type"] = "preonly"
+		opts[f"{option_prefix}pc_type"] = "lu"
+		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+		ksp.setFromOptions()
+		#configureKSP(solver.krylov_solver,self.params)
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
 		n,_=solver.solve(q)

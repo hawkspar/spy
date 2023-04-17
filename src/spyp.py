@@ -13,7 +13,7 @@ from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
-from spy import SPY, crl, saveStuff, loadStuff, dirCreator, configureKSP
+from spy import SPY, crl, saveStuff, loadStuff, dirCreator
 
 p0=comm.rank==0
 
@@ -36,6 +36,17 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	M.setPythonContext(py)
 	M.setUp()
 	return M
+	
+# Krylov subspace
+def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
+	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
+	# Krylov subspace
+	KSP.setType('preonly')
+	# Preconditioner
+	PC = KSP.getPC(); PC.setType('lu')
+	PC.setFactorSolverType('mumps')
+	KSP.setFromOptions()
+	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
 
 # Eigenvalue problem solver
 def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
