@@ -103,7 +103,7 @@ class SPY:
 		self.params=params
 
 		# Paths
-		self.case_path	   ='/home/shared/cases/'+datapath
+		self.case_path	   ='/home/shared/cases/'+datapath+'/'
 		self.baseflow_path =self.case_path+'baseflow/'
 		self.q_path	 	   =self.baseflow_path+'q/'
 		self.nut_path	   =self.baseflow_path+'nut/'
@@ -112,7 +112,7 @@ class SPY:
 		self.eig_path	   =self.case_path+'eigenvalues/'
 
 		# Mesh from file
-		meshpath=self.case_path+mesh_name+".xdmf"
+		meshpath=self.case_path+"mesh/"+mesh_name+".xdmf"
 		with dfx.io.XDMFFile(comm, meshpath, "r") as file:
 			self.mesh = file.read_mesh(name="Grid")
 		if p0: print("Loaded "+meshpath,flush=True)
@@ -147,9 +147,12 @@ class SPY:
 		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH1)
 
 	# Helper
-	def loadBaseflow(self,Re:int,S:float,loadNu=True):
-		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
-		if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
+	def loadBaseflow(self,Re:int,S:float,loadNu=True,alt_path=None):
+		if alt_path is None:
+			loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
+			if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
+		else:
+			loadStuff(alt_path,  {'Re':Re,'S':S},self.Q)
 
 	def saveBaseflow(self,Re:int,S:float): saveStuff(self.q_path,f"q_Re={Re:d}_S={S:.1f}".replace('.',','),self.Q)
 	
