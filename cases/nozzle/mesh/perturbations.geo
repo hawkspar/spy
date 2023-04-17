@@ -7,7 +7,7 @@ r=1e-3; h = 1e-4;
 // First base rectangle around the nozzle
 Point(1) = {0, 0, 0,   10*r};
 Point(2) = {R, 0, 0,   20*r};
-Point(3) = {R, H, 0, 1500*r};
+Point(3) = {R, H, 0, 2000*r};
 Point(4) = {0, H, 0, 2000*r};
 // Second (largest) base rectangle
 Point(5) = {L, 0, 0,  250*r};

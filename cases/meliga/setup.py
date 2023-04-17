@@ -26,7 +26,7 @@ params = {"rp":.99,    #relaxation_parameter
 		  "atol":1e-6, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":100}
-datapath='meliga/' #folder for results
+datapath='meliga' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
 # Geometry

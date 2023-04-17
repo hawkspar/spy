@@ -8,13 +8,13 @@ from setup import *
 from spyp import SPYP # Must be after setup
 import cProfile, pstats
 from pstats import SortKey
-from dolfinx.fem import FunctionSpace
 from mpi4py.MPI import COMM_WORLD as comm
+from dolfinx.fem import Function, FunctionSpace
 
 with cProfile.Profile() as pr:
 	Ss=[0]
-	ms=[-2,0]
-	Sts=[.05]
+	ms=range(4)
+	Sts=np.linspace(.05,1,20)
 	spyp=SPYP(params,datapath,pert_mesh,direction_map)
 
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)

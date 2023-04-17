@@ -45,7 +45,7 @@ def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.m
 
 # Necessary for resolvent stability at low St
 def slope(x,xp,s=0): return np.minimum(np.maximum(5*(-1)**s*(xp-x)+1,0),1)
-def forcing_indicator(x): return (x[1]>1+params['atol'])*slope(x[1],1+x[0]/10)*slope(x[1],2)
+def forcing_indicator(x): return slope(x[1],1+x[0]/10)*slope(x[1],2)
 
 # Simplistic profile to initialise Newton
 def baseflowInit(x):

@@ -11,12 +11,11 @@ from os.path import isfile
 import plotly.graph_objects as go
 from mpi4py.MPI import COMM_WORLD as comm
 
-_    =  SPY(params,datapath,base_mesh,direction_map) # Must be first !
 spyp = SPYP(params,datapath,pert_mesh,direction_map)
 
 # Parameters range
-Ss=[0,.4,.8,1]
-ms=[-2,2]
+Ss=[0]
+ms=[-3]
 Sts=[.05]#, .48, 1.13, 2.]
 # Actual plotting
 dir=spyp.resolvent_path+"/3d/"
@@ -70,7 +69,7 @@ XYZr_sk = np.vstack([C.flatten() for C in XYZr_sk])
 
 # Shorts : short streaks hanging onto the nozzle
 Xr_sh  = np.hstack((np.linspace(.5,1.1,20,endpoint=False),np.geomspace(1.1,17,30)))
-YZr_sh = np.hstack((np.linspace(0,1,20,endpoint=False), np.geomspace(1,1.7,30)))
+YZr_sh = np.hstack((np.linspace(0,1,20,endpoint=False), np.geomspace(1,2,30)))
 YZr_sh = np.hstack((np.flip(-YZr_sh)[:-1],YZr_sh)) # Careful of 0 !
 XYZr_sh = np.meshgrid(Xr_sh,YZr_sh,YZr_sh)
 XYZr_sh = np.vstack([C.flatten() for C in XYZr_sh])

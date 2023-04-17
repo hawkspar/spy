@@ -25,7 +25,7 @@ params = {"rp":.99,    #relaxation_parameter
 		  "atol":1e-6, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":1000}
-datapath='garnaud/' #folder for results
+datapath='garnaud' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
 def baseflowInit(x):

@@ -12,7 +12,7 @@ Point(5) = {L, 0, 0,  250*r};
 Point(6) = {L, H, 0, 1000*r};
 // Third rectangle, aka padding zone
 Point(7) = {1.01*L,0,0,200*r};
-Point(8) = {1.01*L,H,0,300*r};
+Point(8) = {1.01*L,H,0,800*r};
 // Actual nozzle
 Point(11) = {R, R,   0, r};
 // Most refined area (left)

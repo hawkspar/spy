@@ -11,7 +11,7 @@ from spy import dirCreator
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 
 dat={}
-dir="/home/shared/cases/nozzle/resolvent/gains/"
+dir="/home/shared/cases/no_nozzle/resolvent/gains/"
 dirCreator(dir+"plots/")
 file_names = [f for f in listdir(dir) if f[-3:]=="txt"]
 for file_name in file_names:
@@ -28,9 +28,9 @@ for file_name in file_names:
 	if not m  in dat[Re][S].keys(): dat[Re][S][m]={}
 	dat[Re][S][m][St] = np.loadtxt(dir+file_name).reshape(-1)
 
-Ss_ref=np.linspace(0,1.2,7)
-ms_ref = range(-3,4)
-Sts_ref=np.linspace(.05,2,10)
+Ss_ref=[0]
+ms_ref = range(4)
+Sts_ref=np.linspace(.05,1,20)
 
 plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():
@@ -55,7 +55,7 @@ for Re in dat.keys():
 		plt.xlabel(r'$St$')
 		plt.ylabel(r'$\sigma^{(1)2}$')
 		plt.yscale('log')
-		plt.xticks([0,.5,1,1.5,2])
+		plt.xticks([0,.5,1])
 		box = ax.get_position()
 		ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
@@ -79,7 +79,7 @@ for Re in dat.keys():
 			plt.xlabel(r'$St$')
 			plt.ylabel(r'$\sigma^{(1)2}$')
 			plt.yscale('log')
-			plt.xticks([0,.5,1,1.5,2])
+			plt.xticks([0,.5,1])
 			box = ax.get_position()
 			ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 			plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
