@@ -13,8 +13,8 @@ sys.path.append('/home/shared/src')
 
 from spy import SPY
 
-base_mesh="baseflow_no_nozzle"
-pert_mesh="perturbations_no_nozzle"
+base_mesh="baseflow"
+pert_mesh="perturbations"
 
 # Geometry parameters (nozzle)
 R,H,L=1,15,50.5

@@ -13,8 +13,8 @@ sys.path.append('/home/shared/src')
 
 from spy import SPY
 
-base_mesh="baseflow_no_nozzle"
-pert_mesh="perturbations_no_nozzle"
+base_mesh="baseflow"
+pert_mesh="perturbations"
 
 # Geometry parameters (nozzle)
 R,H,L=1,15,50.5
@@ -29,10 +29,10 @@ params = {"rp":.95,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
 		  "max_iter":100}
-datapath='nozzle' #folder for results
+datapath='no_nozzle' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
-spy_nozzle = SPY(params,datapath,"baseflow",direction_map) # Important ! Mesh loading order is critical
+spy_nozzle = SPY(params,"nozzle","baseflow",direction_map) # Important ! Mesh loading order is critical
 
 # Reference coherent with OpenFOAM
 def nozzle_top(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
@@ -56,13 +56,8 @@ def baseflowInit(x):
 	u[0]=inletProfile(x)
 	return u
 
-# Allows for more efficient change of S inside an iteration
-class inletTangential:
-	def __init__(self,S:float) -> None: self.S=S
-	def __call__(self,x) -> np.array: return self.S*x[1]*inletProfile(x)*(x[1]<1)
-
-def boundaryConditionsBaseflow_no_nozzle(spy:SPY,S) -> None:
-	spy_nozzle.loadBaseflow(Re,S,False,"./baseflow_save/q/")
+def boundaryConditionsBaseflow(spy:SPY,S) -> None:
+	spy_nozzle.loadBaseflow(Re,S,False)
 	U_nozzle,_ = spy_nozzle.Q.split()
 
 	# Compute DoFs
@@ -89,35 +84,7 @@ def boundaryConditionsBaseflow_no_nozzle(spy:SPY,S) -> None:
 
 	# Handle homogeneous boundary conditions
 	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
-	return spy_nozzle,u_inlet_th,u_inlet_x
-
-def boundaryConditionsBaseflow(spy:SPY,S) -> None:
-	# Compute DoFs
-	sub_space_x=spy.TH.sub(0).sub(0)
-	sub_space_x_collapsed,_=sub_space_x.collapse()
-
-	u_inlet_x=Function(sub_space_x_collapsed)
-	u_inlet_x.interpolate(inletProfile)
-	# Degrees of freedom
-	dofs_inlet_x = dfx.fem.locate_dofs_geometrical((sub_space_x, sub_space_x_collapsed), inlet)
-	bcs_inlet_x = dfx.fem.dirichletbc(u_inlet_x, dofs_inlet_x, sub_space_x) # Same as OpenFOAM
-
-	# Actual BCs
-	spy.applyBCs(dofs_inlet_x[0],bcs_inlet_x) # x=X entirely handled by implicit Neumann
-
-	# Same for tangential
-	sub_space_th=spy.TH.sub(0).sub(2)
-	sub_space_th_collapsed,_=sub_space_th.collapse()
-	u_inlet_th=Function(sub_space_th_collapsed)
-	class_th=inletTangential(S)
-	u_inlet_th.interpolate(class_th)
-	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
-	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM
-	spy.applyBCs(dofs_inlet_th[0],bcs_inlet_th)
-
-	# Handle homogeneous boundary conditions
-	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
-	return class_th,u_inlet_th
+	return u_inlet_th,u_inlet_x
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet, nozzle & top (linearise as baseflow)

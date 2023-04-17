@@ -147,13 +147,10 @@ class SPY:
 		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH1)
 
 	# Helper
-	def loadBaseflow(self,Re:int,S:float,loadNu=True,alt_path=None):
-		if alt_path is None:
-			loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
-			if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
-		else:
-			loadStuff(alt_path,  {'Re':Re,'S':S},self.Q)
-
+	def loadBaseflow(self,Re:int,S:float,loadNu=True):
+		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
+		if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
+		
 	def saveBaseflow(self,Re:int,S:float): saveStuff(self.q_path,f"q_Re={Re:d}_S={S:.1f}".replace('.',','),self.Q)
 	
 	# Heart of this entire code

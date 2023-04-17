@@ -10,10 +10,9 @@ from spy import loadStuff
 
 spyb=SPYB(params,datapath,base_mesh,direction_map)
 
-spy_nozzle,u_inlet_th,u_inlet_x=boundaryConditionsBaseflow_no_nozzle(spyb,0)
+u_inlet_th,u_inlet_x=boundaryConditionsBaseflow(spyb,0)
 # Highly viscous first step
 loadStuff(spyb.nut_path,{'S':0,'Re':1000},spyb.Nu)
-#spyb.loadBaseflow(Re,S)
 spyb.Re=1000
 spyb.baseflow(1000,0,baseflowInit=spy_nozzle.Q.split()[0])
 # No swirl
@@ -28,8 +27,8 @@ spyb.Re=400000"""
 for S in np.linspace(.1,1.6,16):
 	spy_nozzle.loadBaseflow(Re,S,False)
 	U_nozzle,_ = spy_nozzle.Q.split()
-	u_inlet_x.interpolate(U_nozzle[0])
-	u_inlet_th.interpolate(U_nozzle[2])
+	u_inlet_x.interpolate( lambda x: spy_nozzle.eval(U_nozzle[0],x))
+	u_inlet_th.interpolate(lambda x: spy_nozzle.eval(U_nozzle[2],x))
 	loadStuff(spyb.nut_path,{'S':S,'Re':Re},spyb.Nu)
 	spyb.baseflow(Re,S,save=True)
 	spyb.smoothenU(1e-3)

@@ -22,7 +22,7 @@ Point(19) = {1.1*R, 1.01*R,   0, r};
 Point(22) = {	R,  .7*R,   0,  10*r};
 Point(23) = {	R, 1.1*R,   0,  10*r};
 // Less refined area (center)
-Point(26) = { 30*R,  .2*R,   0, 300*r};
+Point(26) = { 30*R, .25*R,   0, 200*r};
 Point(27) = { 30*R,   4*R,   0, 500*r};
 
 // Largest Loop
