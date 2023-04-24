@@ -70,10 +70,13 @@ for Re in Res:
         U.sub(1).interpolate(lambda x: interp(urv, x)*(x[1]>params['atol'])) # Enforce u_r=u_th=0 at r=0
         U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>params['atol']))
         spyb.Nu.interpolate(lambda x: interp(nutv,x))
+        spyb.smoothenU(1e-6)
+        spyb.smoothenNu(1e-6)
 
         # Save
         dirCreator(spyb.baseflow_path)
         save_string=f"_Re={Re:d}_S={S:.1f}"
+        spyb.saveBaseflow(Re,S)
         saveStuff(spyb.nut_path,"nut"+save_string,spyb.Nu)
         spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"nu"+save_string,spyb.Nu)
         spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"u"+save_string,U)

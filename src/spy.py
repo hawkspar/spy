@@ -30,12 +30,12 @@ def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
     m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
 								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
 
-def dirCreator(path:str):
+def dirCreator(path:str) -> None:
 	if not os.path.isdir(path):
 		if p0: os.mkdir(path)
 	comm.barrier() # Wait for all other processors
 
-def checkComm(f:str):
+def checkComm(f:str) -> bool:
 	match = re.search(r'n=(\d*)',f)
 	if int(match.group(1))!=comm.size: return False
 	match = re.search(r'p=([0-9]*)',f)
@@ -111,7 +111,7 @@ class SPY:
 		self.bcs  = []
 
 	# TO be rerun if mesh changes
-	def defineFunctionSpaces(self):
+	def defineFunctionSpaces(self) -> None:
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[self.direction_map['r']]
 		# Finite elements & function spaces
@@ -135,7 +135,7 @@ class SPY:
 		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH1)
 
 	# Helper
-	def loadBaseflow(self,Re:int,S:float,loadNu=True):
+	def loadBaseflow(self,Re:int,S:float,loadNu=True) -> None:
 		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
 		if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 		

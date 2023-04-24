@@ -20,13 +20,17 @@ p0=comm.rank==0
 # Wrapper
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
-	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
-	M = dfx.cpp.fem.petsc.create_matrix(form)
+	form = dfx.fem.form(form)#, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
+	"""M = dfx.cpp.fem.petsc.create_matrix(form)
 	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
 	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
 	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
-	M.assemble()
-	return M
+	M.assemble()"""
+	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag) 
+	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1) # Probably useless after assemble
+	A.setOption(A.Option.SYMMETRIC,sym)
+	A.assemble()
+	return A
 
 # PETSc Matrix free method
 def pythonMatrix(dims:list,py,comm) -> pet.Mat:
@@ -36,7 +40,7 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 	M.setPythonContext(py)
 	M.setUp()
 	return M
-	
+
 # Krylov subspace
 def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
@@ -53,12 +57,12 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
 	EPS.setProblemType(pb_type)
-	EPS.setTrueResidual(True)
-	EPS.setConvergenceTest(EPS.Conv.ABS)
-	EPS.setBalance(slp.EPS.Balance.TWOSIDE,params['max_iter'],params['atol'])
+	#EPS.setTrueResidual(True)
+	#EPS.setConvergenceTest(EPS.Conv.ABS)
+	#EPS.setBalance(slp.EPS.Balance.TWOSIDE,params['max_iter'],params['atol'])
 	# Spectral transform
 	ST = EPS.getST()
-	ST.setMatMode(ST.MatMode.INPLACE)
+	#ST.setMatMode(ST.MatMode.INPLACE)
 	if shift:
 		ST.setType('sinvert')
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
@@ -163,9 +167,9 @@ class SPYP(SPY):
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
 			# Memoisation of first eigenvector
-			if i==0: saveStuff(self.eig_path+"q/",save_string+f"_l={eigs[0]:.2f}".replace('.',','),q)
+			if i==0: saveStuff(self.eig_path+"q/",save_string+f"_l={eigs[0]:.4f}".replace('.',','),q)
 			u,_ = q.split()
-			self.printStuff(self.eig_path+"u/",save_string+f"_l={eigs[i]:.2f}".replace('.',','),u)
+			self.printStuff(self.eig_path+"print/",save_string+f"_l={eigs[i]:.4f}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,indic=1) -> None:
@@ -195,7 +199,7 @@ class SPYP(SPY):
 		self.R_obj =   R_class(B,self.TH,self.TH0c)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
 		LHS_obj    = LHS_class(self.R,Q,self.TH)
-		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
+		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,   comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,hot_start:bool=False) -> None:
 		# Solver

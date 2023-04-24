@@ -26,11 +26,16 @@ U_m,a=.05,6
 
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
-		  "atol":1e-9, #absolute_tolerance
-		  "rtol":1e-6, #DOLFIN_EPS does not work well
+		  "atol":1e-12, #absolute_tolerance
+		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":500}
 datapath='nozzle' #folder for results
 direction_map={'x':0,'r':1,'th':2}
+
+# Easier standardisation across files
+Ss_ref = [0,.48,1]
+ms_ref = range(-2,2)
+Sts_ref = np.linspace(.05,2,10)
 
 # Reference coherent with OpenFOAM
 def nozzle_top(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
@@ -45,8 +50,8 @@ def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.m
 def nozzle(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[1]<nozzle_top(x[0])+params['atol'])*(R-params['atol']<x[1])*(x[0]<R+params['atol'])
 
 # Necessary for resolvent stability at low St
-def slope(x,xp,s=0): return np.minimum(np.maximum(5*(-1)**s*(xp-x)+1,0),1)
-def forcing_indicator(x): return (x[1]>1+params['atol'])*slope(x[1],1+x[0]/10)*slope(x[1],2)
+def slope(x,xp,s=0): return np.minimum(np.maximum(2*(-1)**s*(xp-x)+1,0),1)
+def forcing_indicator(x): return (x[0]<1)*slope(x[1],1.15)+(x[0]>=1)*(x[0]<1.5)*slope((1-1.15)/(1.5-1)*(x[0]-1)+1.15,x[1],1)+(x[0]>=1.5)*slope((3.5-1)/(12-1.5)*(x[0]-1.5)+1,x[1],1)
 
 # Simplistic profile to initialise Newton
 def baseflowInit(x):

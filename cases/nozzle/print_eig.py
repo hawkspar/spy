@@ -45,7 +45,7 @@ for Re in dat.keys():
             plt.scatter(eigs.imag[msk], eigs.real[msk], edgecolors=color_code[m],facecolors='none')  # Stable eigenvalues
             if eigs[~msk].size>0:
                 plt.scatter(eigs.imag[~msk],eigs.real[~msk],edgecolors=color_code[m],facecolors=color_code[m]) # Unstable eigenvalues
-            plt.plot([-np.min(eigs.imag),np.max(eigs.imag)],[0,0],'k--')
+            #plt.plot([-np.min(eigs.imag),np.max(eigs.imag)],[0,0],'k--')
             #plt.axis([-2,2,-2,2])
             plt.xlabel(r'$\omega$')
             plt.ylabel(r'$\sigma$')

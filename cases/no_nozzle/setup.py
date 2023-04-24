@@ -10,6 +10,7 @@ import numpy as np
 sys.path.append('/home/shared/src')
 
 from spy import SPY
+from spyb import SPYB
 
 base_mesh="baseflow"
 pert_mesh="perturbations"
@@ -22,15 +23,20 @@ S,Re=1,400000
 h=1e-4
 U_m,a=.05,6
 
+# Parameters grouped here for consistence
+Ss_ref=[0]
+ms_ref = [0,3]
+Sts_ref=np.linspace(.05,1,5)
+
 # Numerical Parameters
 params = {"rp":.95,    #relaxation_parameter
 		  "atol":1e-9, #absolute_tolerance
 		  "rtol":1e-6, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "max_iter":50}
 datapath='no_nozzle' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
-spy_nozzle = SPY(params,"nozzle","baseflow",direction_map) # Important ! Mesh loading order is critical
+spyb_nozzle = SPYB(params,"nozzle","baseflow",direction_map) # Important ! Mesh loading order is critical
 
 # Reference coherent with OpenFOAM
 def nozzle_top(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
@@ -44,8 +50,8 @@ def outlet(  x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.m
 def top(     x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top boundary (assumed straight)
 
 # Necessary for resolvent stability at low St
-def slope(x,xp,s=0): return np.minimum(np.maximum(5*(-1)**s*(xp-x)+1,0),1)
-def forcing_indicator(x): return slope(x[1],1+x[0]/10)*slope(x[1],2)
+def slope(x,xp,s=0): return np.minimum(np.maximum(2*(-1)**s*(xp-x)+1,0),1)
+def forcing_indicator(x): return (x[0]<1.5)*slope(x[1],1)+(x[0]>=1.5)*slope(x[1],(3.7-1)/(12-1.5)*(x[0]-1.5)+1)
 
 # Simplistic profile to initialise Newton
 def baseflowInit(x):

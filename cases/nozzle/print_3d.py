@@ -14,10 +14,6 @@ from mpi4py.MPI import COMM_WORLD as comm
 _    =  SPY(params,datapath,base_mesh,direction_map) # Must be first !
 spyp = SPYP(params,datapath,pert_mesh,direction_map)
 
-# Parameters range
-Ss=[0,.4,.8,1]
-ms=[-2,2]
-Sts=[.05]#, .48, 1.13, 2.]
 # Actual plotting
 dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
@@ -115,9 +111,9 @@ fig.write_html("XYZf_kh.html")
 fig = go.Figure(data=[go.Scatter3d(x=XYZr_kh[0],y=XYZr_kh[1],z=XYZr_kh[2], mode='markers', marker={"size":3,"opacity":.4})])
 fig.write_html("XYZr_kh.html")
 
-for S in Ss:
-	for m in ms:
-		for St in Sts:
+for S in Ss_ref:
+	for m in ms_ref:
+		for St in Sts_ref:
 			file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.2f}".replace('.',',')+".html"
 			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
 			if isfile(file_name):
@@ -126,19 +122,19 @@ for S in Ss:
 			if St > .5 or m == 0:
 				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
 				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
-			elif St == Sts[0] and S == 0:
+			elif St == Sts_ref[0] and S == 0:
 				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
 				isos_r=spyp.computeIsosurfaces(m,XYZr_sh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
-			elif St == Sts[0] and S < .5:
+			elif St == Sts_ref[0] and S < .5:
 				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
 				isos_r=spyp.computeIsosurfaces(m,XYZr_sk,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
-			elif St == Sts[0] and m > 0:
+			elif St == Sts_ref[0] and m > 0:
 				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
 				isos_r=spyp.computeIsosurfaces(m,XYZr_st,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
-			elif St == Sts[0] and m < 0:
+			elif St == Sts_ref[0] and m < 0:
 				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
 				isos_r=spyp.computeIsosurfaces(m,XYZr_sw,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
-			elif St == Sts[-1]:
+			elif St == Sts_ref[-1]:
 				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
 				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
 			else:

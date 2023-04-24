@@ -1,11 +1,8 @@
-import sys
-import numpy as np
 from re import search
 from os import listdir
 from matplotlib import pyplot as plt
 
-sys.path.append('/home/shared/src')
-
+from setup import *
 from spy import dirCreator
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
@@ -27,10 +24,6 @@ for file_name in file_names:
 	if not S  in dat[Re].keys():	dat[Re][S]   ={}
 	if not m  in dat[Re][S].keys(): dat[Re][S][m]={}
 	dat[Re][S][m][St] = np.loadtxt(dir+file_name).reshape(-1)
-
-Ss_ref=np.linspace(0,1.2,7)
-ms_ref = range(-3,4)
-Sts_ref=np.linspace(.05,2,10)
 
 plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():
@@ -72,10 +65,10 @@ for Re in dat.keys():
 				for i in range(min(dat[Re][S][m][St].size,n+1)):
 					Sts[i].append(float(St))
 					gains[i].append(dat[Re][S][m][St][i])
-			for i in range(n+1):
+			for i in range(n):
 				Sts[i],gains[i]=np.array(Sts[i]),np.array(gains[i])
 				ids=np.argsort(Sts[i])
-				ax.plot(Sts[i][ids],gains[i][ids]**2,label=r'$i='+f'{i}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3)
+				ax.plot(Sts[i][ids],gains[i][ids]**2,label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3)
 			plt.xlabel(r'$St$')
 			plt.ylabel(r'$\sigma^{(1)2}$')
 			plt.yscale('log')

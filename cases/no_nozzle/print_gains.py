@@ -1,11 +1,8 @@
-import sys
-import numpy as np
 from re import search
 from os import listdir
 from matplotlib import pyplot as plt
 
-sys.path.append('/home/shared/src')
-
+from setup import *
 from spy import dirCreator
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
@@ -27,10 +24,6 @@ for file_name in file_names:
 	if not S  in dat[Re].keys():	dat[Re][S]   ={}
 	if not m  in dat[Re][S].keys(): dat[Re][S][m]={}
 	dat[Re][S][m][St] = np.loadtxt(dir+file_name).reshape(-1)
-
-Ss_ref=[0]
-ms_ref = range(4)
-Sts_ref=np.linspace(.05,1,20)
 
 plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():

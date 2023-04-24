@@ -108,12 +108,20 @@ class SPYB(SPY):
 		u.x.scatter_forward()
 		return u
 	
-	def smoothenU(self, e:float):
+	def smoothenNu(self, e:float):
+		r = self.r
+		Nu, nu, t = self.Nu, ufl.TrialFunction(self.TH1), ufl.TestFunction(self.TH1)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		self.Nu = self.smoother(ufl.inner(nu,t)+e*ufl.inner(gd(nu),gd(t)),ufl.inner(Nu,t))
+		self.Nu.x.array[self.Nu.x.array<0]=0
+	
+	def smoothenU(self, e:float, dir=None):
 		r = self.r
 		u, p, v, s = self.u, self.p, self.v, self.s
 		U, P = ufl.split(self.Q)
 		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
-		self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[self.direction_map['r']]),gd(v[self.direction_map['r']]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
+		if dir is None: self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u),	 gd(v))		+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
+		else: 			self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[dir]),gd(v[dir]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 
 	def minimumAxial(self) -> float:
 		u=self.U.compute_point_values()[:,self.direction_map['x']]
