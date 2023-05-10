@@ -1,0 +1,252 @@
+\documentclass{article}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+%\usepackage[T1]{inputenc}
+\usepackage{newtxtext}
+\usepackage{newtxmath}
+\usepackage{pgfplots}
+\usepackage{color}
+
+\begin{document}
+	\pagestyle{empty}
+
+\newcommand{\figwidth}{\textwidth}
+
+\begin{tikzpicture}
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+%xlabel={$x$},
+%x label style={at={(0.5,0.1)},anchor=north},
+xticklabels={,,},
+ylabel={$r/D$},
+ytick={0,5},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot1a
+]
+\addplot graphics
+[xmin=0,xmax=25,ymin=0,ymax=5]
+{f_m3_St05.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{3, 0.05}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+%xlabel={$x$},
+%x label style={at={(0.5,0.1)},anchor=north},
+xticklabels={,,},
+ylabel={$r/D$},
+ytick={0,5},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot1b,
+at=(plot1a.below south west),
+anchor=above north west
+]
+\addplot graphics
+[xmin=0,xmax=25,ymin=0,ymax=5]
+{f_m1_St05.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{1, 0.05}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+xlabel={$x/D$},
+x label style={at={(0.5,0.3)},anchor=north},
+ylabel={$r/D$},
+ytick={0,5},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot1c,
+at=(plot1b.below south west),
+anchor=above north west
+]
+\addplot graphics
+[xmin=0,xmax=25,ymin=0,ymax=5]
+{f_m0_St05.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{0, 0.05}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+%xlabel={$x$},
+%x label style={at={(0.5,0.1)},anchor=north},
+xticklabels={,,},
+ytick={0,4},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot2a,
+at=(plot1a.right of north east),
+anchor=left of north west, xshift=2mm
+]
+\addplot graphics
+[xmin=0,xmax=20,ymin=0,ymax=4]
+{f_m3_St2.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{3, 0.2}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+%xlabel={$x$},
+%x label style={at={(0.5,0.1)},anchor=north},
+xticklabels={,,},
+ytick={0,4},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot2b,
+at=(plot2a.below south west),
+anchor=above north west
+]
+\addplot graphics
+[xmin=0,xmax=20,ymin=0,ymax=4]
+{f_m1_St2.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{1, 0.2}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+xlabel={$x/D$},
+x label style={at={(0.5,0.3)},anchor=north},
+ytick={0,4},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot2c,
+at=(plot2b.below south west),
+anchor=above north west
+]
+\addplot graphics
+[xmin=0,xmax=20,ymin=0,ymax=4]
+{f_m1_St2.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{1, 0.2}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+%xlabel={$x$},
+%x label style={at={(0.5,0.1)},anchor=north},
+xtick={0,5,10},
+xticklabels={,,},
+ytick={0,2},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot3a,
+at=(plot2a.right of north east),
+anchor=left of north west, xshift=2mm
+]
+\addplot graphics
+[xmin=0,xmax=10,ymin=0,ymax=2]
+{f_m3_St6.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{3, 0.6}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+%xlabel={$x$},
+%x label style={at={(0.5,0.1)},anchor=north},
+xtick={0,5,10},
+xticklabels={,,},
+ytick={0,2},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot3b,
+at=(plot3a.below south west),
+anchor=above north west
+]
+\addplot graphics
+[xmin=0,xmax=10,ymin=0,ymax=2]
+{f_m1_St6.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{1, 0.6}};
+\end{axis}
+
+
+\begin{axis}[%
+width=0.3\figwidth,
+height=0.06\textwidth,
+scale only axis,
+axis on top,
+enlargelimits=false,
+font=\footnotesize,
+xlabel={$x/D$},
+x label style={at={(0.5,0.3)},anchor=north},
+xtick={0,5,10},
+ytick={0,2},
+%ytick={0,0.2,0.4,0.6},
+y label style={at={(axis description cs:0.2,0.5)},anchor=center},
+%title={(a) $St=0.2$, experiment},
+%title style={at={(0.5,0.85)},anchor=south},
+name=plot3c,
+at=(plot3b.below south west),
+anchor=above north west
+]
+\addplot graphics
+[xmin=0,xmax=10,ymin=0,ymax=2]
+{f_m0_St6.png};
+\node at (axis description cs:0.15,0.7) {\textcolor{white}{0, 0.6}};
+\end{axis}
+
+\end{tikzpicture}
+\end{document}

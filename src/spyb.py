@@ -112,8 +112,9 @@ class SPYB(SPY):
 		r = self.r
 		Nu, nu, t = self.Nu, ufl.TrialFunction(self.TH1), ufl.TestFunction(self.TH1)
 		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		self.Nu.x.array[self.Nu.x.array<1e-5]=0 # Somewhat arbitrary cutoff
 		self.Nu = self.smoother(ufl.inner(nu,t)+e*ufl.inner(gd(nu),gd(t)),ufl.inner(Nu,t))
-		self.Nu.x.array[self.Nu.x.array<0]=0
+		self.Nu.x.array[self.Nu.x.array<1e-5]=0 # Important to do it twice
 	
 	def smoothenU(self, e:float, dir=None):
 		r = self.r
@@ -124,7 +125,7 @@ class SPYB(SPY):
 		else: 			self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[dir]),gd(v[dir]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 
 	def minimumAxial(self) -> float:
-		u=self.U.compute_point_values()[:,self.direction_map['x']]
+		u=self.Q.split()[0].compute_point_values()[:,self.direction_map['x']]
 		mu=np.min(u)
 		mu=comm.reduce(mu,op=MIN) # minimum across processors
 		return mu

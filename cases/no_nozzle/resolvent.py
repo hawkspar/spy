@@ -17,18 +17,17 @@ with cProfile.Profile() as pr:
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
 	W = FunctionSpace(spyp.mesh,FE_constant)
 	indic = Function(W)
-	indic.interpolate(forcing_indicator)
+	indic.interpolate(forcingIndicator)
 	spyp.printStuff('./','indic',indic)
 	spyp.assembleMRMatrices(indic)
 
 	for S in Ss_ref:
 		# Load baseflow
 		spyb_nozzle.loadBaseflow(Re,S)
-		spyb_nozzle.smoothenNu(1e-4)
-		spyb_nozzle.smoothenU(1e-4)
 		# Initialise resolvent toolbox (careful order sensitive)
 		spyp.Re=Re
 		spyp.interpolateBaseflow(spyb_nozzle)
+		spyp.sanityCheck()
 
 		for m in ms_ref:
 			boundaryConditionsPerturbations(spyp,m)

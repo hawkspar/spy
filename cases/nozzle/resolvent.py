@@ -12,13 +12,13 @@ from dolfinx.fem import FunctionSpace
 from mpi4py.MPI import COMM_WORLD as comm
 
 with cProfile.Profile() as pr:
-	spy = SPY(params,datapath,base_mesh,direction_map) # Must be first !
-	spyp=SPYP(params,datapath,pert_mesh,direction_map)
+	spy =SPY( params,data_path,base_mesh,direction_map) # Must be first !
+	spyp=SPYP(params,data_path,pert_mesh,direction_map)
 
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
 	W = FunctionSpace(spyp.mesh,FE_constant)
 	indic = Function(W)
-	indic.interpolate(forcing_indicator)
+	indic.interpolate(forcingIndicator)
 	spyp.printStuff('./','indic',indic)
 	spyp.assembleMRMatrices(indic)
 
@@ -26,7 +26,7 @@ with cProfile.Profile() as pr:
 		# Load baseflow
 		spy.loadBaseflow(Re,S)
 		# Initialise resolvent toolbox (careful order sensitive)
-		spyp.Re=400000
+		spyp.Re=20000
 		spyp.interpolateBaseflow(spy)
 
 		for m in ms_ref:

@@ -131,8 +131,8 @@ class SPY:
 		self.v, self.s = ufl.TestFunctions( self.TH)
 		# Initialisation of baseflow
 		self.Q = Function(self.TH)
-		# Collapsed subspaces
-		self.U, self.P, self.Nu = Function(self.TH0), Function(self.TH1), Function(self.TH1)
+		# Eddy viscosity
+		self.Nu = Function(self.TH1)
 
 	# Helper
 	def loadBaseflow(self,Re:int,S:float,loadNu=True) -> None:
@@ -251,11 +251,10 @@ class SPY:
 		self.printStuff("./","sanity_check_u"+app,U)
 
 	def sanityCheck(self,app=""):
-		self.U.x.array[:]=self.Q.x.array[self.TH_to_TH0]
-		self.P.x.array[:]=self.Q.x.array[self.TH_to_TH1]
+		U,P=self.Q.split()
 
 		dx,dr=self.direction_map['x'],self.direction_map['r']
-		expr=dfx.fem.Expression(self.U[dx].dx(dx) + (self.r*self.U[dr]).dx(dr)/self.r,
+		expr=dfx.fem.Expression(U[dx].dx(dx) + (self.r*U[dr]).dx(dr)/self.r,
 								self.TH1.element.interpolation_points())
 		div = Function(self.TH1)
 		div.interpolate(expr)
@@ -267,8 +266,8 @@ class SPY:
 		p.x.array[:]=comm.rank
 		self.printStuff("./","sanity_check_partition"+app,p)
 		
-		self.printStuff("./","sanity_check_u"+app,  self.U)
-		self.printStuff("./","sanity_check_p"+app,  self.P)
+		self.printStuff("./","sanity_check_u"+app, U)
+		self.printStuff("./","sanity_check_p"+app, P)
 		# nut may not be a Function
 		try: self.printStuff("./","sanity_check_nut"+app,self.Nu)
 		except TypeError: pass

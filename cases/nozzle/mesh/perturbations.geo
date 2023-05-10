@@ -1,14 +1,13 @@
 // Gmsh project created on Fri May 15 17:21:02 2020
 Mesh.MshFileVersion = 2.2;
-R=1;
-L=50*R; H=10*R;
+R=1; L=50*R; H=10*R;
 r=1e-3; h = 1e-4;
 
 // First base rectangle around the nozzle
-Point(1) = {0, 0, 0,   10*r};
+Point(1) = {0, 0, 0,   15*r};
 Point(2) = {R, 0, 0,   20*r};
-Point(3) = {R, H, 0, 2000*r};
-Point(4) = {0, H, 0, 2000*r};
+Point(3) = {R, H, 0, 1500*r};
+Point(4) = {0, H, 0, 1500*r};
 // Second (largest) base rectangle
 Point(5) = {L, 0, 0,  250*r};
 Point(6) = {L, H, 0, 1000*r};
@@ -28,7 +27,7 @@ Point(18) = {1.1*R,  .99*R,   0, r};
 Point(19) = {1.1*R, 1.01*R,   0, r};
 // Less refined area (left)
 Point(20) = {.3*R,     R,   0,     r};
-Point(21) = {.3*R,  .7*R,   0,   5*r};
+Point(21) = {.3*R,  .7*R,   0,  10*r};
 Point(22) = {	R,  .7*R,   0,  10*r};
 Point(23) = {	R, 1.1*R,   0,  10*r};
 Point(24) = {.3*R, 1.1*R,   0,  10*r};

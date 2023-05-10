@@ -11,15 +11,15 @@ from os.path import isfile
 import plotly.graph_objects as go
 from mpi4py.MPI import COMM_WORLD as comm
 
-_    =  SPY(params,datapath,base_mesh,direction_map) # Must be first !
-spyp = SPYP(params,datapath,pert_mesh,direction_map)
+_    =  SPY(params,data_path,base_mesh,direction_map) # Must be first !
+spyp = SPYP(params,data_path,pert_mesh,direction_map)
 
 # Actual plotting
 dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
 p0=comm.rank==0
 
-def frame_args(duration):
+def frameArgs(duration):
     return {"frame": {"duration": duration}, "mode": "immediate", "fromcurrent": True,
             "transition": {"duration": duration, "easing": "linear"},}
 
@@ -148,7 +148,7 @@ for S in Ss_ref:
 								frames=[go.Frame(data=[#isos_f[i],
 								isos_r[i], up_nozzle, down_nozzle], name=str(i)) for i in range(len(isos_r))])
 				fig.update_layout(sliders=[{"pad": {"b": 10, "t": 60}, "len": .9, "x": .1, "y": 0,
-											"steps": [{"args": [[f.name], frame_args(0)], "label": str(k),
+											"steps": [{"args": [[f.name], frameArgs(0)], "label": str(k),
 													"method": "animate",} for k, f in enumerate(fig.frames)],}]	)
 				fig.update_coloraxes(showscale=False)
 				fig.update_layout(scene_aspectmode='data')

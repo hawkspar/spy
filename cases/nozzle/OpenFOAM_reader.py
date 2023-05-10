@@ -15,13 +15,13 @@ Res=[1000,10000,100000,400000]
 Ss=np.linspace(0,1.6,17)
 # Convert mesh
 if convert: meshConvert(base_mesh)
-spyb=SPYB(params,datapath,base_mesh,direction_map)
+spyb=SPYB(params,data_path,base_mesh,direction_map)
 
 # Dimensionalised stuff
 r=1.2
 O=np.pi/360 # 0.5°
 sin,cos=np.sin(O),np.cos(O)
-H,L=10,50.5 # ACtual dolfinx mesh size
+H,L=10,50 # Actual dolfinx mesh size
 
 # Handlers
 U,P=spyb.Q.split()
@@ -71,7 +71,7 @@ for Re in Res:
         U.sub(2).interpolate(lambda x: interp(uthv,x)*(x[1]>params['atol']))
         spyb.Nu.interpolate(lambda x: interp(nutv,x))
         spyb.smoothenU(1e-6)
-        spyb.smoothenNu(1e-6)
+        spyb.smoothenNu(1e-4)
 
         # Save
         dirCreator(spyb.baseflow_path)

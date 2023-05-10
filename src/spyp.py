@@ -13,24 +13,20 @@ from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
-from spy import SPY, crl, saveStuff, loadStuff, dirCreator
+from spy import SPY, crl, loadStuff, dirCreator
 
 p0=comm.rank==0
 
 # Wrapper
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
 	# JIT options for speed
-	form = dfx.fem.form(form)#, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
-	"""M = dfx.cpp.fem.petsc.create_matrix(form)
+	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
+	M = dfx.cpp.fem.petsc.create_matrix(form)
 	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
 	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
 	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
-	M.assemble()"""
-	A = dfx.fem.petsc.assemble_matrix(form,bcs,diag) 
-	A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1) # Probably useless after assemble
-	A.setOption(A.Option.SYMMETRIC,sym)
-	A.assemble()
-	return A
+	M.assemble()
+	return M
 
 # PETSc Matrix free method
 def pythonMatrix(dims:list,py,comm) -> pet.Mat:
@@ -57,12 +53,8 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
 	EPS.setProblemType(pb_type)
-	#EPS.setTrueResidual(True)
-	#EPS.setConvergenceTest(EPS.Conv.ABS)
-	#EPS.setBalance(slp.EPS.Balance.TWOSIDE,params['max_iter'],params['atol'])
 	# Spectral transform
 	ST = EPS.getST()
-	#ST.setMatMode(ST.MatMode.INPLACE)
 	if shift:
 		ST.setType('sinvert')
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
@@ -140,34 +132,37 @@ class SPYP(SPY):
 		if p0: print("Jacobian & Norm matrices computed !",flush=True)
 
 	# Modal analysis
-	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> list:
+	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
-		EPS.setWhichEigenpairs(EPS.Which.TARGET_REAL) # Find eigenvalues close to sigma
+		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		EPS.setTarget(sigma)
 		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True) # Specify that A is not hermitian, but M is semi-definite
-		# Loop on targets
+
+		# File management shenanigans
+		save_string=f"Re={Re:d}_S={S:.1f}_m={m:d}".replace('.',',')
+		eig_name=self.eig_path+"values/"+save_string+f"_sig={sigma:.2f}".replace('.',',')+".txt"
+		dirCreator(self.eig_path)
+		dirCreator(self.eig_path+"values/")
+		if isfile(eig_name):
+			if p0: print("Found "+eig_name+" file, assuming it has enough eigenvalues, moving on...",flush=True)
+			return
 		if p0: print(f"Solver launch for sig={sigma:.2f}...",flush=True)
 		EPS.solve()
 		n=EPS.getConverged()
-		dirCreator(self.eig_path)
-		dirCreator(self.eig_path+"values/")
-		save_string=f"Re={Re:d}_S={S}_m={m:d}".replace('.',',')
-		eig_string=self.eig_path+"values/"+save_string+f"_sig={sigma:.2f}".replace('.',',')+".txt"
 		if n==0:
-			if p0: open(eig_string, mode='w').close() # Memoisation is important !
+			if p0: open(eig_name, mode='w').close() # Memoisation is important ! In case of 0 CV save the effort next time
 			return
+		
 		# Conversion back into numpy
 		eigs=np.array([EPS.getEigenvalue(i) for i in range(n)],dtype=complex)
 		# Write eigenvalues
-		np.savetxt(eig_string,eigs)
+		np.savetxt(eig_name,eigs)
 		q=Function(self.TH)
 		# Write a few eigenvectors back in xdmf
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
-			# Memoisation of first eigenvector
-			if i==0: saveStuff(self.eig_path+"q/",save_string+f"_l={eigs[0]:.4f}".replace('.',','),q)
 			u,_ = q.split()
 			self.printStuff(self.eig_path+"print/",save_string+f"_l={eigs[i]:.4f}".replace('.',','),u)
 
@@ -201,44 +196,38 @@ class SPYP(SPY):
 		LHS_obj    = LHS_class(self.R,Q,self.TH)
 		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,   comm)
 
-	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,hot_start:bool=False) -> None:
+	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
-		
 		for St in St_list:
 			# Folder creation
 			dirCreator(self.resolvent_path)
 			dirCreator(self.resolvent_path+"gains/")
 			dirCreator(self.resolvent_path+"forcing/")
 			dirCreator(self.resolvent_path+"response/")
-			save_string=f"Re={Re:d}_S="
-			if type(S)==int: save_string+=f"{S:d}"
-			else: 			 save_string+=f"{S:.1f}"
+			save_string=f"Re={Re:d}_S={S:.1f}"
 			save_string=(save_string+f"_m={m:d}_St={St:.2f}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/"+save_string+".txt"
 			# Memoisation
-			if isfile(gains_name):# and np.loadtxt(gains_name).size>=k: # Lazy and
+			if isfile(gains_name):
 				if p0: print("Found "+gains_name+" file, assuming it has enough gains, moving on...",flush=True)
 				continue
 
 			# Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
 			self.R_obj.setL(self.J-1j*np.pi*St*self.N,self.params)
-
-			if hot_start and St!=St_list[0]:
-				forcing_0=Function(self.TH0c)
-				loadStuff(self.resolvent_path+"forcing/npy/",{"Re":Re,"S":S,"m":m,"St":St},forcing_0)
-				EPS.setInitialSpace(forcing_0.vector)
-
 			# Eigensolver
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
-			if p0: print(f"Solver launch for (S,m,St)=({S:.2f},{m},{St:.2f})...",flush=True)
+			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.2f})...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
-			if n==0: continue
+			if n==0:
+				if p0: open(gains_name, mode='w').close() # Memoisation is important ! In case of 0 CV save the effort next time
+				continue
+
+			# Pretty print
 			if p0:
-				# Pretty print
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
 				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
@@ -251,6 +240,7 @@ class SPYP(SPY):
 				fileList = glob.glob(self.resolvent_path+"(forcing/print|forcing/npy|response/print|response/npy)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: remove(filePath)
+			
 			# Write eigenvectors
 			for i in range(min(n,k)):
 				# Save on a proper compressed space
@@ -259,8 +249,6 @@ class SPYP(SPY):
 				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
-				saveStuff(self.resolvent_path+"forcing/npy/","f_"+save_string+f"_i={i+1:d}",forcing_i)
-
 				# Obtain response from forcing
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
@@ -270,7 +258,6 @@ class SPYP(SPY):
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
-				saveStuff(self.resolvent_path+"response/npy/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 
 	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,n:int,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
@@ -303,7 +290,8 @@ class SPYP(SPY):
 	def readCurl(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
 		funs = Function(self.TH0c)
 		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
-		expr=dfx.fem.Expression(crl(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],self.mesh,funs,m)[coord],self.TH1.element.interpolation_points())
+		crls=crl(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],self.mesh,funs,m)[coord]
+		expr=dfx.fem.Expression(crls,self.TH1.element.interpolation_points())
 		crls = Function(self.TH1)
 		crls.interpolate(expr)
 		return crls

@@ -50,3 +50,4 @@ for Re in dat.keys():
             plt.xlabel(r'$\omega$')
             plt.ylabel(r'$\sigma$')
             plt.savefig(dir+f"plots/eigenvalues_Re={Re}_S={S}_m={m}".replace('.',',')+".png")
+            plt.close()

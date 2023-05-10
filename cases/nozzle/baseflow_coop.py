@@ -1,7 +1,7 @@
 from setup import *
 from mpi4py.MPI import COMM_WORLD as comm
  
-spy = SPY(params, datapath, 'baseflow', direction_map)
+spy = SPY(params, data_path, 'baseflow', direction_map)
 spy.loadBaseflow(Re,S)
 ud,_=spy.Q.split()
 
