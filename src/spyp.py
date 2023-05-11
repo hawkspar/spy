@@ -13,7 +13,7 @@ from dolfinx.fem import Function
 from petsc4py import PETSc as pet
 from slepc4py import SLEPc as slp
 from mpi4py.MPI import COMM_WORLD as comm
-from spy import SPY, crl, loadStuff, dirCreator
+from spy import SPY, crl, saveStuff, loadStuff, dirCreator
 
 p0=comm.rank==0
 
@@ -249,6 +249,7 @@ class SPYP(SPY):
 				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
+				saveStuff(self.resolvent_path+"forcing/npy/",save_string+f"_i={i+1:d}",forcing_i)
 				# Obtain response from forcing
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
@@ -258,6 +259,7 @@ class SPYP(SPY):
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
+				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
 
 	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,n:int,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly

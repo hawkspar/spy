@@ -1,6 +1,6 @@
 import meshio #pip3 install --no-binary=h5py h5py meshio
 from setup import *
-from spy import dirCreator
+from spy import crl, dirCreator
 from matplotlib import pyplot as plt
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
@@ -9,7 +9,7 @@ from mpi4py.MPI import COMM_WORLD as comm
 C = np.cos(np.pi/360) # 0.5°
 Q = (1-U_m)/(1+U_m)
 p0=comm.rank==0
-S=0
+S=1
 
 openfoam=False
 save_str=f"_Re={Re}_S={S:.1f}".replace('.',',')
@@ -24,17 +24,17 @@ if openfoam:
 	xy = openfoam_data.points[:,:2]/C # Scaling & Plane tilted
 
 	# Dimensionless
-	ud, _, _ = openfoam_data.point_data['U'].T
+	ud = openfoam_data.point_data['U'].T
 
-	def interp(v,target_xy): return griddata(xy, v, target_xy, 'cubic')
+	def interp(v,target_xy,coord=0): return griddata(xy, v[:,coord], target_xy, 'cubic')
 # Read dolfinx
 else:
 	spy = SPY(params, data_path, 'baseflow', direction_map)
 	spy.loadBaseflow(Re,S)
 	ud,_=spy.Q.split()
 
-	def interp(_, target_xy):
-		r = spy.eval(ud.split()[0],target_xy)
+	def interp(_, target_xy,coord=0):
+		r = spy.eval(ud.split()[coord],target_xy)
 		if p0: return r
 
 n = 1000
@@ -50,8 +50,25 @@ if p0:
 	plt.savefig(dir+"Ur0(x)"+save_str+".png")
 	plt.close()
 
-X = np.linspace(1,50,n)
 R = np.linspace(0,10,n)
+target_xy = np.ones((n,2))+1e-6
+target_xy[:,1] = R
+u = interp(ud,target_xy,2)
+
+if p0:
+	plt.plot(R, R**2*u**2)
+	plt.xlabel(r'$r$')
+	plt.ylabel(r'$r^2U_{\theta,x=1+\epsilon}^2$')
+	plt.savefig(dir+"r2Ut2"+save_str+".png")
+	plt.close()
+
+crls=crl(spy.r,direction_map['x'],direction_map['r'],direction_map['th'],spy.mesh,ud,0)[0]
+expr=dfx.fem.Expression(crls.dx(direction_map['r']),spy.TH1.element.interpolation_points())
+crls = Function(spy.TH1)
+crls.interpolate(expr)
+spy.printStuff(dir,"dcrl"+save_str,crls)
+
+X = np.linspace(1,50,n)
 RR, XX = np.meshgrid(R,X)
 target_xy = np.vstack((XX.flatten(),RR.flatten())).T
 u = interp(ud,target_xy)
