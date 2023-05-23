@@ -49,5 +49,5 @@ for Re in dat.keys():
             #plt.axis([-2,2,-2,2])
             plt.xlabel(r'$\omega$')
             plt.ylabel(r'$\sigma$')
-            plt.savefig(dir+f"plots/eigenvalues_Re={Re}_S={S}_m={m}".replace('.',',')+".png")
+            plt.savefig(dir+f"plots/eigenvalues_Re={2*int(Re)}_S={S}_m={m}".replace('.',',')+".png") # Usual Re is based on D
             plt.close()

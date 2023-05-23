@@ -9,7 +9,7 @@ from spy import loadStuff
 
 # Relevant parameters
 Res=[1000,10000,100000,200000]
-Ss=np.linspace(0,1.6,17)
+Ss=np.linspace(0,1.3,14)
 
 class_th,u_inlet_th=boundaryConditionsBaseflow(spyb,0)
 # No swirl

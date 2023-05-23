@@ -164,8 +164,8 @@ class SPYP(SPY):
 				if p0: print("Found "+gains_name+" file, assuming it has enough gains, moving on...",flush=True)
 				continue
 
-			# Equations (Fourier transform is -2j pi f but Strouhal is St=fD/U=2fR/U)
-			self.R_obj.setL(self.J-1j*np.pi*St*self.N,self.params)
+			# Equations
+			self.R_obj.setL(self.J-2*1j*np.pi*St*self.N,self.params)
 			# Eigensolver
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite

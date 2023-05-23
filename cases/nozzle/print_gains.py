@@ -44,7 +44,7 @@ for Re in dat.keys():
 				gains.append(np.max(dat[Re][S][m][St]))
 			Sts,gains=np.array(Sts),np.array(gains)
 			ids=np.argsort(Sts)
-			ax.plot(Sts[ids],gains[ids]**2,label=r'$m='+m+'$',color=color_code[m],linewidth=3)
+			ax.plot(Sts[ids]*2,gains[ids]**2,label=r'$m='+m+'$',color=color_code[m],linewidth=3) # Usual St=fD/U not fR/U
 		plt.xlabel(r'$St$')
 		plt.ylabel(r'$\sigma^{(1)2}$')
 		plt.yscale('log')
@@ -52,7 +52,7 @@ for Re in dat.keys():
 		box = ax.get_position()
 		ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-		plt.savefig(dir+"plots/"+f"Re={Re}_S={S}.png")
+		plt.savefig(dir+"plots/"+f"Re={int(Re)*2}_S={S}.png") # Usual Re also based on D
 		plt.close()
 
 		n=3
@@ -76,5 +76,5 @@ for Re in dat.keys():
 			box = ax.get_position()
 			ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 			plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-			plt.savefig(dir+"plots/"+f"Re={Re}_S={S}_m={m}.png")
+			plt.savefig(dir+"plots/"+f"Re={int(Re)*2}_S={S}_m={m}.png")
 			plt.close()
