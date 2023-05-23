@@ -12,7 +12,6 @@ from dolfinx.fem import FunctionSpace
 from mpi4py.MPI import COMM_WORLD as comm
 
 with cProfile.Profile() as pr:
-	spy =SPY( params,data_path,base_mesh,direction_map) # Must be first !
 	spyp=SPYP(params,data_path,pert_mesh,direction_map)
 
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
@@ -24,10 +23,10 @@ with cProfile.Profile() as pr:
 
 	for S in Ss_ref:
 		# Load baseflow
-		spy.loadBaseflow(Re,S)
+		spyb.loadBaseflow(Re,S)
 		# Initialise resolvent toolbox (careful order sensitive)
-		spyp.Re=20000
-		spyp.interpolateBaseflow(spy)
+		spyp.Re=Re
+		spyp.interpolateBaseflow(spyb)
 
 		for m in ms_ref:
 			boundaryConditionsPerturbations(spyp,m)

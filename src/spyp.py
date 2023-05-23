@@ -4,62 +4,13 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import ufl, glob
-import numpy as np #source /usr/local/bin/dolfinx-complex-mode
+#source /usr/local/bin/dolfinx-complex-mode
+import glob 
 import dolfinx as dfx
-from os import remove
 from os.path import isfile
-from dolfinx.fem import Function
-from petsc4py import PETSc as pet
-from slepc4py import SLEPc as slp
-from mpi4py.MPI import COMM_WORLD as comm
-from spy import SPY, crl, saveStuff, loadStuff, dirCreator
 
-p0=comm.rank==0
-
-# Wrapper
-def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
-	# JIT options for speed
-	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
-	M = dfx.cpp.fem.petsc.create_matrix(form)
-	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
-	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
-	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
-	M.assemble()
-	return M
-
-# PETSc Matrix free method
-def pythonMatrix(dims:list,py,comm) -> pet.Mat:
-	M = pet.Mat().create(comm)
-	M.setSizes(dims)
-	M.setType(pet.Mat.Type.PYTHON)
-	M.setPythonContext(py)
-	M.setUp()
-	return M
-
-# Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
-	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
-	# Krylov subspace
-	KSP.setType('preonly')
-	# Preconditioner
-	PC = KSP.getPC(); PC.setType('lu')
-	PC.setFactorSolverType('mumps')
-	KSP.setFromOptions()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
-
-# Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
-	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
-	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
-	EPS.setProblemType(pb_type)
-	# Spectral transform
-	ST = EPS.getST()
-	if shift:
-		ST.setType('sinvert')
-		ST.getOperator() # CRITICAL TO MUMPS ICNTL
-	configureKSP(ST.getKSP(),params,shift)
-	EPS.setFromOptions()
+from spy import SPY
+from helpers import *
 	
 # Resolvent operator (L^-1B)
 class R_class:
@@ -239,7 +190,7 @@ class SPYP(SPY):
 				# Get a list of all the file paths with the same parameters
 				fileList = glob.glob(self.resolvent_path+"(forcing/print|forcing/npy|response/print|response/npy)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
-				for filePath in fileList: remove(filePath)
+				for filePath in fileList: os.remove(filePath)
 			
 			# Write eigenvectors
 			for i in range(min(n,k)):
@@ -297,3 +248,14 @@ class SPYP(SPY):
 		crls = Function(self.TH1)
 		crls.interpolate(expr)
 		return crls
+
+	# Probably better to do Fourier 2D
+	def readK(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
+		funs = Function(self.TH0c)
+		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
+		tup=funs.split()
+		grds=grd(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],tup[coord],m)
+		expr=dfx.fem.Expression(grds[0]/tup[coord],self.TH1.element.interpolation_points())
+		k = Function(self.TH1)
+		k.interpolate(expr)
+		return k

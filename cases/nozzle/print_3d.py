@@ -11,7 +11,6 @@ from os.path import isfile
 import plotly.graph_objects as go
 from mpi4py.MPI import COMM_WORLD as comm
 
-_    =  SPY(params,data_path,base_mesh,direction_map) # Must be first !
 spyp = SPYP(params,data_path,pert_mesh,direction_map)
 
 # Actual plotting

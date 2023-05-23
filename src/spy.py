@@ -4,83 +4,7 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import os, ufl, re
-import numpy as np
-import dolfinx as dfx
-from dolfinx.fem import Function
-from mpi4py.MPI import COMM_WORLD as comm
-
-p0=comm.rank==0
-
-# Cylindrical operators
-def grd(r,dx:int,dr:int,dt:int,v,m:int):
-	if len(v.ufl_shape)==0: return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
-	return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*1j*v[dx]		 /r],
-						  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
-						  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
-
-def div(r,dx:int,dr:int,dt:int,v,m:int):
-	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
-	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+v[dr,dx]+m*1j*v[dt,dx]/r,
-						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*1j*v[dt,dr]-v[dt,dt])/r,
-						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*1j*v[dt,dt]+v[dt,dr])/r])
-
-def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
-	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
-    m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
-								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
-
-def dirCreator(path:str) -> None:
-	if not os.path.isdir(path):
-		if p0: os.mkdir(path)
-	comm.barrier() # Wait for all other processors
-
-def checkComm(f:str) -> bool:
-	match = re.search(r'n=(\d*)',f)
-	if int(match.group(1))!=comm.size: return False
-	match = re.search(r'p=([0-9]*)',f)
-	if int(match.group(1))!=comm.rank: return False
-	return True
-
-# Simple handler
-def meshConvert(path:str,cell_type:str='triangle',prune=True) -> None:
-	import meshio #pip3 install h5py meshio
-	gmsh_mesh = meshio.read(path+".msh")
-	# Write it out again
-	ps = gmsh_mesh.points[:,:(3-prune)]
-	cs = gmsh_mesh.get_cells_type(cell_type)
-	dolfinx_mesh = meshio.Mesh(points=ps, cells={cell_type: cs})
-	meshio.write(path+".xdmf", dolfinx_mesh)
-	print("Mesh "+path+".msh converted to "+path+".xdmf !",flush=True)
-
-# Naive save with dir creation
-def saveStuff(dir:str,name:str,fun:Function) -> None:
-	dirCreator(dir)
-	proc_name=dir+name.replace('.',',')+f"_n={comm.size:d}_p={comm.rank:d}"
-	fun.x.scatter_forward()
-	np.save(proc_name,fun.x.array)
-	if p0: print("Saved "+proc_name+".npy",flush=True)
-
-# Memoisation routine - find closest in param
-def findStuff(path:str,params:dict,format=lambda f:True,distributed=True):
-	closest_file_name=path
-	file_names = [f for f in os.listdir(path) if format(f)]
-	d=np.infty
-	for file_name in file_names:
-		if not distributed or checkComm(file_name): # Lazy evaluation !
-			fd=0 # Compute distance according to all params
-			for param in params:
-				match = re.search(param+r'=(\d*(,|e|-|j|\+)?\d*)',file_name)
-				param_file = float(match.group(1).replace(',','.')) # Take advantage of file format
-				fd += abs(params[param]-param_file)
-			if fd<d: d,closest_file_name=fd,path+file_name
-	return closest_file_name
-
-def loadStuff(path:str,params:dict,fun:Function) -> None:
-	closest_file_name=findStuff(path,params,lambda f: f[-3:]=="npy")
-	if p0: print("Loading "+closest_file_name,flush=True)
-	fun.x.array[:]=np.load(closest_file_name,allow_pickle=True)
-	fun.x.scatter_forward()
+from helpers import *
 
 # Swirling Parallel Yaj
 class SPY:
@@ -139,7 +63,10 @@ class SPY:
 		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
 		if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 		
-	def saveBaseflow(self,Re:int,S:float): saveStuff(self.q_path,f"q_Re={Re:d}_S={S:.1f}".replace('.',','),self.Q)
+	def saveBaseflow(self,Re:int,S:float,saveNu=False):
+		save_str=f"_Re={Re:d}_S={S:.1f}".replace('.',',')
+		saveStuff(self.q_path,"q"+save_str,self.Q)
+		if saveNu: saveStuff(self.nut_path,"nut"+save_str,self.Nu)
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
@@ -147,7 +74,7 @@ class SPY:
 		r, v, s = self.r, self.v, self.s
 		# Functions
 		U, P = ufl.split(self.Q)
-		nu = 1/self.Re+self.Nu
+		nu = 1/self.Re+self.Nu # Re is taken as in the litterature with respect to D, but the rest is made dimensionless with R
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
@@ -166,7 +93,7 @@ class SPY:
 		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
 		# Functions
 		U, _ = ufl.split(self.Q) # Baseflow
-		nu = 1/self.Re + self.Nu
+		nu = 1/self.Re + self.Nu # Re is taken as in the litterature with respect to D, but the rest is made dimensionless with R
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,m: div(r,dx,dr,dt,v,m),lambda v,m: grd(r,dx,dr,dt,v,m)
@@ -178,6 +105,7 @@ class SPY:
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
+		#F -= 2*U[1]*v[1]/r # Cancel out centrifugal force ?
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points
@@ -245,7 +173,7 @@ class SPY:
 			xdmf.write_function(fun)
 		if p0: print("Printed "+dir+name.replace('.',',')+".xdmf",flush=True)
 	
-	# Quick check functions
+	# Quick check functions	
 	def sanityCheckU(self,app=""):
 		U,_=self.Q.split()
 		self.printStuff("./","sanity_check_u"+app,U)

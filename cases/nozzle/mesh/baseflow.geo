@@ -1,19 +1,19 @@
 // Gmsh project created on Fri May 15 17:21:02 2020
 Mesh.MshFileVersion = 2.2;
-R=1; L=50*R; H=10*R;
-r=1e-3; h = 1e-4;
+R=1; L=50*R; H=15*R;
+r=1e-3; h=1e-4;
 
 // First base rectangle around the nozzle
-Point(1) = {0, 0, 0,   15*r};
+Point(1) = {0, 0, 0,   30*r};
 Point(2) = {R, 0, 0,   20*r};
-Point(3) = {R, H, 0, 1500*r};
-Point(4) = {0, H, 0, 1500*r};
+Point(3) = {R, H, 0, 1000*r};
+Point(4) = {0, H, 0, 1000*r};
 // Second (largest) base rectangle
-Point(5) = {L, 0, 0,  250*r};
-Point(6) = {L, H, 0, 1000*r};
+Point(5) = {L, 0, 0, 250*r};
+Point(6) = {L, H, 0, 750*r};
 // Third rectangle, aka padding zone
-Point(7) = {1.01*L,0,0,200*r};
-Point(8) = {1.01*L,H,0,800*r};
+Point(7) = {1.01*L, 0, 0, 200*r};
+Point(8) = {1.01*L, H, 0, 700*r};
 // Actual nozzle
 Point(9)  = {0, R,   0, r};
 Point(10) = {0, R+h, 0, r};
@@ -26,8 +26,8 @@ Point(15) = {	 R, 1.01*R,   0, r};
 Point(16) = {.95*R, 1.01*R,   0, r};
 Point(17) = {.95*R,      R+h, 0, r};
 // Most refined area (center)
-Point(18) = {1.1*R,  .99*R,   0, r};
-Point(19) = {1.1*R, 1.01*R,   0, r};
+Point(18) = {1.1*R,  .99*R, 0, r};
+Point(19) = {1.1*R, 1.01*R, 0, r};
 // Less refined area (left)
 Point(20) = {.3*R,     R,   0,     r};
 Point(21) = {.3*R,  .7*R,   0,  10*r};
@@ -36,8 +36,8 @@ Point(23) = {	R, 1.1*R,   0,  10*r};
 Point(24) = {.3*R, 1.1*R,   0,  10*r};
 Point(25) = {.3*R,     R+h, 0,     r};
 // Less refined area (center)
-Point(26) = { 30*R, .25*R,   0, 200*r};
-Point(27) = { 30*R,   6*R,   0, 500*r};
+Point(26) = {30*R, .25*R, 0, 200*r};
+Point(27) = {45*R,  14*R, 0, 300*r};
 
 // Largest Loop
 Line(1)  = {1,  2};

@@ -1,6 +1,7 @@
 import meshio #pip3 install --no-binary=h5py h5py meshio
 from setup import *
 from spy import crl, dirCreator
+from scipy.stats import linregress
 from matplotlib import pyplot as plt
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
@@ -29,12 +30,11 @@ if openfoam:
 	def interp(v,target_xy,coord=0): return griddata(xy, v[:,coord], target_xy, 'cubic')
 # Read dolfinx
 else:
-	spy = SPY(params, data_path, 'baseflow', direction_map)
-	spy.loadBaseflow(Re,S)
-	ud,_=spy.Q.split()
+	spyb.loadBaseflow(Re,S)
+	ud,_=spyb.Q.split()
 
 	def interp(_, target_xy,coord=0):
-		r = spy.eval(ud.split()[coord],target_xy)
+		r = spyb.eval(ud.split()[coord],target_xy)
 		if p0: return r
 
 n = 1000
@@ -62,34 +62,87 @@ if p0:
 	plt.savefig(dir+"r2Ut2"+save_str+".png")
 	plt.close()
 
-crls=crl(spy.r,direction_map['x'],direction_map['r'],direction_map['th'],spy.mesh,ud,0)[0]
-expr=dfx.fem.Expression(crls.dx(direction_map['r']),spy.TH1.element.interpolation_points())
-crls = Function(spy.TH1)
+crls=crl(spyb.r,direction_map['x'],direction_map['r'],direction_map['th'],spyb.mesh,ud,0)[0]
+expr=dfx.fem.Expression(crls.dx(direction_map['r']),spyb.TH1.element.interpolation_points())
+crls = Function(spyb.TH1)
 crls.interpolate(expr)
-spy.printStuff(dir,"dcrl"+save_str,crls)
+spyb.printStuff(dir,"dcrl_m=0"+save_str,crls)
 
-X = np.linspace(1,50,n)
 RR, XX = np.meshgrid(R,X)
 target_xy = np.vstack((XX.flatten(),RR.flatten())).T
 u = interp(ud,target_xy)
 
-X_nozzle = np.linspace(0,1,10)
-R_nozzle = np.linspace(0,1,n)
-RR, XX = np.meshgrid(R_nozzle,X_nozzle)
-target_xy = np.vstack((XX.flatten(),RR.flatten())).T
-u_nozzle = interp(ud,target_xy)
-
 if p0:
-	u = u.reshape((n,n))
-	Rc = R.reshape([1,-1])
-	u_nozzle = u_nozzle.reshape((10,n))
-	Rc_nozzle = R_nozzle.reshape([1,-1])
-	min_u=np.tile(np.min(u,1),(n,1)).T
-	ths 	   = np.trapz((u-min_u)*(1-u)*Rc,		  R)
-	ths_nozzle = np.trapz(u_nozzle*(1-u_nozzle)*Rc_nozzle,R_nozzle)
-	plt.plot(np.hstack((X_nozzle,X)), np.hstack((ths_nozzle,ths)))
-	plt.xlabel(r'$x$')
-	plt.ylabel(r'$\theta$')
+	ths = np.empty(n)
+	for i in range(n):
+		u_x = u[i*n:(i+1)*n]
+		i_m = np.argmin(u_x)
+		v = (u_x[:i_m+1]-u_x[i_m])/(1-u_x[i_m])
+		ths[i] = np.trapz(v*(1-v)*R[:i_m+1],R[:i_m+1])/4
+	print(ths[0])
+
+	m,M=2,30
+	msk=(m<X)*(X<M)
+	res=linregress(X[msk]/2,ths[msk])
+	a,b=res.slope,res.intercept
+
+	dat=np.array([[0, 0.05049088359046272],
+				[0.9089110750777021, 0.06303770049416868],
+				[1.5267607997818011, 0.06853831977600766],
+				[2.1446105244859, 0.07442494742850214],
+				[2.7624602491899974, 0.09276034503463237],
+				[3.3803099738940965, 0.11013072171412408],
+				[3.2118055035202513, 0.7763811694652958],
+				[3.9981596985981938, 0.1284661193202542],
+				[4.616009423302293, 0.14680151692638443],
+				[5.23385914800639, 0.16455790197653153],
+				[5.851708872710489, 0.18144576819270397],
+				[6.469558597414586, 0.19746511557490198],
+				[7.087408322118685, 0.21280894830845298],
+				[7.705258046822783, 0.22747726639335708],
+				[8.32310777152688, 0.24233858866358893],
+				[8.94095749623098, 0.25642789419251],
+				[9.558807220935078, 0.27061370181409483],
+				[10.176656945639175, 0.28528201989899904],
+				[10.738338513551993, 0.08356047886734608],
+				[10.794506670343273, 0.2997573337985755],
+				[11.412356395047373, 0.31365363514216893],
+				[12.03020611975147, 0.3281289490417454],
+				[12.648055844455568, 0.34327977758996864],
+				[13.265905569159669, 0.35891311660151126],
+				[13.883755293863766, 0.37560797863235607],
+				[13.827587137072483, 0.08426816088021427],
+				[14.501605018567863, 0.39104831345857094],
+				[15.11945474327196, 0.4062956440994582],
+				[15.287959213645808, 0.10832934931773242],
+				[15.737304467976061, 0.42376252287161376],
+				[16.35515419268016, 0.4407468911804501],
+				[16.973003917384254, 0.4576347573966226],
+				[17.590853642088355, 0.47394361105681204],
+				[18.208703366792456, 0.49034896680966533],
+				[18.489544150748863, 0.07789902276440053],
+				[18.82655309149655, 0.5063683141918632],
+				[19.44440281620065, 0.5242212013346742],
+				[20.062252540904744, 0.5433286156821151],
+				[20.680102265608845, 0.5619535195662367],
+				[21.297951990312946, 0.5797099046163839],
+				[21.91580171501704, 0.598720816871161],
+				[22.53365143972114, 0.6185037458672487],
+				[23.15150116442524, 0.6385761811413281],
+				[23.769350889129335, 0.6598066415273736],
+				[24.387200613833436, 0.6801685830794444],
+				[25.00505033853753, 0.6985039806855746],
+				[25.62290006324163, 0.7137513113264617],
+				[26.24074978794573, 0.7289986419673489],
+				[26.858599512649825, 0.7455970019055299],
+				[27.336028845375722, 0.7565660731049867],
+				[27.977736549165122, 0.7727910238429171]])
+
+	plt.plot(X/2, ths, label=r'$\theta=\int_0^{r_0}u(1-u)rdr$')
+	plt.plot(dat[:,0], dat[:,1], label=r'Schmidt')
+	plt.plot((m/2,M/2), b+a*np.array((m,M))/2,label=r'$y='+f'{a:.3f}x{b:+.3f}$')
+	plt.legend()
+	plt.xlabel(r'$x/D$')
 	plt.savefig(dir+"theta(x)"+save_str+".png")
 	plt.close()
 

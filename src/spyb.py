@@ -4,11 +4,8 @@ Created on Fri Dec 10 12:00:00 2021
 
 @author: hawkspar
 """
-import ufl
-import numpy as np
-from petsc4py import PETSc as pet
-from spy import SPY, grd, dirCreator
-from mpi4py.MPI import MIN, MAX, COMM_WORLD as comm
+#source /usr/local/bin/dolfinx-real-mode
+from mpi4py.MPI import MIN, MAX
 
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem import Function, Expression
@@ -16,8 +13,8 @@ from dolfinx.mesh import refine, locate_entities
 from dolfinx.fem.petsc import LinearProblem, NonlinearProblem
 from dolfinx.geometry import BoundingBoxTree, compute_collisions, compute_colliding_cells
 
-
-p0=comm.rank==0
+from spy import SPY
+from helpers import *
 
 # Swirling Parallel Yaj Baseflow
 class SPYB(SPY):
@@ -49,14 +46,7 @@ class SPYB(SPY):
 		solver.max_iter=self.params['max_iter']
 		solver.rtol=self.params['rtol']
 		solver.atol=self.params['atol']
-		ksp = solver.krylov_solver
-		opts = pet.Options()
-		option_prefix = ksp.getOptionsPrefix()
-		opts[f"{option_prefix}ksp_type"] = "preonly"
-		opts[f"{option_prefix}pc_type"] = "lu"
-		opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-		ksp.setFromOptions()
-		#configureKSP(solver.krylov_solver,self.params)
+		configureKSP(solver.krylov_solver,self.params)
 		if p0: print("Solver launch...",flush=True)
 		# Actual heavyweight
 		n,_=solver.solve(q)
@@ -107,14 +97,21 @@ class SPYB(SPY):
 		u = pb.solve()
 		u.x.scatter_forward()
 		return u
-	
-	def smoothenNu(self, e:float):
+
+	# Shorthands
+	def smoothenF(self, e:float, F:Function):
 		r = self.r
-		Nu, nu, t = self.Nu, ufl.TrialFunction(self.TH1), ufl.TestFunction(self.TH1)
+		f, g = ufl.TrialFunction(self.TH1), ufl.TestFunction(self.TH1)
 		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		F = self.smoother(ufl.inner(f,g)+e*ufl.inner(gd(f),gd(g)),ufl.inner(F,g))
+		return F
+			
+	def smoothenNu(self, e:float):
 		self.Nu.x.array[self.Nu.x.array<1e-5]=0 # Somewhat arbitrary cutoff
-		self.Nu = self.smoother(ufl.inner(nu,t)+e*ufl.inner(gd(nu),gd(t)),ufl.inner(Nu,t))
+		self.Nu = self.smoothenF(e,self.Nu)
 		self.Nu.x.array[self.Nu.x.array<1e-5]=0 # Important to do it twice
+			
+	def smoothenP(self, e:float): self.P = self.smoothenF(e,self.P)
 	
 	def smoothenU(self, e:float, dir=None):
 		r = self.r

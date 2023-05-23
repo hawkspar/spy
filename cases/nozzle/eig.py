@@ -6,15 +6,12 @@ Created on Wed Oct  13 17:07:00 2021
 """
 import numpy as np
 from setup import *
-from spyb import SPYB # Must be after setup
 from spyp import SPYP
 from mpi4py.MPI import COMM_WORLD
 
 # Shorthands
 p0=COMM_WORLD.rank==0
 
-# Load baseflow
-spyb=SPYB(params, data_path, base_mesh, direction_map)
 # Eigenvalues
 spyp=SPYP(params, data_path, pert_mesh, direction_map)
 spyp.Re=Re

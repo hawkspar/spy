@@ -2,9 +2,8 @@ from setup import *
 from mpi4py.MPI import COMM_WORLD as comm
  
 S=1
-spy = SPY(params, data_path, 'baseflow', direction_map)
-spy.loadBaseflow(Re,S)
-ud,pd=spy.Q.split()
+spyb.loadBaseflow(Re,S)
+ud,pd=spyb.Q.split()
 
 with dfx.io.XDMFFile(comm, "line.xdmf", "r") as file: mesh = file.read_mesh()
 

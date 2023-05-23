@@ -11,31 +11,34 @@ from dolfinx.fem import Function
 
 sys.path.append('/home/shared/src')
 
-from spy import SPY
+from spy  import SPY
+from spyb import SPYB
 
 base_mesh="baseflow"
 pert_mesh="perturbations"
 
 # Geometry parameters (nozzle)
-R,H=1,15 # H as in OpenFOAM for BC compatibility
+R,H=1,20 # H as in OpenFOAM for BC compatibility
 
 # /!\ OpenFOAM coherence /!\
-Re=400000
+Re=200000
 h=1e-4
 U_m,a=.05,6
 
 # Easier standardisation across files
 Ss_ref = [0,.5,1]
-ms_ref = [-2,2]
-Sts_ref = [.05]#np.linspace(.05,2,50)
+ms_ref = range(-3,4)
+Sts_ref = np.linspace(.05,2,50)
 
 # Numerical Parameters
-params = {"rp":.95,    #relaxation_parameter
+params = {"rp":.97,    #relaxation_parameter
 		  "atol":1e-12, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "max_iter":200}
 data_path='nozzle' #folder for results
 direction_map={'x':0,'r':1,'th':2}
+
+spyb = SPYB(params,data_path,base_mesh,direction_map) # Must be first !
 
 # Reference coherent with OpenFOAM
 def nozzleTop(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
@@ -56,12 +59,6 @@ def line(x0,x1,x): return (x1[1]-x0[1])/(x1[0]-x0[0])*(x[0]-x0[0])+x0[1]-x[1]
 def forcingIndicator(x): return (x[0]<x0[0])*slope(x0[1]-x[1])+\
 				  (x[0]>=x0[0])*(x[0]<x1[0])*slope(line(x0,x1,x))+\
 				  (x[0]>=x1[0])				*slope(line(x1,x2,x))
-
-# Simplistic profile to initialise Newton
-def baseflowInit(x):
-	u=0*x
-	u[0]=inletProfile(x)
-	return u
 
 # Allows for more efficient change of S inside an iteration
 class inletTangential:
