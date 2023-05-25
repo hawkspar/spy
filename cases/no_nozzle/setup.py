@@ -14,7 +14,7 @@ from nozzle.setup import *
 # Parameters grouped here for consistence
 Ss_ref =[0]
 ms_ref =range(4)
-Sts_ref=np.linspace(.05,1,20)
+Sts_ref=np.linspace(.05,2,40)/2
 
 datapath='no_nozzle' #folder for results
 

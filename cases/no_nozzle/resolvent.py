@@ -23,10 +23,10 @@ with cProfile.Profile() as pr:
 
 	for S in Ss_ref:
 		# Load baseflow
-		spyb_nozzle.loadBaseflow(Re,S)
+		spyb.loadBaseflow(Re,S)
 		# Initialise resolvent toolbox (careful order sensitive)
 		spyp.Re=Re
-		spyp.interpolateBaseflow(spyb_nozzle)
+		spyp.interpolateBaseflow(spyb)
 		spyp.sanityCheck()
 
 		for m in ms_ref:
