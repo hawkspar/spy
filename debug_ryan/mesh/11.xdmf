@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!DOCTYPE Xdmf SYSTEM "Xdmf.dtd" []>
+<Xdmf Version="3.0" xmlns:xi="http://www.w3.org/2001/XInclude">
+  <Domain>
+    <Grid Name="composite" GridType="Uniform">
+      <Topology TopologyType="Triangle_6" NumberOfElements="42241" NodesPerElement="6">
+        <DataItem Dimensions="42241 6" NumberType="Int" Format="HDF">11.h5:/Mesh/composite/topology</DataItem>
+      </Topology>
+      <Geometry GeometryType="XY">
+        <DataItem Dimensions="84960 2" Format="HDF">11.h5:/Mesh/composite/geometry</DataItem>
+      </Geometry>
+    </Grid>
+  </Domain>
+</Xdmf>

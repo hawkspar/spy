@@ -68,7 +68,7 @@ for Re in dat.keys():
 			for i in range(n):
 				Sts[i],gains[i]=np.array(Sts[i]),np.array(gains[i])
 				ids=np.argsort(Sts[i])
-				ax.plot(Sts[i][ids],gains[i][ids]**2,label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3)
+				ax.plot(Sts[i][ids]*2,gains[i][ids]**2,label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
 			plt.xlabel(r'$St$')
 			plt.ylabel(r'$\sigma^{(1)2}$')
 			plt.yscale('log')

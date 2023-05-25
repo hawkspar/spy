@@ -93,13 +93,13 @@ class SPYP(SPY):
 
 		# File management shenanigans
 		save_string=f"Re={Re:d}_S={S:.1f}_m={m:d}".replace('.',',')
-		eig_name=self.eig_path+"values/"+save_string+f"_sig={sigma:.2f}".replace('.',',')+".txt"
+		eig_name=self.eig_path+"values/"+save_string+f"_sig={sigma}".replace('.',',')+".txt"
 		dirCreator(self.eig_path)
 		dirCreator(self.eig_path+"values/")
 		if isfile(eig_name):
 			if p0: print("Found "+eig_name+" file, assuming it has enough eigenvalues, moving on...",flush=True)
 			return
-		if p0: print(f"Solver launch for sig={sigma:.2f}...",flush=True)
+		if p0: print(f"Solver launch for sig={sigma}...",flush=True)
 		EPS.solve()
 		n=EPS.getConverged()
 		if n==0:
@@ -115,7 +115,7 @@ class SPYP(SPY):
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
 			u,_ = q.split()
-			self.printStuff(self.eig_path+"print/",save_string+f"_l={eigs[i]:.4f}".replace('.',','),u)
+			self.printStuff(self.eig_path+"print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,indic=1) -> None:
@@ -157,7 +157,7 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path+"forcing/")
 			dirCreator(self.resolvent_path+"response/")
 			save_string=f"Re={Re:d}_S={S:.1f}"
-			save_string=(save_string+f"_m={m:d}_St={St:.2f}").replace('.',',')
+			save_string=(save_string+f"_m={m:d}_St={St}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/"+save_string+".txt"
 			# Memoisation
 			if isfile(gains_name):
@@ -170,7 +170,7 @@ class SPYP(SPY):
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
-			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.2f})...",flush=True)
+			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St})...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0:

@@ -18,7 +18,7 @@ with cProfile.Profile() as pr:
 	W = FunctionSpace(spyp.mesh,FE_constant)
 	indic = Function(W)
 	indic.interpolate(forcingIndicator)
-	spyp.printStuff('./','indic',indic)
+	#spyp.printStuff('./','indic',indic)
 	spyp.assembleMRMatrices(indic)
 
 	for S in Ss_ref:

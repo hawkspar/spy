@@ -105,7 +105,7 @@ class SPY:
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
-		#F -= 2*U[1]*v[1]/r # Cancel out centrifugal force ?
+		F -= ufl.inner(2*U[2]*u[2]/r,v[1]) # Cancel out centrifugal force ?
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points

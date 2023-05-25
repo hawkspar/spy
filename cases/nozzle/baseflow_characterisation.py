@@ -50,7 +50,7 @@ if p0:
 	plt.savefig(dir+"Ur0(x)"+save_str+".png")
 	plt.close()
 
-R = np.linspace(0,10,n)
+R = np.linspace(0,15,n)
 target_xy = np.ones((n,2))+1e-6
 target_xy[:,1] = R
 u = interp(ud,target_xy,2)
@@ -81,7 +81,7 @@ if p0:
 		ths[i] = np.trapz(v*(1-v)*R[:i_m+1],R[:i_m+1])/4
 	print(ths[0])
 
-	m,M=2,30
+	m,M=4,10
 	msk=(m<X)*(X<M)
 	res=linregress(X[msk]/2,ths[msk])
 	a,b=res.slope,res.intercept
@@ -140,7 +140,7 @@ if p0:
 
 	plt.plot(X/2, ths, label=r'$\theta=\int_0^{r_0}u(1-u)rdr$')
 	plt.plot(dat[:,0], dat[:,1], label=r'Schmidt')
-	plt.plot((m/2,M/2), b+a*np.array((m,M))/2,label=r'$y='+f'{a:.3f}x{b:+.3f}$')
+	plt.plot((0,np.max(X)/2), b+a*np.array((0,np.max(X)))/2,label=r'$y='+f'{a:.3f}x{b:+.3f}$')
 	plt.legend()
 	plt.xlabel(r'$x/D$')
 	plt.savefig(dir+"theta(x)"+save_str+".png")
