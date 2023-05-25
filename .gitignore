@@ -1,8 +1,7 @@
 **/__pycache__/**
-**/baseflow/**
-**/resolvent/**
-**/resolvent_no_nut/**
-**/eigenvalues/**
+**/baseflow*/**
+**/resolvent*/**
+**/eigenvalues*/**
 **save**
 **MWE**
 **sanity_check**
