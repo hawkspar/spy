@@ -68,7 +68,7 @@ XYZr_sk = np.meshgrid(Xr_sk,YZr_sk,YZr_sk)
 XYZr_sk = np.vstack([C.flatten() for C in XYZr_sk])
 
 # Shorts : short streaks hanging onto the nozzle
-Xr_sh  = np.hstack((np.linspace(.5,1.1,20,endpoint=False),np.geomspace(1.1,20,30)))
+Xr_sh  = np.hstack((np.linspace(.5,1.1,20,endpoint=False),np.geomspace(1.1,19,30)))
 YZr_sh = np.hstack((np.linspace(0,1,20,endpoint=False), np.geomspace(1,2,30)))
 YZr_sh = np.hstack((np.flip(-YZr_sh)[:-1],YZr_sh)) # Careful of 0 !
 XYZr_sh = np.meshgrid(Xr_sh,YZr_sh,YZr_sh)
@@ -117,7 +117,7 @@ fig.write_html("XYZr_kh.html")
 for S in Ss_ref:
 	for m in ms_ref:
 		for St in Sts_ref:
-			file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St}".replace('.',',')+".html" # Usual Re & St based on D
+			file_name=dir+f"Re={2*Re:d}_S={S:.1f}_m={m:d}_St={2*St}".replace('.',',')+".html" # Usual Re & St based on D
 			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
 			if isfile(file_name):
 				if p0: print("Found an html file, moving on...",flush=True)
