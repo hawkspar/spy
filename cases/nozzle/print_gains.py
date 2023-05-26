@@ -3,7 +3,7 @@ from os import listdir
 from matplotlib import pyplot as plt
 
 from setup import *
-from spy import dirCreator
+from helpers import dirCreator
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 

@@ -9,7 +9,6 @@ from mpi4py.MPI import COMM_WORLD as comm
 # Dimensionalised stuff
 C = np.cos(np.pi/360) # 0.5°
 Q = (1-U_m)/(1+U_m)
-p0=comm.rank==0
 S=1
 
 openfoam=False

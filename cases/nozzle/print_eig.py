@@ -9,7 +9,7 @@ import numpy as np
 from setup import *
 from re import search
 from os import listdir
-from spy import dirCreator
+from helpers import dirCreator
 from matplotlib import pyplot as plt
 
 # Shorthands

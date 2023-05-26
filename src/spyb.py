@@ -126,3 +126,21 @@ class SPYB(SPY):
 		mu=np.min(u)
 		mu=comm.reduce(mu,op=MIN) # minimum across processors
 		return mu
+
+	def computeQuiver(self,XYZ:np.array,scale:str) -> list:
+		import plotly.graph_objects as go #pip3 install plotly
+		
+		X,Y,Z = XYZ
+		# Evaluation of projected value
+		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
+		U,V,W=self.Q.split()[0].split()
+		XYZ_e, U = self.eval(U,XYZ_p.T,XYZ.T)
+		_, 	   V = self.eval(V,XYZ_p.T,XYZ.T)
+		_, 	   W = self.eval(W,XYZ_p.T,XYZ.T)
+
+		if p0:
+			print("Evaluation of baseflow done ! Plotting quiver...",flush=True)
+			X,Y,Z = XYZ_e.T
+			th = np.arctan2(Z,Y)
+			return go.Cone(x=X,y=Y,z=Z,u=U.real,v=V.real*np.cos(th)-W.real*np.sin(th),w=V.real*np.sin(th)+W.real*np.cos(th), # Correcting orientation
+						   colorscale=scale,sizemode="scaled",sizeref=1,name="baseflow",opacity=.6,showscale=False)

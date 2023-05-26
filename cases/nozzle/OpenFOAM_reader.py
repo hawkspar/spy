@@ -3,9 +3,8 @@ import numpy as np
 from setup import *
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
-from spy import dirCreator, meshConvert, findStuff, saveStuff
+from helpers import dirCreator, meshConvert, findStuff
 
-p0=comm.rank==0
 sanity_check=True#False
 convert=False
 

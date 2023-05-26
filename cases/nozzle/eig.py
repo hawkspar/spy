@@ -7,10 +7,6 @@ Created on Wed Oct  13 17:07:00 2021
 import numpy as np
 from setup import *
 from spyp import SPYP
-from mpi4py.MPI import COMM_WORLD
-
-# Shorthands
-p0=COMM_WORLD.rank==0
 
 # Eigenvalues
 spyp=SPYP(params, data_path, pert_mesh, direction_map)

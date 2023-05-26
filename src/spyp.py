@@ -221,7 +221,7 @@ class SPYP(SPY):
 		XYZ, V = self.eval(f,XYZ_p.T,XYZ.T)
 
 		if p0:
-			print("Evaluation done !",flush=True)
+			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
 			X,Y,Z = XYZ.T
 			V *= np.exp(1j*m*np.arctan2(Z,Y)) # Proper azimuthal decomposition
 			# Now handling time
