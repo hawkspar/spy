@@ -8,50 +8,6 @@ from mpi4py.MPI import COMM_WORLD as comm
 
 p0=comm.rank==0
 
-# Wrapper
-def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
-	# JIT options for speed
-	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
-	M = dfx.cpp.fem.petsc.create_matrix(form)
-	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
-	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
-	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
-	M.assemble()
-	return M
-
-# PETSc Matrix free method
-def pythonMatrix(dims:list,py,comm) -> pet.Mat:
-	M = pet.Mat().create(comm)
-	M.setSizes(dims)
-	M.setType(pet.Mat.Type.PYTHON)
-	M.setPythonContext(py)
-	M.setUp()
-	return M
-
-# Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
-	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
-	# Krylov subspace
-	KSP.setType('preonly')
-	# Preconditioner
-	PC = KSP.getPC(); PC.setType('lu')
-	PC.setFactorSolverType('mumps')
-	KSP.setFromOptions()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
-
-# Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
-	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
-	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
-	EPS.setProblemType(pb_type)
-	# Spectral transform
-	ST = EPS.getST()
-	if shift:
-		ST.setType('sinvert')
-		ST.getOperator() # CRITICAL TO MUMPS ICNTL
-	configureKSP(ST.getKSP(),params,shift)
-	EPS.setFromOptions()
-
 # Cylindrical operators
 def grd(r,dx:int,dr:int,dt:int,v,m:int):
 	if len(v.ufl_shape)==0: return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
@@ -122,3 +78,47 @@ def loadStuff(path:str,params:dict,fun:Function) -> None:
 	if p0: print("Loading "+closest_file_name,flush=True)
 	fun.x.array[:]=np.load(closest_file_name,allow_pickle=True)
 	fun.x.scatter_forward()
+
+# Wrapper
+def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
+	# JIT options for speed
+	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
+	M = dfx.cpp.fem.petsc.create_matrix(form)
+	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
+	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
+	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
+	M.assemble()
+	return M
+
+# PETSc Matrix free method
+def pythonMatrix(dims:list,py,comm) -> pet.Mat:
+	M = pet.Mat().create(comm)
+	M.setSizes(dims)
+	M.setType(pet.Mat.Type.PYTHON)
+	M.setPythonContext(py)
+	M.setUp()
+	return M
+
+# Krylov subspace
+def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
+	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
+	# Krylov subspace
+	KSP.setType('preonly')
+	# Preconditioner
+	PC = KSP.getPC(); PC.setType('lu')
+	PC.setFactorSolverType('mumps')
+	KSP.setFromOptions()
+	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
+
+# Eigenvalue problem solver
+def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
+	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
+	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
+	EPS.setProblemType(pb_type)
+	# Spectral transform
+	ST = EPS.getST()
+	if shift:
+		ST.setType('sinvert')
+		ST.getOperator() # CRITICAL TO MUMPS ICNTL
+	configureKSP(ST.getKSP(),params,shift)
+	EPS.setFromOptions()

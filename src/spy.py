@@ -97,6 +97,7 @@ class SPY:
 		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,m: div(r,dx,dr,dt,v,m),lambda v,m: grd(r,dx,dr,dt,v,m)
+		#cr=lambda v,m: crl(r,dx,dr,dt,self.mesh,v,m)
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(u,m),   s)
 		# Momentum (different test functions and IBP)
@@ -106,6 +107,8 @@ class SPY:
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
 		#F -= ufl.inner(2*U[2]*u[2]/r,v[1]) # Cancel out centrifugal force ?
+		#F += 2*ufl.inner(ufl.cross(cr(u,m),U)+ufl.cross(cr(U,0),u),v) # Cancel out Coriolis force ?
+		#F += 2*ufl.inner(ufl.cross(S*ufl.as_vector([1,0,0]),u),v) # Cancel out Coriolis force ?
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points

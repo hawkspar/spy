@@ -6,20 +6,20 @@ Created on Wed Oct  13 17:07:00 2021
 """
 from setup import *
 from spyp import SPYP # Must be after setup
-from spy import dirCreator
+from helpers import dirCreator
+
 from os.path import isfile
 import plotly.graph_objects as go
-from mpi4py.MPI import COMM_WORLD as comm
 
 spyp = SPYP(params,data_path,pert_mesh,direction_map)
 
 # Actual plotting
-dir=spyp.resolvent_path+"/3d/"
+dir=spyp.resolvent_path+"_no_centrifuge/3d/"
 dirCreator(dir)
 
-"""Ss_ref = [0,1]
+Ss_ref = [0,1]
 ms_ref = [-2,0,2]
-Sts_ref = [.025,.5]"""
+Sts_ref = [.025,.5]
 
 def frameArgs(duration):
     return {"frame": {"duration": duration}, "mode": "immediate", "fromcurrent": True,
@@ -82,7 +82,7 @@ XYZr_st = np.vstack([C.flatten() for C in XYZr_st])
 
 # Swirls : very large and spread out, some distance from the nozzle
 Xr_sw  = np.geomspace(5,26.2,50)
-YZr_sw = np.linspace(0,4.2,50)
+YZr_sw = np.linspace(0,3.5,50)
 YZr_sw = np.hstack((np.flip(-YZr_sw)[:-1],YZr_sw)) # Careful of 0 !
 XYZr_sw = np.meshgrid(Xr_sw,YZr_sw,YZr_sw)
 XYZr_sw = np.vstack([C.flatten() for C in XYZr_sw])
@@ -118,8 +118,8 @@ if p0:
 for S in Ss_ref:
 	for m in ms_ref:
 		for St in Sts_ref:
-			file_name=dir+f"Re={2*Re:d}_S={S:.1f}_m={m:d}_St={2*St}".replace('.',',')+".html" # Usual Re & St based on D
-			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St})",flush=True)
+			file_name=dir+f"Re={2*Re:d}_S={S:.1f}_m={m:d}_St={2*St:.2f}".replace('.',',')+".html" # Usual Re & St based on D
+			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
 			if isfile(file_name):
 				if p0: print("Found an html file, moving on...",flush=True)
 				continue

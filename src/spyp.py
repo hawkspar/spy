@@ -158,7 +158,7 @@ class SPYP(SPY):
 			dirCreator(self.resolvent_path+"response/")
 			save_string=f"Re={Re:d}_S={S:.1f}"
 			save_string=(save_string+f"_m={m:d}_St={St}").replace('.',',')
-			gains_name=self.resolvent_path+"gains/"+save_string+".txt"
+			gains_name=self.resolvent_path+"gains/txt/"+save_string+".txt"
 			# Memoisation
 			if isfile(gains_name):
 				if p0: print("Found "+gains_name+" file, assuming it has enough gains, moving on...",flush=True)
@@ -212,33 +212,47 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
 
-	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,f:Function,n:int,scale:str,name:str) -> list:
+	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,fs:Function,n:int,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ
 		# Evaluation of projected value
 		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
-		XYZ, V = self.eval(f,XYZ_p.T,XYZ.T)
+		XYZ_e, U = self.eval(fs[self.direction_map['x']], XYZ_p.T,XYZ.T)
+		_, 	   V = self.eval(fs[self.direction_map['r']], XYZ_p.T,XYZ.T)
+		_, 	   W = self.eval(fs[self.direction_map['th']],XYZ_p.T,XYZ.T)
 
 		if p0:
 			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
-			X,Y,Z = XYZ.T
-			V *= np.exp(1j*m*np.arctan2(Z,Y)) # Proper azimuthal decomposition
+			X,Y,Z = XYZ_e.T
+			th = np.arctan2(Z,Y)
+			U *= np.exp(1j*m*th) # Proper azimuthal decomposition
+			V *= np.exp(1j*m*th)
+			W *= np.exp(1j*m*th)
 			# Now handling time
-			surfs = []
+			surfs = [[]]*3
 			for t in np.linspace(0,np.pi/4,n,endpoint=False):
-				W = (V*np.exp(-1j*t)).real # Time-shift
-				surfs.append(go.Isosurface(x=X,y=Y,z=Z,value=W,
-										   isomin=r*np.min(W),isomax=r*np.max(W),
-										   colorscale=scale, name=name,
-										   caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
+				Ut = (U*np.exp(-1j*t)).real # Time-shift
+				Vt = ((V*np.cos(th)-W*np.sin(th))*np.exp(-1j*t)).real
+				Wt = ((W*np.cos(th)+V*np.sin(th))*np.exp(-1j*t)).real
+				surfs[0].append(go.Isosurface(x=X,y=Y,z=Z,value=Ut,
+										   	  isomin=r*np.min(Ut),isomax=r*np.max(Ut),
+										   	  colorscale=scale, name="axial "+name,
+										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
+				surfs[1].append(go.Isosurface(x=X,y=Y,z=Z,value=Vt,
+										   	  isomin=r*np.min(Vt),isomax=r*np.max(Vt),
+										   	  colorscale=scale, name="radial "+name,
+										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
+				surfs[2].append(go.Isosurface(x=X,y=Y,z=Z,value=Wt,
+										   	  isomin=r*np.min(Wt),isomax=r*np.max(Wt),
+										   	  colorscale=scale, name="azimuthal "+name,
+										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 			return surfs
 
-	def readMode(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
+	def readMode(self,str:str,Re:int,S:float,m:int,St:float):
 		funs = Function(self.TH0c)
 		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
-		funs=funs.split()
-		return funs[coord]
+		return funs.split()
 
 	def readCurl(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
 		funs = Function(self.TH0c)

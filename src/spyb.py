@@ -142,5 +142,6 @@ class SPYB(SPY):
 			print("Evaluation of baseflow done ! Plotting quiver...",flush=True)
 			X,Y,Z = XYZ_e.T
 			th = np.arctan2(Z,Y)
-			return go.Cone(x=X,y=Y,z=Z,u=U.real,v=V.real*np.cos(th)-W.real*np.sin(th),w=V.real*np.sin(th)+W.real*np.cos(th), # Correcting orientation
+			V,W=V*np.cos(th)-W*np.sin(th),W*np.cos(th)+V*np.sin(th)
+			return go.Cone(x=X,y=Y,z=Z,u=U.real,v=V.real,w=W.real, # Correcting orientation
 						   colorscale=scale,sizemode="scaled",sizeref=1,name="baseflow",opacity=.6,showscale=False)

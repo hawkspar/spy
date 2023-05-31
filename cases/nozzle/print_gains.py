@@ -8,7 +8,7 @@ from helpers import dirCreator
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 
 dat={}
-dir="/home/shared/cases/nozzle/resolvent/gains/"
+dir="/home/shared/cases/nozzle/resolvent/gains/txt/"
 dirCreator(dir+"plots/")
 file_names = [f for f in listdir(dir) if f[-3:]=="txt"]
 for file_name in file_names:
