@@ -26,15 +26,15 @@ h=1e-4
 U_m,a=.05,6
 
 # Easier standardisation across files
-Ss_ref = [0,1]#np.linspace(0,1,6)
-ms_ref = [-2,0,2]#range(-3,4)
-Sts_ref = np.geomspace(1e-6,.1,10)#[0,1e-3,5e-3,1e-2,2e-2,5e-2,.1,.5,1]#np.linspace(0,1,21)
+Ss_ref = np.linspace(0,1,6)
+ms_ref = range(-3,4)
+Sts_ref = np.hstack((np.linspace(0,.02,50,endpoint=False),np.linspace(.02,1,25)))
 
 # Numerical Parameters
 params = {"rp":.97,    #relaxation_parameter
 		  "atol":1e-12, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
-		  "max_iter":200}
+		  "max_iter":50}
 data_path='nozzle' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
@@ -42,8 +42,10 @@ spyb = SPYB(params,data_path,base_mesh,direction_map) # Must be first !
 
 # Reference coherent with OpenFOAM
 def nozzleTop(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
-def inletProfile(x): return np.tanh(a*(1-x[1]**2))			  		  *(x[1]<1)+\
-		 				    2*U_m*(1-.5*(x[1]-1)/(H-1))*(x[1]-1)/(H-1)*(x[1]>1)
+def inletProfile(x):
+	r2,rt=x[1]**2,(x[1]-1-h)/(H-1)
+	return np.tanh(a*(1-r2)) *(r2<=1)+\
+		   2*U_m*(1-.5*rt)*rt*(r2>1)
 
 # Geometry
 def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,			 params['atol']) # Axis of symmetry at r=0
@@ -65,6 +67,10 @@ class inletTangential:
 	def __init__(self,S:float) -> None: self.S=S
 	def __call__(self,x) -> np.array: return self.S*x[1]*inletProfile(x)*(x[1]<1)
 
+# u=(tanh 0 Srux) in nozzle, u=(2Umr(1-r/2) 0 0) for coflow, u=0 at nozzle
+# u_r, u_th=0 for symmetry axis (derived from momentum csv r th as r->0)
+# However there are hidden BCs in the weak form !
+# Because of the IPP, we have stress free BCs (pn=nu(gd U+dg U^T)n) everywhere by default
 def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	# Compute DoFs
 	sub_space_x=spy.TH.sub(0).sub(0)
@@ -93,8 +99,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	spy.applyHomogeneousBCs([(inlet,['r']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
 	return class_th,u_inlet_th
 
-# Baseflow (really only need DirichletBC objects) enforces :
-# u=0 at inlet, nozzle & top (linearise as baseflow)
+# u=0 at inlet, nozzle (linearise as baseflow)
 # u_r, u_th=0 for symmetry axis if m=0, u_x=0 if |m|=1, u=0 else (derived from momentum csv r th as r->0)
 # However there are hidden BCs in the weak form !
 # Because of the IPP, we have stress free BCs everywhere by default

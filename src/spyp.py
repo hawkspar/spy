@@ -154,10 +154,11 @@ class SPYP(SPY):
 			# Folder creation
 			dirCreator(self.resolvent_path)
 			dirCreator(self.resolvent_path+"gains/")
+			dirCreator(self.resolvent_path+"gains/txt/")
 			dirCreator(self.resolvent_path+"forcing/")
 			dirCreator(self.resolvent_path+"response/")
 			save_string=f"Re={Re:d}_S={S:.1f}"
-			save_string=(save_string+f"_m={m:d}_St={St}").replace('.',',')
+			save_string=(save_string+f"_m={m:d}_St={St:.4e}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/txt/"+save_string+".txt"
 			# Memoisation
 			if isfile(gains_name):
@@ -170,7 +171,7 @@ class SPYP(SPY):
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
-			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St})...",flush=True)
+			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.4e})...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0:

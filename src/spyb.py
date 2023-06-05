@@ -111,7 +111,9 @@ class SPYB(SPY):
 		self.Nu = self.smoothenF(e,self.Nu)
 		self.Nu.x.array[self.Nu.x.array<1e-5]=0 # Important to do it twice
 			
-	def smoothenP(self, e:float): self.P = self.smoothenF(e,self.P)
+	def smoothenP(self, e:float):
+		_, P = ufl.split(self.Q)
+		P = self.smoothenF(e,P)
 	
 	def smoothenU(self, e:float, dir=None):
 		r = self.r
