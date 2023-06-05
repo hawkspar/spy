@@ -45,7 +45,7 @@ def nozzleTop(x): return R+h+(x>.95*R)*(x-.95*R)/.05/R*h
 def inletProfile(x):
 	r2,rt=x[1]**2,(x[1]-1-h)/(H-1)
 	return np.tanh(a*(1-r2)) *(r2<=1)+\
-		   2*U_m*(1-.5*rt)*rt*(r2>1)
+		   2*U_m*(1-.5*rt)*rt*(r2> 1)
 
 # Geometry
 def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,			 params['atol']) # Axis of symmetry at r=0
@@ -63,7 +63,7 @@ def forcingIndicator(x): return (x[0]<x0[0])*slope(x0[1]-x[1])+\
 				  (x[0]>=x1[0])				*slope(line(x1,x2,x))
 
 # Allows for more efficient change of S inside an iteration
-class inletTangential:
+class InletTangential:
 	def __init__(self,S:float) -> None: self.S=S
 	def __call__(self,x) -> np.array: return self.S*x[1]*inletProfile(x)*(x[1]<1)
 
@@ -71,7 +71,7 @@ class inletTangential:
 # u_r, u_th=0 for symmetry axis (derived from momentum csv r th as r->0)
 # However there are hidden BCs in the weak form !
 # Because of the IPP, we have stress free BCs (pn=nu(gd U+dg U^T)n) everywhere by default
-def boundaryConditionsBaseflow(spy:SPY,S) -> None:
+def boundaryConditionsBaseflow(spy:SPY,S:float) -> tuple:
 	# Compute DoFs
 	sub_space_x=spy.TH.sub(0).sub(0)
 	sub_space_x_collapsed,_=sub_space_x.collapse()
@@ -89,7 +89,7 @@ def boundaryConditionsBaseflow(spy:SPY,S) -> None:
 	sub_space_th=spy.TH.sub(0).sub(2)
 	sub_space_th_collapsed,_=sub_space_th.collapse()
 	u_inlet_th=Function(sub_space_th_collapsed)
-	class_th=inletTangential(S)
+	class_th=InletTangential(S)
 	u_inlet_th.interpolate(class_th)
 	dofs_inlet_th = dfx.fem.locate_dofs_geometrical((sub_space_th, sub_space_th_collapsed), inlet)
 	bcs_inlet_th = dfx.fem.dirichletbc(u_inlet_th, dofs_inlet_th, sub_space_th) # Same as OpenFOAM

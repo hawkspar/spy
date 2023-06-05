@@ -60,11 +60,11 @@ class SPY:
 
 	# Helper
 	def loadBaseflow(self,Re:int,S:float,loadNu=True) -> None:
-		loadStuff(self.q_path,  {'Re':Re,'S':S},self.Q)
+		loadStuff(self.q_path,{'Re':Re,'S':S},self.Q)
 		if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 		
 	def saveBaseflow(self,Re:int,S:float,saveNu=False):
-		save_str=f"_Re={Re:d}_S={S:.1f}".replace('.',',')
+		save_str=f"_Re={Re:d}_S={S:.2f}".replace('.',',')
 		saveStuff(self.q_path,"q"+save_str,self.Q)
 		if saveNu: saveStuff(self.nut_path,"nut"+save_str,self.Nu)
 	

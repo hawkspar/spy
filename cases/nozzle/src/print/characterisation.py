@@ -45,7 +45,7 @@ u = interp(ud,target_xy)
 if p0:
 	plt.plot(X, u)
 	plt.xlabel(r'$x$')
-	plt.ylabel(r'$U_{x,r=0}$')
+	plt.ylabel(r'$U_x(x,0)$')
 	plt.savefig(dir+"Ur0(x)"+save_str+".png")
 	plt.close()
 
@@ -77,7 +77,7 @@ if p0:
 		u_x = u[i*n:(i+1)*n]
 		i_m = np.argmin(u_x)
 		v = (u_x[:i_m+1]-u_x[i_m])/(1-u_x[i_m])
-		ths[i] = np.trapz(v*(1-v)*R[:i_m+1],R[:i_m+1])/4
+		ths[i] = np.trapz(v*(1-v)*R[:i_m+1],R[:i_m+1])/4 # Again dimensionless with R or D changes things
 	print(ths[0])
 
 	m,M=4,10
@@ -137,11 +137,12 @@ if p0:
 				[27.336028845375722, 0.7565660731049867],
 				[27.977736549165122, 0.7727910238429171]])
 
-	plt.plot(X/2, ths, label=r'$\theta=\int_0^{r_0}u(1-u)rdr$')
-	plt.plot(dat[:,0], dat[:,1], label=r'Schmidt')
-	plt.plot((0,np.max(X)/2), b+a*np.array((0,np.max(X)))/2,label=r'$y='+f'{a:.3f}x{b:+.3f}$')
+	plt.plot(X, ths, label=r'Present case')#label=r'$\theta=\int_0^{r_0}u(1-u)rdr$')
+	plt.plot(dat[:,0]*2, dat[:,1], label=r'Schmidt')
+	#plt.plot((0,np.max(X)/2), b+a*np.array((0,np.max(X)))/2,label=r'$y='+f'{a:.3f}x{b:+.3f}$')
 	plt.legend()
 	plt.xlabel(r'$x/D$')
+	plt.ylabel(r'$\Theta$')
 	plt.savefig(dir+"theta(x)"+save_str+".png")
 	plt.close()
 

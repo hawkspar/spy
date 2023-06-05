@@ -48,7 +48,7 @@ for Re in dat.keys():
 				gains.append(np.max(dat[Re][S][m][St]))
 			Sts,gains=np.array(Sts),np.array(gains)
 			ids=np.argsort(Sts)
-			Sts,gains=Sts[ids]*2,gains[ids]**2 # Usual St=fD/U not fR/U
+			Sts,gains=Sts[ids],gains[ids]**2 # Usual St=fD/U not fR/U
 			ax.plot(Sts,gains,label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 			ax_zoom.plot(Sts,gains,label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 		# Plot all gains
@@ -59,7 +59,7 @@ for Re in dat.keys():
 		box = ax.get_position()
 		ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		ax.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-		fig.savefig(dir+"plots/"+f"Re={int(Re)*2}_S={S}.png") # Usual Re also based on D
+		fig.savefig(dir+"plots/"+f"Re={int(Re)}_S={S}.png") # Usual Re also based on D
 
 		# Plot a log-log zoom around origin
 		ax_zoom.set_xlabel(r'$St$')
@@ -69,7 +69,7 @@ for Re in dat.keys():
 		box = ax_zoom.get_position()
 		ax_zoom.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		ax_zoom.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-		fig_zoom.savefig(dir+"plots/"+f"Re={int(Re)*2}_S={S}_zoom.png") # Usual Re also based on D
+		fig_zoom.savefig(dir+"plots/"+f"Re={int(Re)}_S={S}_zoom.png") # Usual Re also based on D
 
 		# Plotting suboptimals
 		n=3
@@ -85,7 +85,7 @@ for Re in dat.keys():
 			for i in range(n):
 				Sts[i],gains[i]=np.array(Sts[i]),np.array(gains[i])
 				ids=np.argsort(Sts[i])
-				ax.plot(Sts[i][ids]*2,gains[i][ids]**2,label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
+				ax.plot(Sts[i][ids],gains[i][ids]**2,label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
 			plt.xlabel(r'$St$')
 			plt.ylabel(r'$\sigma^{(1)2}$')
 			plt.yscale('log')
@@ -93,5 +93,5 @@ for Re in dat.keys():
 			box = ax.get_position()
 			ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 			plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-			plt.savefig(dir+"plots/"+f"Re={int(Re)*2}_S={S}_m={m}.png")
+			plt.savefig(dir+"plots/"+f"Re={int(Re)}_S={S}_m={m}.png")
 			plt.close()

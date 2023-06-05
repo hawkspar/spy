@@ -5,23 +5,25 @@ Created on Wed Oct  13 17:07:00 2021
 @author: hawkspar
 """
 import os
-import numpy as np
 from setup import *
-from mpi4py.MPI import COMM_WORLD
 from matplotlib import pyplot as plt
 from spyp import SPYP # Must be after setup
 
-p0=COMM_WORLD.rank==0
-load=True
+m, S = -1, 1.
 
 # Eigenvalues
-spyp=SPYP(params, datapath, Ref, nutf, direction_map, 1, -1)
-boundaryConditionsPerturbations(spyp,-1)
+spyp=SPYP(params, datapath, "validation", direction_map)
+spyp.Re=Re
+# Interpolate
+spyb.loadBaseflow(Re,S)
+spyp.interpolateBaseflow(spyb)
+
+boundaryConditionsPerturbations(spyp,m)
 # For efficiency, matrix is assembled only once
-spyp.assembleJNMatrices(100)
+spyp.assembleJNMatrices(m)
 # Modal analysis
 vals_real,vals_imag=np.empty(0),np.empty(0)
-if load and p0:
+if p0:
     vals=np.loadtxt(spyp.eig_path+"evals"+spyp.save_string+".dat")
     vals_real,vals_imag = vals[:,0],vals[:,1]
 else:
@@ -30,11 +32,9 @@ else:
         for im in np.linspace(-2,2,10):
             # Memoisation protocol
             sigma=re+1j*im
-            print(sigma)
             closest_file_name=spyp.eig_path+"evals"+spyp.save_string+"_sigma="+f"{re:00.3f}"+f"{im:+00.3f}"+"j.dat"
             file_names = [f for f in os.listdir(spyp.eig_path) if f[-3:]=="dat"]
             for file_name in file_names:
-                print(file_name)
                 try:
                     if file_name[-17]=='=':
                         sigmad = complex(file_name[-16:-4]) # Take advantage of file format
@@ -45,9 +45,7 @@ else:
                         closest_file_name=spyp.eig_path+"evals"+spyp.save_string+"_sigma="+f"{np.real(sigmad):00.3f}"+f"{np.imag(sigmad):+00.3f}"+"j.dat"
                         break
                 except ValueError: pass
-            else:
-                print('bip')
-                spyp.eigenvalues(sigma,5) # Actual computation shift value, nb of eigenmode
+            else: spyp.eigenvalues(sigma,5) # Actual computation shift value, nb of eigenmode
             try:
                 if p0:
                     sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)

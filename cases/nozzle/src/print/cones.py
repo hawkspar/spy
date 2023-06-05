@@ -37,7 +37,7 @@ for S in Ss_ref:
 	spyb.loadBaseflow(Re,S,False)
 	for m in ms_ref:
 		for St in Sts_ref:
-			file_name=dir+f"Re={2*Re:d}_S={S:.1f}_m={m:d}_St={2*St:.2f}".replace('.',',') # Usual Re & St based on D
+			file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.2f}".replace('.',',') # Usual Re & St based on D
 			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
 			if isfile(file_name+"_dir=x.html") and isfile(file_name+"_dir=r.html") and isfile(file_name+"_dir=th.html"):
 				if p0: print("Found an html file, moving on...",flush=True)

@@ -84,7 +84,7 @@ class SPYB(SPY):
 		if save:  # Memoisation
 			self.saveBaseflow(Re,S)
 			U,_=q.split()
-			self.printStuff(self.print_path,f"u_Re={Re:d}_S={S:.1f}",U)
+			self.printStuff(self.print_path,f"u_Re={Re:d}_S={S:.2f}",U)
 		
 		return n
 
@@ -122,12 +122,6 @@ class SPYB(SPY):
 		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
 		if dir is None: self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u),	 gd(v))		+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 		else: 			self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[dir]),gd(v[dir]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
-
-	def minimumAxial(self) -> float:
-		u=self.Q.split()[0].compute_point_values()[:,self.direction_map['x']]
-		mu=np.min(u)
-		mu=comm.reduce(mu,op=MIN) # minimum across processors
-		return mu
 
 	def computeQuiver(self,XYZ:np.array,scale:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
