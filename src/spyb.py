@@ -23,15 +23,15 @@ class SPYB(SPY):
 		dirCreator(self.baseflow_path)
 		
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
-	def baseflow(self,Re:int,S:float,refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
+	def baseflow(self,Re:int,S:float,boundaries,refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
 		# Cold initialisation
 		if baseflowInit!=None:
 			U,_=self.Q.split()
 			U.interpolate(baseflowInit)
 
 		# Compute form
-		base_form  = self.navierStokes() # No azimuthal decomposition for base flow
-		dbase_form = self.linearisedNavierStokes(0) # m=0
+		base_form  = self.navierStokes(boundaries) # No azimuthal decomposition for base flow
+		dbase_form = self.linearisedNavierStokes(0,boundaries) # m=0
 		return self.solver(Re,S,base_form,dbase_form,self.Q,save,refinement)
 
 	# Recommand running in real

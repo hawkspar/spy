@@ -14,19 +14,20 @@ sys.path.append('/home/shared/src')
 from spy import SPY, p0
 from spyb import SPYB
 
-# Geometry parameters (validation legacy)
-x_max=120; r_max=60
-x_phy=70;  r_phy=10
+# Geometry parameters
+x_max,r_max=70,10
+l=50
+x_lim,r_lim=x_max+l,r_max+l
 
 # Physical Parameters
 Re=200
 Re_s=.1
 
 # Numerical parameters
-params = {"rp":.99,    #relaxation_parameter
-		  "atol":1e-6, #absolute_tolerance
+params = {"rp":.97,    #relaxation_parameter
+		  "atol":1e-12, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
-		  "max_iter":100}
+		  "max_iter":200}
 datapath='meliga' #folder for results
 direction_map={'x':0,'r':1,'th':2}
 
@@ -37,13 +38,14 @@ def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],np.max
 def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],np.max(x[1]),params['atol']) # Top boundary at r=R
 
 # Damped Reynolds number
-def csi(a,b,l): return .5*(1+np.tanh(4*np.tan(-np.pi/2+np.pi*np.abs(a-b)/l)))
+def csi(a,b): return .5*(1+np.tanh(4*np.tan(np.pi*(np.abs(a-b)/l-.5))))
 def sponged_Reynolds(x):
-	Rem=np.ones(x[0].size)*Re
-	x_ext=x[0]>x_phy
-	Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_max),x_phy, x_max-x_phy) # min necessary to prevent spurious jumps because of mesh conversion
-	r_ext=x[1]>r_phy
-	Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_max),r_phy, r_max-r_phy)
+	Rem=np.ones_like(x[0])*Re
+	x_ext=x[0]>x_max
+	# min necessary to prevent spurious jumps because of mesh approximations
+	Rem[x_ext]=Re		 +(Re_s-Re) 	   *csi(np.minimum(x[0][x_ext],x_lim),x_max)
+	r_ext=x[1]>r_max
+	Rem[r_ext]=Rem[r_ext]+(Re_s-Rem[r_ext])*csi(np.minimum(x[1][r_ext],r_lim),r_max)
 	return Rem
 
 # Handler
@@ -53,11 +55,11 @@ spyb.Nu.interpolate(lambda x: 1/sponged_Reynolds(x))
 
 # Grabovski-Berger vortex with final slope
 def grabovski_berger(r) -> np.ndarray:
-	psi=(r_max-r)/(r_max-r_phy)/r_phy
-	mr=r<1
-	psi[mr]=r[mr]*(2-r[mr]**2)
-	ir=(r>=1)*(r<r_phy)
-	psi[ir]=1/r[ir]
+	psi=(r_lim-r)/l/r_max # Linear descent to zero at the top
+	msk=r<=1
+	psi[msk]=r[msk]*(2-r[msk]**2)
+	msk=(r>1)*(r<r_max)
+	psi[msk]=1/r[msk]
 	return psi
 
 class InletAzimuthalVelocity:
@@ -94,7 +96,8 @@ def boundaryConditionsBaseflow(spyb:SPYB,S:float) -> tuple:
 
 	# Handle homogeneous boundary conditions
 	spyb.applyHomogeneousBCs([(inlet,['r']),(top,['r','th']),(sym,['r','th'])])
-	return class_th,u_inlet_th
+	boundaries = [(1, lambda x: top(x)*sym(x)),(2, outlet)]
+	return class_th,u_inlet_th,boundaries
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet (linearise as baseflow)
@@ -108,7 +111,7 @@ def boundaryConditionsBaseflow(spyb:SPYB,S:float) -> tuple:
 def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	# Handle homogeneous boundary conditions
 	homogeneous_boundaries=[(inlet,['x','r','th']),(top,['r','th'])]
-	if 	     m ==0: homogeneous_boundaries.append((spy.symmetry,['r','th']))
-	#elif abs(m)==1: homogeneous_boundaries.append((spy.symmetry,['x']))
-	else:		    homogeneous_boundaries.append((spy.symmetry,['x','r','th']))
+	if 	     m ==0: homogeneous_boundaries.append((sym,['r','th']))
+	elif abs(m)==1: homogeneous_boundaries.append((sym,['x']))
+	else:		    homogeneous_boundaries.append((sym,['x','r','th']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)

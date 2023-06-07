@@ -13,8 +13,8 @@ from scipy.optimize import root
 from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d as inter
 
-n=41
-Ss=np.linspace(.8,1.2,n)
+n=19
+Ss=np.linspace(0,1.8,n)
 N=1000
 target_xy = np.zeros((N,2))
 target_xy[:,0] = np.linspace(0,5,N)
@@ -23,13 +23,13 @@ Ux=U.split()[0]
 
 w0s=np.empty(n)
 # Baseflow calculation (memoisation)
-class_th,u_inlet_th=boundaryConditionsBaseflow(spyb,0)
+class_th,u_inlet_th,boundaries=boundaryConditionsBaseflow(spyb,0)
 for i,S in enumerate(Ss):
     if isfile(spyb.print_path+f"u_Re={Re:d}_S={S:.2f}".replace('.',',')+".xdmf"): spyb.loadBaseflow(Re,S,False)
     else:
         class_th.S=S
         u_inlet_th.interpolate(class_th)
-        spyb.baseflow(Re,S)
+        spyb.baseflow(Re,S,boundaries)
     w0=np.min(spyb.eval(Ux,target_xy))
     dirCreator(spyb.baseflow_path+"/ws/")
     if p0:

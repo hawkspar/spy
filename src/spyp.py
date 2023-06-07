@@ -67,12 +67,12 @@ class SPYP(SPY):
 		self.Nu.interpolate(spy.Nu)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,m:int) -> None:
+	def assembleJNMatrices(self,m:int,boundaries) -> None:
 		# Functions
 		u, v = self.u, self.v
 
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(m)
+		J_form = self.linearisedNavierStokes(m,boundaries)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		N_form = ufl.inner(u,v)*self.r*ufl.dx # Same multiplication process as base equations
 		
@@ -92,7 +92,7 @@ class SPYP(SPY):
 		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True) # Specify that A is not hermitian, but M is semi-definite
 
 		# File management shenanigans
-		save_string=f"Re={Re:d}_S={S:.1f}_m={m:d}".replace('.',',')
+		save_string=f"Re={Re:d}_S={S:.2f}_m={m:d}".replace('.',',')
 		eig_name=self.eig_path+"values/"+save_string+f"_sig={sigma}".replace('.',',')+".txt"
 		dirCreator(self.eig_path)
 		dirCreator(self.eig_path+"values/")
@@ -103,7 +103,7 @@ class SPYP(SPY):
 		EPS.solve()
 		n=EPS.getConverged()
 		if n==0:
-			if p0: open(eig_name, mode='w').close() # Memoisation is important ! In case of 0 CV save the effort next time
+			if p0: open(eig_name, mode='w').close() # Memoisation is important ! Even when there's no convergence save the effort next time
 			return
 		
 		# Conversion back into numpy

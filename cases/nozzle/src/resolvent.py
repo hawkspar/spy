@@ -4,12 +4,13 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-from setup import *
-from spyp import SPYP # Must be after setup
 import cProfile, pstats
 from pstats import SortKey
 from dolfinx.fem import FunctionSpace
 from mpi4py.MPI import COMM_WORLD as comm
+
+from setup import *
+from spyp import SPYP # Must be after setup
 
 with cProfile.Profile() as pr:
 	spyp=SPYP(params,data_path,pert_mesh,direction_map)

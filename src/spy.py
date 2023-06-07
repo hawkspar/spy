@@ -6,6 +6,11 @@ Created on Fri Dec 10 12:00:00 2021
 """
 from helpers import *
 
+from dolfinx.fem import (Constant,  Function, FunctionSpace, assemble_scalar, 
+                         dirichletbc, form, locate_dofs_topological)
+from dolfinx.mesh import create_unit_square, locate_entities, meshtags
+from ufl import (FacetNormal, Measure, SpatialCoordinate, dx)
+
 # Swirling Parallel Yaj
 class SPY:
 	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
@@ -69,47 +74,85 @@ class SPY:
 		if saveNu: saveStuff(self.nut_path,"nut"+save_str,self.Nu)
 	
 	# Heart of this entire code
-	def navierStokes(self) -> ufl.Form:
+	def navierStokes(self,boundaries) -> ufl.Form:
 		# Shortforms
+		nu = 1/self.Re+self.Nu
 		r, v, s = self.r, self.v, self.s
-		# Functions
-		U, P = ufl.split(self.Q)
-		nu = 1/self.Re+self.Nu # Re is taken as in the litterature with respect to D, but the rest is made dimensionless with R
-		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v: div(r,dx,dr,dt,v,0),lambda v: grd(r,dx,dr,dt,v,0)
+		lp=lambda v: lap(r,dx,dr,dt,v,0)
+		# Functions
+		U, P = ufl.split(self.Q)
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(U),   s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(gd(U)*U, v) # Convection
-		F -= ufl.inner(	  P, dv(v)) # Pressure
-		F += ufl.inner(gd(U)+gd(U).T,
-							 gd(v))*nu # Diffusion (grad u.T significant with nut)
-		return F*r*ufl.dx
+		"""F -= ufl.inner(	  P, dv(v)) # Pressure
+		F += ufl.inner(gd(U),#+gd(U).T,
+							 gd(v))*nu # Diffusion (grad u.T significant with nut)"""
+		F += ufl.inner(gd(P),   v) # Pressure
+		F -= nu*ufl.inner(lp(U),v)
+		F=F*r*ufl.dx
+
+		facet_indices, facet_markers = [], []
+		fdim = self.mesh.topology.dim - 1
+		for (marker, locator) in boundaries:
+			facets = locate_entities(self.mesh, fdim, locator)
+			facet_indices.append(facets)
+			facet_markers.append(np.full_like(facets, marker))
+		facet_indices = np.hstack(facet_indices).astype(np.int32)
+		facet_markers = np.hstack(facet_markers).astype(np.int32)
+		sorted_facets = np.argsort(facet_indices)
+		facet_tag = meshtags(self.mesh, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
+
+		ds = Measure("ds", domain=self.mesh, subdomain_data=facet_tag)
+		n = FacetNormal(self.mesh)
+
+		F += ufl.inner(gd(U)[0,1],v[0])*r*ds(1)
+		F += ufl.inner((P*ufl.Identity(3)-gd(U))*n,v)*r*ds(2)
+		return F
 	
 	# Not automatic because of convection term
-	def linearisedNavierStokes(self,m:int) -> ufl.Form:
+	def linearisedNavierStokes(self,m:int,boundaries) -> ufl.Form:
 		# Shortforms
+		nu = 1/self.Re + self.Nu
 		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
-		# Functions
-		U, _ = ufl.split(self.Q) # Baseflow
-		nu = 1/self.Re + self.Nu # Re is taken as in the litterature with respect to D, but the rest is made dimensionless with R
-		# More shortforms
 		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['th']
 		dv,gd=lambda v,m: div(r,dx,dr,dt,v,m),lambda v,m: grd(r,dx,dr,dt,v,m)
-		#cr=lambda v,m: crl(r,dx,dr,dt,self.mesh,v,m)
+		lp=lambda v,m: lap(r,dx,dr,dt,v,m)
+		# Functions
+		U, _ = ufl.split(self.Q) # Baseflow
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(u,m),   s)
 		# Momentum (different test functions and IBP)
 		F += ufl.inner(gd(U,0)*u, v) # Convection
 		F += ufl.inner(gd(u,m)*U, v)
-		F -= ufl.inner(   p,   dv(v,m)) # Pressure
-		F += ufl.inner(gd(u,m)+gd(u,m).T,
-							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
-		#F -= ufl.inner(2*U[2]*u[2]/r,v[1]) # Cancel out centrifugal force ?
-		#F += 2*ufl.inner(ufl.cross(cr(u,m),U)+ufl.cross(cr(U,0),u),v) # Cancel out Coriolis force ?
-		#F += 2*ufl.inner(ufl.cross(S*ufl.as_vector([1,0,0]),u),v) # Cancel out Coriolis force ?
-		return F*r*ufl.dx
+		"""F -= ufl.inner(   p,   dv(v,m)) # Pressure
+		F += ufl.inner(gd(u,m),#+gd(u,m).T,
+							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)"""
+		F += ufl.inner(gd(p,m),   v) # Pressure
+		F -= nu*ufl.inner(lp(u,m),v)
+		#F += 2*ufl.inner(U[2]*u[2],v[1])/r # Cancel out centrifugal force
+		#F -=   ufl.inner(U[1]*u[2]+U[2]*u[1],v[2])/r # Cancel out Coriolis force
+		F=F*r*ufl.dx
+
+		facet_indices, facet_markers = [], []
+		fdim = self.mesh.topology.dim - 1
+		for (marker, locator) in boundaries:
+			facets = locate_entities(self.mesh, fdim, locator)
+			facet_indices.append(facets)
+			facet_markers.append(np.full_like(facets, marker))
+		facet_indices = np.hstack(facet_indices).astype(np.int32)
+		facet_markers = np.hstack(facet_markers).astype(np.int32)
+		sorted_facets = np.argsort(facet_indices)
+		facet_tag = meshtags(self.mesh, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
+
+		ds = Measure("ds", domain=self.mesh, subdomain_data=facet_tag)
+		n = FacetNormal(self.mesh)
+
+		F += ufl.inner(gd(u,m)[0,1],v[0])*r*ds(1)
+		F += ufl.inner((p*ufl.Identity(3)-gd(u,m))*n,v)*r*ds(2)
+		return F
 	
 	# Evaluate velocity at provided points
 	def eval(self,f,proj_pts,ref_pts=None) -> np.array:

@@ -1,8 +1,8 @@
 import meshio #pip3 install h5py meshio
-import numpy as np
-from setup import *
 from scipy.interpolate import griddata
 from mpi4py.MPI import COMM_WORLD as comm
+
+from setup import *
 from helpers import dirCreator, meshConvert, findStuff
 
 sanity_check=True#False

@@ -1,3 +1,5 @@
+sys.path.append('/home/shared/cases/nozzle')
+
 from setup import *
 from mpi4py.MPI import COMM_WORLD as comm
  

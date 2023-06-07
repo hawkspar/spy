@@ -4,58 +4,40 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-import os
-from setup import *
+from os import listdir
 from matplotlib import pyplot as plt
+
+from setup import *
 from spyp import SPYP # Must be after setup
 
-m, S = -1, 1.
+m, S = -1, 1
 
 # Eigenvalues
 spyp=SPYP(params, datapath, "validation", direction_map)
-spyp.Re=Re
+spyp.Re=np.inf
 # Interpolate
-spyb.loadBaseflow(Re,S)
+spyb.loadBaseflow(Re,S,False)
 spyp.interpolateBaseflow(spyb)
+spyp.Nu.interpolate(lambda x: 1/sponged_Reynolds(x))
 
-boundaryConditionsPerturbations(spyp,m)
 # For efficiency, matrix is assembled only once
-spyp.assembleJNMatrices(m)
-# Modal analysis
-vals_real,vals_imag=np.empty(0),np.empty(0)
+boundaryConditionsPerturbations(spyp,m)
+class_th,u_inlet_th,boundaries=boundaryConditionsBaseflow(spyb,0)
+spyp.assembleJNMatrices(m,boundaries)
+# Grid search
+for re in [.05]:#np.linspace(.05,-.1,4).round(decimals=3):
+    for im in [1]:#np.linspace(-1,1,11).round(decimals=3):
+        #if re>0 and abs(im-1)>.2: continue
+        spyp.eigenvalues(re+1j*im,3,Re,S,m) # Actual computation shift value, nb of eigenmodes
 if p0:
-    vals=np.loadtxt(spyp.eig_path+"evals"+spyp.save_string+".dat")
-    vals_real,vals_imag = vals[:,0],vals[:,1]
-else:
-    # Grid search
-    for re in np.linspace(.05,-.1,10):
-        for im in np.linspace(-2,2,10):
-            # Memoisation protocol
-            sigma=re+1j*im
-            closest_file_name=spyp.eig_path+"evals"+spyp.save_string+"_sigma="+f"{re:00.3f}"+f"{im:+00.3f}"+"j.dat"
-            file_names = [f for f in os.listdir(spyp.eig_path) if f[-3:]=="dat"]
-            for file_name in file_names:
-                try:
-                    if file_name[-17]=='=':
-                        sigmad = complex(file_name[-16:-4]) # Take advantage of file format
-                    else:
-                        sigmad = complex(file_name[-17:-4]) # Take advantage of file format
-                    fd = abs(sigma-sigmad)#+abs(Re-Red)
-                    if fd<1e-3:
-                        closest_file_name=spyp.eig_path+"evals"+spyp.save_string+"_sigma="+f"{np.real(sigmad):00.3f}"+f"{np.imag(sigmad):+00.3f}"+"j.dat"
-                        break
-                except ValueError: pass
-            else: spyp.eigenvalues(sigma,5) # Actual computation shift value, nb of eigenmode
-            try:
-                if p0:
-                    sig_vals_real,sig_vals_imag=np.loadtxt(closest_file_name,unpack=True)
-                    vals_real=np.hstack((vals_real,sig_vals_real))
-                    vals_imag=np.hstack((vals_imag,sig_vals_imag))
-            except OSError: pass # File not found = no eigenvalues
-if p0:
-    # Sum them all, regroup them
-    np.savetxt(spyp.eig_path+"evals"+spyp.save_string+".dat",np.column_stack([vals_real, vals_imag]))
-    vals=np.unique((vals_real+1j*vals_imag).round(decimals=3))
+    # Read them all, regroup them
+    vals=[]
+    for file in listdir(spyp.eig_path+"values/"):
+        if file[-3:]=="txt":
+            a=np.loadtxt(spyp.eig_path+"values/"+file,dtype=complex)
+            if   a.size==1: vals.append(a)
+            elif a.size> 1: vals.extend(list(a))
+    vals=np.unique(np.array(vals).round(decimals=3))
 
     # Plot them all!
     fig = plt.figure()
@@ -67,4 +49,4 @@ if p0:
     plt.axis([-2.5,2.5,-.12,.08])
     plt.xlabel(r'$\omega$')
     plt.ylabel(r'$\sigma$')
-    plt.savefig("eigenvalues"+spyp.save_string+".png")
+    plt.savefig("eigenvalues"+f"_Re={Re:d}_m={m:d}_S={S:.2f}".replace(',','.')+".png")

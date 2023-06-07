@@ -21,6 +21,11 @@ def div(r,dx:int,dr:int,dt:int,v,m:int):
 						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*1j*v[dt,dr]-v[dt,dt])/r,
 						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*1j*v[dt,dt]+v[dt,dr])/r])
 
+def lap(r,dx:int,dr:int,dt:int,v,m:int):
+	return ufl.as_vector([v[dx].dx(dx).dx(dx)+v[dr].dx(dx).dx(dr)+v[dr].dx(dx)+m*1j*v[dt].dx(dx)/r,
+						  v[dx].dx(dr).dx(dx)+v[dr].dx(dr).dx(dr)+v[dr].dx(dr)+(m*1j*v[dt].dx(dr)-(m*1j*v[dt]+v[dr])/r)/r,
+						  m*1j*v[dx].dx(dx)/r+((m*1j*v[dr]-v[dt])/r).dx(dr)+(m*1j*v[dr]-v[dt])/r+(m*1j*(m*1j*v[dt]+v[dr])/r+v[dt].dx(dr))/r])
+
 def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
 	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
     m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
@@ -61,10 +66,9 @@ def saveStuff(dir:str,name:str,fun:Function) -> None:
 # Memoisation routine - find closest in param
 def findStuff(path:str,params:dict,format=lambda f:True,distributed=True):
 	closest_file_name=path
-	file_names = [f for f in os.listdir(path) if format(f)]
 	d=np.infty
-	for file_name in file_names:
-		if not distributed or checkComm(file_name): # Lazy evaluation !
+	for file_name in os.listdir(path):
+		if format(file_name) and (not distributed or checkComm(file_name)): # Lazy evaluation !
 			fd=0 # Compute distance according to all params
 			for param in params:
 				match = re.search(param+r'=(\d*(,|e|-|j|\+)?\d*)',file_name)

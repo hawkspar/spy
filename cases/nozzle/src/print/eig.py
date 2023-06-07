@@ -5,12 +5,14 @@ Created on Wed Oct  13 17:07:00 2021
 @author: hawkspar
 """
 import warnings
-import numpy as np
-from setup import *
 from re import search
 from os import listdir
-from helpers import dirCreator
 from matplotlib import pyplot as plt
+
+sys.path.append('/home/shared/cases/nozzle')
+
+from setup import *
+from helpers import dirCreator
 
 # Shorthands
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
@@ -18,21 +20,22 @@ color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1'
 dat={}
 dir="/home/shared/cases/nozzle/eigenvalues/"
 file_names = [f for f in listdir(dir+"values/") if f[-3:]=="txt"]
-for file_name in file_names:
-    match = search(r'm=(-?\d*)', file_name)
-    m=match.group(1)
-    match = search(r'Re=(\d*)',file_name)
-    Re=match.group(1)
-    match = search(r'S=(\d*\,?\d*)',file_name)
-    S=match.group(1)
-    if not Re in dat.keys(): 		dat[Re]      ={}
-    if not S  in dat[Re].keys():	dat[Re][S]   ={}
-    if not m  in dat[Re][S].keys(): dat[Re][S][m]=set()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        local_eigs=np.loadtxt(dir+"values/"+file_name,dtype=complex)
-    if local_eigs.size==1: dat[Re][S][m].add(complex(local_eigs))
-    else:                  dat[Re][S][m].update(local_eigs)
+for file_name in listdir(dir+"values/"):
+    if file_name[-3:]=="txt":
+        match = search(r'm=(-?\d*)', file_name)
+        m=match.group(1)
+        match = search(r'Re=(\d*)',file_name)
+        Re=match.group(1)
+        match = search(r'S=(\d*\,?\d*)',file_name)
+        S=match.group(1)
+        if not Re in dat.keys(): 		dat[Re]      ={}
+        if not S  in dat[Re].keys():	dat[Re][S]   ={}
+        if not m  in dat[Re][S].keys(): dat[Re][S][m]=set()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            local_eigs=np.loadtxt(dir+"values/"+file_name,dtype=complex)
+        if local_eigs.size==1: dat[Re][S][m].add(complex(local_eigs))
+        else:                  dat[Re][S][m].update(local_eigs)
 dirCreator(dir+"plots/")
 #plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():

@@ -1,10 +1,12 @@
 import meshio #pip3 install --no-binary=h5py h5py meshio
-from setup import *
-from spy import crl, dirCreator
 from scipy.stats import linregress
 from matplotlib import pyplot as plt
 from scipy.interpolate import griddata
-from mpi4py.MPI import COMM_WORLD as comm
+
+sys.path.append('/home/shared/cases/nozzle')
+
+from setup import *
+from spy import crl, dirCreator
 
 # Dimensionalised stuff
 C = np.cos(np.pi/360) # 0.5°

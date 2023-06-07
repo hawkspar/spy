@@ -2,6 +2,8 @@ from re import search
 from os import listdir
 from matplotlib import pyplot as plt
 
+sys.path.append('/home/shared/cases/nozzle')
+
 from setup import *
 from helpers import dirCreator
 
@@ -12,20 +14,20 @@ stick_to_ref=False # Use all available gains or limit to those specified in setu
 lim_zoom=[1e-12,.2]
 # Read all the gains in a dictionary
 dat={}
-file_names = [f for f in listdir(dir+"txt/") if f[-3:]=="txt"]
-for file_name in file_names:
-	match = search(r'm=(-?\d*)', file_name)
-	m=match.group(1)
-	match = search(r'St=(\d*\,?\d*(e-\d\d)?)',file_name)
-	St=match.group(1).replace(',','.')
-	match = search(r'Re=(\d*)',file_name)
-	Re=match.group(1)
-	match = search(r'S=(\d*\,?\d*)',file_name)
-	S=match.group(1)
-	if not Re in dat.keys(): 		dat[Re]      ={}
-	if not S  in dat[Re].keys():	dat[Re][S]   ={}
-	if not m  in dat[Re][S].keys(): dat[Re][S][m]={}
-	dat[Re][S][m][St] = np.loadtxt(dir+"txt/"+file_name).reshape(-1)
+for file_name in listdir(dir+"txt/"):
+	if file_name[-3:]=="txt":
+		match = search(r'm=(-?\d*)', file_name)
+		m=match.group(1)
+		match = search(r'St=(\d*\,?\d*(e-\d\d)?)',file_name)
+		St=match.group(1).replace(',','.')
+		match = search(r'Re=(\d*)',file_name)
+		Re=match.group(1)
+		match = search(r'S=(\d*\,?\d*)',file_name)
+		S=match.group(1)
+		if not Re in dat.keys(): 		dat[Re]      ={}
+		if not S  in dat[Re].keys():	dat[Re][S]   ={}
+		if not m  in dat[Re][S].keys(): dat[Re][S][m]={}
+		dat[Re][S][m][St] = np.loadtxt(dir+"txt/"+file_name).reshape(-1)
 
 plt.rcParams.update({'font.size': 26})
 for Re in dat.keys():
