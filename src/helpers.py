@@ -21,11 +21,6 @@ def div(r,dx:int,dr:int,dt:int,v,m:int):
 						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*1j*v[dt,dr]-v[dt,dt])/r,
 						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*1j*v[dt,dt]+v[dt,dr])/r])
 
-def lap(r,dx:int,dr:int,dt:int,v,m:int):
-	return ufl.as_vector([v[dx].dx(dx).dx(dx)+v[dr].dx(dx).dx(dr)+v[dr].dx(dx)+m*1j*v[dt].dx(dx)/r,
-						  v[dx].dx(dr).dx(dx)+v[dr].dx(dr).dx(dr)+v[dr].dx(dr)+(m*1j*v[dt].dx(dr)-(m*1j*v[dt]+v[dr])/r)/r,
-						  m*1j*v[dx].dx(dx)/r+((m*1j*v[dr]-v[dt])/r).dx(dr)+(m*1j*v[dr]-v[dt])/r+(m*1j*(m*1j*v[dt]+v[dr])/r+v[dt].dx(dr))/r])
-
 def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
 	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
     m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
@@ -85,12 +80,13 @@ def loadStuff(path:str,params:dict,fun:Function) -> None:
 
 # Wrapper
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
-	# JIT options for speed
+	M = dfx.fem.petsc.assemble_matrix(dfx.fem.form(form), bcs, diag)
+	"""# JIT options for speed
 	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
 	M = dfx.cpp.fem.petsc.create_matrix(form)
 	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
 	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
-	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
+	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)"""
 	M.assemble()
 	return M
 
@@ -112,7 +108,7 @@ def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
 	KSP.setFromOptions()
-	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
+	#if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
 
 # Eigenvalue problem solver
 def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:

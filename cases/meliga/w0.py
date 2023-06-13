@@ -23,13 +23,13 @@ Ux=U.split()[0]
 
 w0s=np.empty(n)
 # Baseflow calculation (memoisation)
-class_th,u_inlet_th,boundaries=boundaryConditionsBaseflow(spyb,0)
+class_th,u_inlet_th=boundaryConditionsBaseflow(spyb,0)
 for i,S in enumerate(Ss):
     if isfile(spyb.print_path+f"u_Re={Re:d}_S={S:.2f}".replace('.',',')+".xdmf"): spyb.loadBaseflow(Re,S,False)
     else:
         class_th.S=S
         u_inlet_th.interpolate(class_th)
-        spyb.baseflow(Re,S,boundaries)
+        spyb.baseflow(Re,S)
     w0=np.min(spyb.eval(Ux,target_xy))
     dirCreator(spyb.baseflow_path+"/ws/")
     if p0:

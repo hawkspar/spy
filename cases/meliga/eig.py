@@ -22,8 +22,10 @@ spyp.Nu.interpolate(lambda x: 1/sponged_Reynolds(x))
 
 # For efficiency, matrix is assembled only once
 boundaryConditionsPerturbations(spyp,m)
-class_th,u_inlet_th,boundaries=boundaryConditionsBaseflow(spyb,0)
-spyp.assembleJNMatrices(m,boundaries)
+spyp.assembleJNMatrices(m)
+
+spyp.sanityCheck()
+
 # Grid search
 for re in [.05]:#np.linspace(.05,-.1,4).round(decimals=3):
     for im in [1]:#np.linspace(-1,1,11).round(decimals=3):

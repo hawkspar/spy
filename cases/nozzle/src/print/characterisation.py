@@ -143,7 +143,7 @@ if p0:
 	plt.plot(dat[:,0]*2, dat[:,1], label=r'Schmidt')
 	#plt.plot((0,np.max(X)/2), b+a*np.array((0,np.max(X)))/2,label=r'$y='+f'{a:.3f}x{b:+.3f}$')
 	plt.legend()
-	plt.xlabel(r'$x/D$')
+	plt.xlabel(r'$x$')
 	plt.ylabel(r'$\Theta$')
 	plt.savefig(dir+"theta(x)"+save_str+".png")
 	plt.close()

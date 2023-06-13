@@ -57,7 +57,6 @@ class LHS_class:
 class SPYP(SPY):
 	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, mesh_name, direction_map)
-		dirCreator(self.baseflow_path)
 
 	# Handle
 	def interpolateBaseflow(self,spy:SPY) -> None:
@@ -67,12 +66,12 @@ class SPYP(SPY):
 		self.Nu.interpolate(spy.Nu)
 
 	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,m:int,boundaries) -> None:
+	def assembleJNMatrices(self,m:int) -> None:
 		# Functions
 		u, v = self.u, self.v
 
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(m,boundaries)
+		J_form = self.linearisedNavierStokes(m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
 		N_form = ufl.inner(u,v)*self.r*ufl.dx # Same multiplication process as base equations
 		

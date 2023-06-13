@@ -25,8 +25,8 @@ Re_s=.1
 
 # Numerical parameters
 params = {"rp":.97,    #relaxation_parameter
-		  "atol":1e-12, #absolute_tolerance
-		  "rtol":1e-9, #DOLFIN_EPS does not work well
+		  "atol":1e-16, #absolute_tolerance
+		  "rtol":1e-12, #DOLFIN_EPS does not work well
 		  "max_iter":200}
 datapath='meliga' #folder for results
 direction_map={'x':0,'r':1,'th':2}
@@ -96,8 +96,7 @@ def boundaryConditionsBaseflow(spyb:SPYB,S:float) -> tuple:
 
 	# Handle homogeneous boundary conditions
 	spyb.applyHomogeneousBCs([(inlet,['r']),(top,['r','th']),(sym,['r','th'])])
-	boundaries = [(1, lambda x: top(x)*sym(x)),(2, outlet)]
-	return class_th,u_inlet_th,boundaries
+	return class_th,u_inlet_th
 
 # Baseflow (really only need DirichletBC objects) enforces :
 # u=0 at inlet (linearise as baseflow)
