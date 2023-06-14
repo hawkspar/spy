@@ -74,18 +74,18 @@ class SPY:
 		nu = 1/self.Re+self.Nu
 		r, v, s = self.r, self.v, self.s
 		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['th']
-		dv, gd = lambda v: div(r,dx,dr,dt,v,0), lambda v: grd(r,dx,dr,dt,v,0)
+		dv, gd = lambda v,i=0: rdiv(r,dx,dr,dt,v,i,0), lambda v,i=0: rgrd(r,dx,dr,dt,v,i,0)
 		# Functions
 		U, P = ufl.split(self.Q)
 		# Mass (variational formulation)
-		F  = ufl.inner(dv(U),   s)
+		F  = ufl.inner(dv(U),  s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(gd(U)*U, v) # Convection
-		F -= ufl.inner(	  P, dv(v)) # Pressure
+		F += ufl.inner(gd(U)*U,r*v) # Convection
+		F -= ufl.inner(	  P, r*dv(v,1)) # Pressure
 		"""F += ufl.inner(gd(U)+gd(U).T,
 							 gd(v))*nu # Diffusion (grad u.T significant with nut)"""
-		F += ufl.inner(gd(U),gd(v))*nu # Diffusion (grad u.T significant with nut)
-		return F*r*ufl.dx
+		F += ufl.inner(gd(U),gd(v,1))*nu # Diffusion (grad u.T significant with nut)
+		return F*ufl.dx
 	
 	# Not automatic because of convection term
 	def linearisedNavierStokes(self,m:int) -> ufl.Form:
@@ -93,21 +93,21 @@ class SPY:
 		nu = 1/self.Re + self.Nu
 		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
 		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['th']
-		dv, gd = lambda v,m: div(r,dx,dr,dt,v,m), lambda v,m: grd(r,dx,dr,dt,v,m)
+		dv, gd = lambda v,m,i=0: rdiv(r,dx,dr,dt,v,i,m), lambda v,m,i=0: rgrd(r,dx,dr,dt,v,i,m)
 		# Functions
 		U, _ = ufl.split(self.Q) # Baseflow
 		# Mass (variational formulation)
 		F  = ufl.inner(dv(u,m),   s)
 		# Momentum (different test functions and IBP)
-		F += ufl.inner(gd(U,0)*u, v) # Convection
-		F += ufl.inner(gd(u,m)*U, v)
-		F -= ufl.inner(   p,   dv(v,m)) # Pressure
+		F += ufl.inner(gd(U,0)*u, r*v) # Convection
+		F += ufl.inner(gd(u,m)*U, r*v)
+		F -= ufl.inner(   p, r*dv(v,m,1)) # Pressure
 		"""F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)"""
-		F += ufl.inner(gd(u,m),gd(v,m))*nu # Diffusion (grad u.T significant with nut)
+		F += ufl.inner(gd(u,m),gd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
 		#F += 2*ufl.inner(U[2]*u[2],		  v[1])/r # Cancel out centrifugal force
 		#F -=   ufl.inner(U[1]*u[2]+U[2]*u[1],v[2])/r # Cancel out Coriolis force
-		return F*r*ufl.dx
+		return F*ufl.dx
 	
 	# Evaluate velocity at provided points
 	def eval(self,f,proj_pts,ref_pts=None) -> np.array:
