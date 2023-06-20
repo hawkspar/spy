@@ -28,9 +28,9 @@ spyp.sanityCheck()
 
 # Grid search
 for re in [.05]:#np.linspace(.05,-.1,4).round(decimals=3):
-    for im in [1]:#np.linspace(-1,1,11).round(decimals=3):
+    for im in [1]:#np.linspace(-1,1,4).round(decimals=3):
         #if re>0 and abs(im-1)>.2: continue
-        spyp.eigenvalues(re+1j*im,3,Re,S,m) # Actual computation shift value, nb of eigenmodes
+        spyp.eigenvalues(re+1j*im,20,Re,S,m) # Actual computation shift value, nb of eigenmodes
 if p0:
     # Read them all, regroup them
     vals=[]

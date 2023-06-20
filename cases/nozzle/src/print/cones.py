@@ -4,7 +4,7 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-from three_d import *
+from modes_3d import *
 
 Ss_ref = [1]
 ms_ref = [-2,2]#,0,2]

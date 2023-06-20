@@ -23,7 +23,7 @@ def rgrd(r,dx:int,dr:int,dt:int,v,i:bool,m:int):
 
 def div(r,dx:int,dr:int,dt:int,v,m:int):
 	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
-	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+v[dr,dx]+m*1j*v[dt,dx]/r,
+	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+v[dr,dx]+ m*1j*v[dt,dx]		   /r,
 						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*1j*v[dt,dr]-v[dt,dt])/r,
 						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*1j*v[dt,dt]+v[dt,dr])/r])
 
@@ -78,8 +78,9 @@ def findStuff(path:str,params:dict,format=lambda f:True,distributed=True):
 		if format(file_name) and (not distributed or checkComm(file_name)): # Lazy evaluation !
 			fd=0 # Compute distance according to all params
 			for param in params:
-				match = re.search(param+r'=(\d*(,|e|-|j|\+)?\d*)',file_name)
-				param_file = float(match.group(1).replace(',','.')) # Take advantage of file format
+				regexp='\d*,?\d*e?\+?-?\d*'
+				match = re.search(param+r'=('+regexp+'\+?-?'+regexp+'j?)',file_name) # Can handle everything from negative integers to complex numbers in scientific notation
+				param_file = complex(match.group(1).replace(',','.')) # Take advantage of file format
 				fd += abs(params[param]-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
 	return closest_file_name
@@ -92,13 +93,12 @@ def loadStuff(path:str,params:dict,fun:Function) -> None:
 
 # Wrapper
 def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
-	M = dfx.fem.petsc.assemble_matrix(dfx.fem.form(form), bcs, diag)
-	"""# JIT options for speed
+	# JIT options for speed
 	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
 	M = dfx.cpp.fem.petsc.create_matrix(form)
 	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
 	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
-	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)"""
+	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
 	M.assemble()
 	return M
 

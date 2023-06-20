@@ -5,6 +5,8 @@ Created on Fri Dec 10 12:00:00 2021
 @author: hawkspar
 """
 #source /usr/local/bin/dolfinx-real-mode
+from mpi4py.MPI import MAX
+
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.fem import Function, Expression
 from dolfinx.mesh import refine, locate_entities
@@ -105,10 +107,10 @@ class SPYB(SPY):
 		return F
 			
 	def smoothenNu(self, e:float):
-		self.Nu.x.array[self.Nu.x.array<1e-5]=0 # Somewhat arbitrary cutoff
+		self.Nu.x.array[self.Nu.x.array<self.params['rtol']] = 0 # Somewhat arbitrary cutoff, no negative viscosity
 		self.Nu = self.smoothenF(e,self.Nu)
-		self.Nu.x.array[self.Nu.x.array<1e-5]=0 # Important to do it twice
-			
+		self.Nu.x.array[self.Nu.x.array<self.params['rtol']] = 0
+	
 	def smoothenP(self, e:float):
 		_, P = ufl.split(self.Q)
 		P = self.smoothenF(e,P)

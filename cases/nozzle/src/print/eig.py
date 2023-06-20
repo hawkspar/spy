@@ -4,12 +4,13 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
-import warnings
+from sys import path
 from re import search
 from os import listdir
 from matplotlib import pyplot as plt
+from warnings import simplefilter, catch_warnings
 
-sys.path.append('/home/shared/cases/nozzle')
+path.append('/home/shared/cases/nozzle/src/')
 
 from setup import *
 from helpers import dirCreator
@@ -31,8 +32,8 @@ for file_name in listdir(dir+"values/"):
         if not Re in dat.keys(): 		dat[Re]      ={}
         if not S  in dat[Re].keys():	dat[Re][S]   ={}
         if not m  in dat[Re][S].keys(): dat[Re][S][m]=set()
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        with catch_warnings():
+            simplefilter("ignore")
             local_eigs=np.loadtxt(dir+"values/"+file_name,dtype=complex)
         if local_eigs.size==1: dat[Re][S][m].add(complex(local_eigs))
         else:                  dat[Re][S][m].update(local_eigs)

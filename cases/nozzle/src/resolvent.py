@@ -35,6 +35,7 @@ with cProfile.Profile() as pr:
 			spyp.assembleJNMatrices(m)
 			# Resolvent analysis
 			spyp.resolvent(3,Sts_ref,Re,S,m)
+	
 	if comm.rank==0:
 		pr.dump_stats('stats')
 		p = pstats.Stats('stats')

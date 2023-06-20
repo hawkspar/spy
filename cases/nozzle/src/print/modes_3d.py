@@ -4,8 +4,11 @@ Created on Wed Oct  13 17:07:00 2021
 
 @author: hawkspar
 """
+from sys import path
 from os.path import isfile
 import plotly.graph_objects as go
+
+path.append('/home/shared/cases/nozzle/src/')
 
 from setup import *
 from spyp import SPYP # Must be after setup
@@ -14,7 +17,7 @@ from helpers import dirCreator
 spyp = SPYP(params,data_path,pert_mesh,direction_map)
 
 # Actual plotting
-dir=spyp.resolvent_path+"_no_centrifuge/3d/"
+dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
 
 Ss_ref = [0,1]

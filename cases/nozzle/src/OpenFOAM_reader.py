@@ -5,7 +5,7 @@ from mpi4py.MPI import COMM_WORLD as comm
 from setup import *
 from helpers import dirCreator, meshConvert, findStuff
 
-sanity_check=True#False
+sanity_check=True
 convert=False
 
 # Relevant parameters
@@ -29,7 +29,7 @@ for Re in Res:
         # Read OpenFOAM, write mesh
         if p0:
             # Searching closest file with respect to setup parameters
-            closest_file_name=findStuff("./baseflow/OpenFOAM/",{'S':S,'Re':Re}, lambda f: f[-3:]=="xmf",False)
+            closest_file_name=findStuff("/home/shared/cases/nozzle/baseflow/OpenFOAM/",{'S':S,'Re':Re}, lambda f: f[-3:]=="xmf",False)
             # Read OpenFOAM data
             openfoam_data = meshio.read(closest_file_name)
             print("Loaded "+closest_file_name+" successfully !", flush=True)
@@ -79,5 +79,6 @@ for Re in Res:
         dirCreator(spyb.baseflow_path)
         save_string=f"_Re={Re:d}_S={S:.1f}".replace('.',',')
         spyb.saveBaseflow(Re,S,True)
-        spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"nu"+save_string,spyb.Nu)
-        spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"u" +save_string,U)
+        if sanity_check:
+            spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"nu"+save_string,spyb.Nu)
+            spyb.printStuff(spyb.baseflow_path+'print_OpenFOAM/',"u" +save_string,U)

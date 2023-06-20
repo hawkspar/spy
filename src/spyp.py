@@ -73,7 +73,7 @@ class SPYP(SPY):
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(m)
 		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,v)*self.r**2*ufl.dx # Same multiplication process as base equations
+		N_form = ufl.inner(u,v)*self.r*ufl.dx # Same multiplication process as base equations
 		
 		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
@@ -165,7 +165,7 @@ class SPYP(SPY):
 				continue
 
 			# Equations
-			self.R_obj.setL(self.J-2*1j*np.pi*St*self.N,self.params)
+			self.R_obj.setL(self.J-2j*np.pi*St*self.N,self.params)
 			# Eigensolver
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
@@ -187,7 +187,7 @@ class SPYP(SPY):
 				# Write gains
 				np.savetxt(gains_name,gains)
 				print("Saved "+gains_name,flush=True)
-				# Get a list of all the file paths with the same parameters
+				# Get a list of all the file paths with the same parameters (idea is to avoid ambiguity with past results)
 				fileList = glob.glob(self.resolvent_path+"(forcing/print|forcing/npy|response/print|response/npy)"+save_string+"_i=*.*")
 				# Iterate over the list of filepaths & remove each file
 				for filePath in fileList: os.remove(filePath)
@@ -200,7 +200,7 @@ class SPYP(SPY):
 				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
-				saveStuff(self.resolvent_path+"forcing/npy/",save_string+f"_i={i+1:d}",forcing_i)
+				saveStuff(		self.resolvent_path+"forcing/npy/",		  save_string+f"_i={i+1:d}",forcing_i)
 				# Obtain response from forcing
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
@@ -210,7 +210,7 @@ class SPYP(SPY):
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
-				saveStuff(self.resolvent_path+"response/npy/",save_string+f"_i={i+1:d}",velocity_i)
+				saveStuff(		self.resolvent_path+"response/npy/",	   save_string+f"_i={i+1:d}",velocity_i)
 
 	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,fs:Function,n:int,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly

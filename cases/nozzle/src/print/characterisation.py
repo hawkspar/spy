@@ -1,9 +1,10 @@
-import meshio #pip3 install --no-binary=h5py h5py meshio
+from sys import path
+from meshio import read #pip3 install --no-binary=h5py h5py meshio
 from scipy.stats import linregress
 from matplotlib import pyplot as plt
 from scipy.interpolate import griddata
 
-sys.path.append('/home/shared/cases/nozzle')
+path.append('/home/shared/cases/nozzle/src/')
 
 from setup import *
 from spy import crl, dirCreator
@@ -15,14 +16,15 @@ S=1
 
 openfoam=False
 save_str=f"_Re={Re}_S={S:.1f}".replace('.',',')
-dir='baseflow/characteristics/'
-dirCreator('baseflow')
+dir='/home/shared/cases/nozzle/baseflow/'
+dirCreator(dir)
+dir+='characteristics/'
 dirCreator(dir)
 
 # Read OpenFOAM
 if openfoam:
 	# Read mesh and point data
-	openfoam_data = meshio.read("front"+save_str+".xmf")
+	openfoam_data = read("front"+save_str+".xmf")
 	xy = openfoam_data.points[:,:2]/C # Scaling & Plane tilted
 
 	# Dimensionless
@@ -79,12 +81,12 @@ if p0:
 		u_x = u[i*n:(i+1)*n]
 		i_m = np.argmin(u_x)
 		v = (u_x[:i_m+1]-u_x[i_m])/(1-u_x[i_m])
-		ths[i] = np.trapz(v*(1-v)*R[:i_m+1],R[:i_m+1])/4 # Again dimensionless with R or D changes things
+		ths[i] = np.trapz(v*(1-v)*R[:i_m+1],R[:i_m+1]) # Again dimensionless with R or D changes things
 	print(ths[0])
 
 	m,M=4,10
 	msk=(m<X)*(X<M)
-	res=linregress(X[msk]/2,ths[msk])
+	res=linregress(X[msk],ths[msk])
 	a,b=res.slope,res.intercept
 
 	dat=np.array([[0, 0.05049088359046272],
@@ -140,7 +142,7 @@ if p0:
 				[27.977736549165122, 0.7727910238429171]])
 
 	plt.plot(X, ths, label=r'Present case')#label=r'$\theta=\int_0^{r_0}u(1-u)rdr$')
-	plt.plot(dat[:,0]*2, dat[:,1], label=r'Schmidt')
+	plt.plot(dat[:,0]*2, dat[:,1]*4, label=r'Schmidt') # Again dimensionless with R or D changes things
 	#plt.plot((0,np.max(X)/2), b+a*np.array((0,np.max(X)))/2,label=r'$y='+f'{a:.3f}x{b:+.3f}$')
 	plt.legend()
 	plt.xlabel(r'$x$')
