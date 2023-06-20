@@ -2,6 +2,7 @@ from sys import path
 from re import search
 from os import listdir
 from matplotlib import pyplot as plt
+from scipy.interpolate import CubicSpline
 
 path.append('/home/shared/cases/nozzle/src/')
 
@@ -54,29 +55,13 @@ for Re in dat.keys():
 				Sts.append(float(St))
 				gains.append(np.max(dat[Re][S][m][St]))
 			# Transforming messy lists into nice ordered arrays
-			Sts,gains=np.array(Sts)*2,np.array(gains)**(1+square) # Usual St=fD/U not fR/U
 			ids=np.argsort(Sts)
-			Sts,gains=Sts[ids],gains[ids]
-			ax.plot(Sts,gains,label=r'$m='+m+'$',color=color_code[m],linewidth=3)
-			ax_zoom.plot(Sts,gains,label=r'$m='+m+'$',color=color_code[m],linewidth=3)
-
-			"""if m == '4':
-				if   S =='0,0': Sts_4,gains_4=np.copy(Sts),np.copy(gains)
-				elif S =='0,2':
-					msk_4=[np.any(np.isclose(Sts,  St_4)) for St_4 in Sts_4]
-					msk  =[np.any(np.isclose(Sts_4,St))   for St   in Sts  ]
-					print(m,S,np.mean(np.abs(gains[msk]-gains_4[msk_4])))
-			if m == '2':
-				if   S =='0,0': Sts_0,gains_0=np.copy(Sts),np.copy(gains)
-				elif S =='0,2':
-					msk_0=[np.any(np.isclose(Sts,  St_0)) for St_0 in Sts_0]
-					msk  =[np.any(np.isclose(Sts_0,St))   for St   in Sts  ]
-					print(m,S,np.mean(np.abs(gains[msk]-gains_0[msk_0])))
-				elif S =='0,8': Sts_0,gains_0=np.copy(Sts),np.copy(gains)
-				elif S =='1,0':
-					msk_0=[np.any(np.isclose(Sts,  St_0)) for St_0 in Sts_0]
-					msk  =[np.any(np.isclose(Sts_0,St))   for St   in Sts  ]
-					print(m,S,np.mean(np.abs(gains[msk]-gains_0[msk_0])))"""
+			Sts,gains=np.array(Sts[ids])*2,np.array(gains[ids])**(1+square) # Usual St=fD/U not fR/U
+			# Nice smooth splines
+			gains_spl = CubicSpline(Sts, gains)
+			Sts_fine=np.linspace(Sts[0],Sts[-1],1000)
+			ax.plot(	 Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)
+			ax_zoom.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 		# Plot all gains
 		ax.set_xlabel(r'$St$')
 		ax.set_ylabel(sig_lbl)
@@ -109,9 +94,13 @@ for Re in dat.keys():
 					Sts[i].append(float(St))
 					gains[i].append(dat[Re][S][m][St][i])
 			for i in range(n):
-				Sts[i],gains[i]=np.array(Sts[i])*2,np.array(gains[i])**(1+square)
+				# Transform into nice arrays
 				ids=np.argsort(Sts[i])
-				ax.plot(Sts[i][ids],gains[i][ids],label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
+				Sts[i],gains[i]=np.array(Sts[i][ids])*2,np.array(gains[i][ids])**(1+square)
+				# Nice smooth splines
+				gains_spl = CubicSpline(Sts[i], gains[i])
+				Sts_fine=np.linspace(Sts[i][0],Sts[i][-1],1000)
+				ax.plot(Sts_fine,gains_spl(Sts_fine),label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
 			plt.xlabel(r'$St$')
 			plt.ylabel(sig_lbl)
 			plt.yscale('log')
@@ -119,5 +108,5 @@ for Re in dat.keys():
 			box = ax.get_position()
 			ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 			plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-			plt.savefig(dir+"plots/"+f"Re={int(Re)}_S={S}_m={m}.png")
+			plt.savefig(dir+"plots/"+f"Re={Re}_S={S}_m={m}.png")
 			plt.close()

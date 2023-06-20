@@ -28,7 +28,6 @@ for S in Ss[1:]:
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{"Re":Re,"S":S},spyb.Nu)
 	spyb.baseflow(Re,S,save=False)
-	spyb.smoothenU(1e-6)
 	spyb.smoothenU(1e-4,direction_map['r'])
 	spyb.saveBaseflow(Re,S)
 	U,_=spyb.Q.split()
