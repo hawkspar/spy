@@ -17,7 +17,7 @@ square=False
 sig_lbl=r'$\sigma^{(1)'
 if square: sig_lbl+='2'
 sig_lbl+='}$'
-lim_zoom=[0,1]
+lim_zoom=[0,.02]
 # Read all the gains in a dictionary
 dat={}
 for file_name in listdir(dir+"txt/"):
@@ -56,7 +56,7 @@ for Re in dat.keys():
 				gains.append(np.max(dat[Re][S][m][St]))
 			# Transforming messy lists into nice ordered arrays
 			ids=np.argsort(Sts)
-			Sts,gains=np.array(Sts[ids])*2,np.array(gains[ids])**(1+square) # Usual St=fD/U not fR/U
+			Sts,gains=(np.array(Sts)*2)[ids],(np.array(gains)**(1+square))[ids] # Usual St=fD/U not fR/U
 			# Nice smooth splines
 			gains_spl = CubicSpline(Sts, gains)
 			Sts_fine=np.linspace(Sts[0],Sts[-1],1000)
@@ -96,7 +96,7 @@ for Re in dat.keys():
 			for i in range(n):
 				# Transform into nice arrays
 				ids=np.argsort(Sts[i])
-				Sts[i],gains[i]=np.array(Sts[i][ids])*2,np.array(gains[i][ids])**(1+square)
+				Sts[i],gains[i]=(np.array(Sts[i])*2)[ids],(np.array(gains[i])**(1+square))[ids]
 				# Nice smooth splines
 				gains_spl = CubicSpline(Sts[i], gains[i])
 				Sts_fine=np.linspace(Sts[i][0],Sts[i][-1],1000)
