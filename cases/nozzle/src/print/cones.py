@@ -37,34 +37,35 @@ for S in Ss_ref:
 	spyb.loadBaseflow(Re,S,False)
 	for m in ms_ref:
 		for St in Sts_ref:
-			file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.2f}".replace('.',',') # Usual Re & St based on D
+			file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.4e}".replace('.',',') # Usual Re & St based on D
+			dat={"Re":Re,"S":S,"m":m,"St":St}
 			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
 			if isfile(file_name+"_dir=x.html") and isfile(file_name+"_dir=r.html") and isfile(file_name+"_dir=th.html"):
-				if p0: print("Found an html file, moving on...",flush=True)
+				if p0: print("Found html files, moving on...",flush=True)
 				continue
 			if St > .5 or m == 0:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_kh,.1,2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_kh,.1,2,'Picnic',"axial response")
 			elif St == Sts_ref[0] and S == 0:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_sh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_sk,.1,2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_sh,.1,2,'Picnic',"axial response")
 			elif St == Sts_ref[0] and S < .5:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_sk,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_sk,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_sk,.1,2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_sk,.1,2,'Picnic',"axial response")
 			elif St == Sts_ref[0] and m > 0:
 				quiv_U=spyb.computeQuiver(XYZc_st,"Greens")
-				isos_f=spyp.computeIsosurfaces(m,XYZf_cr,.1,spyp.readMode("forcing", Re,S,m,St),1,'Earth', "forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_st,.1,spyp.readMode("response",Re,S,m,St),1,'Picnic',"response")
+				isos_f=spyp.computeIsosurfaces("forcing", dat,XYZf_cr,.1,1,'Earth', "forcing")
+				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_st,.1,1,'Picnic',"response")
 			elif St == Sts_ref[0] and m < 0:
 				quiv_U=spyb.computeQuiver(XYZc_sw,"Greens")
-				isos_f=spyp.computeIsosurfaces(m,XYZf_cr,.1,spyp.readMode("forcing", Re,S,m,St),1,'Earth', "forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_sw,.1,spyp.readMode("response",Re,S,m,St),1,'Picnic',"response")
+				isos_f=spyp.computeIsosurfaces("forcing", dat,XYZf_cr,.1,1,'Earth', "forcing")
+				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_sw,.1,1,'Picnic',"response")
 			elif St == Sts_ref[-1]:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_kh,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_kh,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_kh,.1,2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_kh,.1,2,'Picnic',"axial response")
 			else:
-				#isos_f=spyp.computeIsosurfaces(m,XYZf_cr,.1,spyp.readMode("forcing", Re,S,m,St),2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces(m,XYZr_nr,.1,spyp.readMode("response",Re,S,m,St),2,'Picnic',"axial response")
+				#isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_cr,.1,2,'Earth', "axial forcing")
+				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_nr,.1,2,'Picnic',"axial response")
 			# Animation
 			if p0:
 				for coord in range(3):

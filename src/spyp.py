@@ -65,6 +65,29 @@ class SPYP(SPY):
 		U.interpolate(U_spy)
 		self.Nu.interpolate(spy.Nu)
 
+	def readMode(self,str:str,dat:dict):
+		funs = Function(self.TH0c)
+		dat['i']=1
+		loadStuff(self.resolvent_path+str+"/npy/",dat,funs)
+		return funs
+
+	def readCurl(self,str:str,dat:dict,coord='x'):
+		funs = self.readMode(str,dat)
+		crls=crl(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],self.mesh,funs,dat['m'])[self.direction_map[coord]]
+		expr=dfx.fem.Expression(crls,self.TH1.element.interpolation_points())
+		crls = Function(self.TH1)
+		crls.interpolate(expr)
+		return crls
+
+	# Probably better to do Fourier 2D
+	def readK(self,str:str,dat:dict,coord=0):
+		tup=self.readMode(str,dat).split()
+		grds=grd(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],tup[coord],dat['m'])
+		expr=dfx.fem.Expression(grds[0]/tup[coord],self.TH1.element.interpolation_points())
+		k = Function(self.TH1)
+		k.interpolate(expr)
+		return k
+
 	# To be run in complex mode, assemble crucial matrices
 	def assembleJNMatrices(self,m:int) -> None:
 		# Functions
@@ -212,28 +235,121 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(		self.resolvent_path+"response/npy/",	   save_string+f"_i={i+1:d}",velocity_i)
 
-	def computeIsosurfaces(self,m:int,XYZ:np.array,r:float,fs:Function,n:int,scale:str,name:str) -> list:
+	def visualiseXPlane(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int):
+		import matplotlib.pyplot as plt
+
+		fs = self.readMode(str,dat).split()
+
+		rs = np.linspace(0,R,n_r)
+		XYZ = np.array([[x,r,0] for r in rs])
+		# Evaluation of projected value
+		Fs = [self.eval(f, XYZ.T) for f in fs]
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/x_plane/"
+		dirCreator(dir)
+		if p0:
+			thetas = np.linspace(0,2*np.pi,n_th,endpoint=False)
+			for i,F in enumerate(Fs):
+				F=np.real(np.outer(F,np.exp(dat['m']*1j*thetas)))
+
+				_, ax = plt.subplots(subplot_kw={"projection":'polar'})
+				f=ax.contourf(thetas,rs,F)
+				ax.set_rorigin(0)
+
+				# Recover direction
+				for d in self.direction_map.keys():
+					if self.direction_map[d]==i: break
+				plt.colorbar(f)
+				plt.title(str+" in direction "+d+" at plane r-"+r"$\theta$"+f" at x={x}")
+				plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.3f}_x={x:00.1f}".replace('.',',')+".png")
+				plt.close()
+
+	def visualiseCurls(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int):
+		import matplotlib.pyplot as plt
+
+		C = self.readCurl(str,dat)
+
+		rs = np.linspace(0,R,n_r)
+		XYZ = np.array([[x,r,0] for r in rs])
+		# Evaluation of projected value
+		C = self.eval(C, XYZ.T)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/vorticity/"
+		dirCreator(dir)
+		if p0:
+			thetas = np.linspace(0,2*np.pi,n_th,endpoint=False)
+			C=np.real(np.outer(C,np.exp(dat['m']*1j*thetas)))
+
+			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
+			c=ax.contourf(thetas,rs,C)
+			ax.set_rorigin(0)
+
+			plt.colorbar(c)
+			plt.title("Rotational of "+str+" at plane r-"+r"$\theta$"+f" at x={x}")
+			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.3f}_x={x:00.1f}".replace('.',',')+".png")
+			plt.close()
+
+	def visualiseStreaks(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int,r:int,a:int):
+		import matplotlib.pyplot as plt
+
+		fs = self.readMode(str,dat).split()
+		u = self.readMode("response",dat).split()[self.direction_map['x']]
+
+		rs = np.linspace(0,R,n_r)
+		rs_r=rs[::r]
+		XYZ   = np.array([[x,r,0] for r in rs])
+		XYZ_r = np.array([[x,r,0] for r in rs_r])
+		# Evaluation of projected value
+		F = self.eval(fs[self.direction_map['r']], XYZ_r.T)
+		G = self.eval(fs[self.direction_map['theta']],XYZ_r.T)
+		U = self.eval(u, XYZ.T)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/quiver/"
+		dirCreator(dir)
+		if p0:
+			thetas = np.linspace(0,2*np.pi,n_th,endpoint=False)
+			thetas_r = thetas[::r]
+			F=np.real(np.outer(F,np.exp(dat['m']*1j*thetas_r)))*a
+			G=np.real(np.outer(F,np.exp(dat['m']*1j*thetas_r)))*a
+			U=np.real(np.outer(U,np.exp(dat['m']*1j*thetas)))
+
+			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
+			fig.set_size_inches(10,10)
+			plt.rcParams.update({'font.size': 20})
+			fig.set_dpi(200)
+			c=ax.contourf(thetas,rs,U,cmap='bwr')
+			ax.quiver(thetas_r,rs_r,F*np.cos(thetas_r)-G*np.sin(thetas_r),F*np.sin(thetas_r)+G*np.cos(thetas_r))
+			ax.set_rorigin(0)
+
+			plt.colorbar(c)
+			plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
+			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.3f}_x={x:00.1f}".replace('.',',')+".png")
+			plt.close()
+
+	def computeIsosurfaces(self,str:str,dat:dict,XYZ:np.array,r:float,n:int,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ
+		fs = self.readMode(str,dat).split()
 		# Evaluation of projected value
 		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
 		XYZ_e, U = self.eval(fs[self.direction_map['x']], XYZ_p.T,XYZ.T)
 		_, 	   V = self.eval(fs[self.direction_map['r']], XYZ_p.T,XYZ.T)
-		_, 	   W = self.eval(fs[self.direction_map['th']],XYZ_p.T,XYZ.T)
+		_, 	   W = self.eval(fs[self.direction_map['theta']],XYZ_p.T,XYZ.T)
 
 		if p0:
 			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
 			X,Y,Z = XYZ_e.T
-			th = np.arctan2(Z,Y)
-			U *= np.exp(1j*m*th) # Proper azimuthal decomposition
-			V *= np.exp(1j*m*th)
-			W *= np.exp(1j*m*th)
+			m,th = dat['m'],np.arctan2(Z,Y)
+			U,V,W = U*np.exp(1j*m*th),V*np.exp(1j*m*th),W*np.exp(1j*m*th) # Proper azimuthal decomposition
 			# Now handling time
 			surfs = [[]]*3
 			for t in np.linspace(0,np.pi/4,n,endpoint=False):
 				Ut = (U*np.exp(-1j*t)).real # Time-shift
-				Vt = ((V*np.cos(th)-W*np.sin(th))*np.exp(-1j*t)).real
+				Vt = ((V*np.cos(th)-W*np.sin(th))*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
 				Wt = ((W*np.cos(th)+V*np.sin(th))*np.exp(-1j*t)).real
 				surfs[0].append(go.Isosurface(x=X,y=Y,z=Z,value=Ut,
 										   	  isomin=r*np.min(Ut),isomax=r*np.max(Ut),
@@ -248,28 +364,3 @@ class SPYP(SPY):
 										   	  colorscale=scale, name="azimuthal "+name,
 										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 			return surfs
-
-	def readMode(self,str:str,Re:int,S:float,m:int,St:float):
-		funs = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
-		return funs.split()
-
-	def readCurl(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
-		funs = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
-		crls=crl(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],self.mesh,funs,m)[coord]
-		expr=dfx.fem.Expression(crls,self.TH1.element.interpolation_points())
-		crls = Function(self.TH1)
-		crls.interpolate(expr)
-		return crls
-
-	# Probably better to do Fourier 2D
-	def readK(self,str:str,Re:int,S:float,m:int,St:float,coord=0):
-		funs = Function(self.TH0c)
-		loadStuff(self.resolvent_path+str+"/npy/",{"Re":Re,"S":S,"m":m,"St":St,"i":1},funs)
-		tup=funs.split()
-		grds=grd(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],tup[coord],m)
-		expr=dfx.fem.Expression(grds[0]/tup[coord],self.TH1.element.interpolation_points())
-		k = Function(self.TH1)
-		k.interpolate(expr)
-		return k

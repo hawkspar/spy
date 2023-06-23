@@ -27,9 +27,9 @@ h=1e-4
 U_m,a=.05,6
 
 # Easier standardisation across files
-Ss_ref = np.linspace(0,1,6)
-ms_ref = range(-5,6)
-Sts_ref = np.linspace(0,.01,10)#np.hstack((np.linspace(0,.01,10,endpoint=False),np.linspace(.01,1,10)))
+Ss_ref = [1]#np.linspace(0,1,6)
+ms_ref = range(-2,3)
+Sts_ref = []#np.linspace(0,1,100)
 
 # Numerical Parameters
 params = {"rp":.97,    #relaxation_parameter
@@ -37,7 +37,7 @@ params = {"rp":.97,    #relaxation_parameter
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
 		  "max_iter":50}
 data_path='nozzle' #folder for results
-direction_map={'x':0,'r':1,'th':2}
+direction_map={'x':0,'r':1,'theta':2}
 
 spyb = SPYB(params,data_path,base_mesh,direction_map) # Must be first !
 
@@ -89,7 +89,7 @@ def boundaryConditionsBaseflow(spy:SPY,S:float) -> tuple:
 		spy.applyBCs(dofs[0],bcs)
 
 	# Handle homogeneous boundary conditions
-	spy.applyHomogeneousBCs([(inlet,['r']),(coflow,['r','th']),(nozzle,['x','r','th']),(symmetry,['r','th'])])
+	spy.applyHomogeneousBCs([(inlet,['r']),(coflow,['r','th']),(nozzle,['x','r','theta']),(symmetry,['r','theta'])])
 	return class_th, u
 
 # u=0 at inlet, nozzle (linearise as baseflow)
@@ -98,8 +98,8 @@ def boundaryConditionsBaseflow(spy:SPY,S:float) -> tuple:
 # Because of the IPP, we have stress free BCs everywhere by default
 def boundaryConditionsPerturbations(spy:SPY,m:int) -> None:
 	# Handle homogeneous boundary conditions
-	homogeneous_boundaries=[(inlet,['x','r','th']),(coflow,['x','r','th']),(nozzle,['x','r','th'])]
-	if 	     m ==0: homogeneous_boundaries.append((symmetry,['r','th']))
+	homogeneous_boundaries=[(inlet,['x','r','theta']),(coflow,['x','r','theta']),(nozzle,['x','r','theta'])]
+	if 	     m ==0: homogeneous_boundaries.append((symmetry,['r','theta']))
 	elif abs(m)==1: homogeneous_boundaries.append((symmetry,['x'])) # Math checks out, but physically makes no sense to have r or theta components at r=0
-	else:		    homogeneous_boundaries.append((symmetry,['x','r','th']))
+	else:		    homogeneous_boundaries.append((symmetry,['x','r','theta']))
 	spy.applyHomogeneousBCs(homogeneous_boundaries)

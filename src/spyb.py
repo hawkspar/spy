@@ -102,7 +102,7 @@ class SPYB(SPY):
 	def smoothenF(self, e:float, F:Function):
 		r = self.r
 		f, g = ufl.TrialFunction(self.TH1), ufl.TestFunction(self.TH1)
-		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],v,0)
 		F = self.smoother(ufl.inner(f,g)+e*ufl.inner(gd(f),gd(g)),ufl.inner(F,g))
 		return F
 			
@@ -119,7 +119,7 @@ class SPYB(SPY):
 		r = self.r
 		u, p, v, s = self.u, self.p, self.v, self.s
 		U, P = ufl.split(self.Q)
-		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['th'],v,0)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],v,0)
 		if dir is None: self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u),	 gd(v))		+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 		else: 			self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[dir]),gd(v[dir]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 

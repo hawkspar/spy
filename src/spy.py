@@ -73,7 +73,7 @@ class SPY:
 		# Shortforms
 		nu = 1/self.Re+self.Nu
 		r, v, s = self.r, self.v, self.s
-		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['th']
+		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['theta']
 		dv, gd = lambda v: div(r,dx,dr,dt,v,0), lambda v: grd(r,dx,dr,dt,v,0)
 		# Functions
 		U, P = ufl.split(self.Q)
@@ -92,7 +92,7 @@ class SPY:
 		# Shortforms
 		nu = 1/self.Re + self.Nu
 		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
-		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['th']
+		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['theta']
 		dv, gd = lambda v,m: div(r,dx,dr,dt,v,m), lambda v,m: grd(r,dx,dr,dt,v,m)
 		# Functions
 		U, _ = ufl.split(self.Q) # Baseflow
