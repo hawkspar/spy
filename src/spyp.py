@@ -329,7 +329,7 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.3f}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
-	def computeIsosurfaces(self,str:str,dat:dict,XYZ:np.array,r:float,n:int,scale:str,name:str) -> list:
+	def computeIsosurfaces(self,str:str,dat:dict,XYZ:np.array,r:float,n:int,scale:str,name:str,all_dirs:bool=False) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ
@@ -337,30 +337,34 @@ class SPYP(SPY):
 		# Evaluation of projected value
 		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
 		XYZ_e, U = self.eval(fs[self.direction_map['x']], XYZ_p.T,XYZ.T)
-		_, 	   V = self.eval(fs[self.direction_map['r']], XYZ_p.T,XYZ.T)
-		_, 	   W = self.eval(fs[self.direction_map['theta']],XYZ_p.T,XYZ.T)
+		if all_dirs:
+			_, 	   V = self.eval(fs[self.direction_map['r']], XYZ_p.T,XYZ.T)
+			_, 	   W = self.eval(fs[self.direction_map['theta']],XYZ_p.T,XYZ.T)
 
 		if p0:
 			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
 			X,Y,Z = XYZ_e.T
 			m,th = dat['m'],np.arctan2(Z,Y)
-			U,V,W = U*np.exp(1j*m*th),V*np.exp(1j*m*th),W*np.exp(1j*m*th) # Proper azimuthal decomposition
+			U *= np.exp(1j*m*th) # Proper azimuthal decomposition
+			if all_dirs:
+				V,W = V*np.exp(1j*m*th),W*np.exp(1j*m*th)
 			# Now handling time
-			surfs = [[]]*3
+			surfs = [[]]*(1+2*all_dirs)
 			for t in np.linspace(0,np.pi/4,n,endpoint=False):
 				Ut = (U*np.exp(-1j*t)).real # Time-shift
-				Vt = ((V*np.cos(th)-W*np.sin(th))*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
-				Wt = ((W*np.cos(th)+V*np.sin(th))*np.exp(-1j*t)).real
 				surfs[0].append(go.Isosurface(x=X,y=Y,z=Z,value=Ut,
 										   	  isomin=r*np.min(Ut),isomax=r*np.max(Ut),
 										   	  colorscale=scale, name="axial "+name,
 										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
-				surfs[1].append(go.Isosurface(x=X,y=Y,z=Z,value=Vt,
-										   	  isomin=r*np.min(Vt),isomax=r*np.max(Vt),
-										   	  colorscale=scale, name="radial "+name,
-										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
-				surfs[2].append(go.Isosurface(x=X,y=Y,z=Z,value=Wt,
-										   	  isomin=r*np.min(Wt),isomax=r*np.max(Wt),
-										   	  colorscale=scale, name="azimuthal "+name,
-										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
+				if all_dirs:
+					Vt = ((V*np.cos(th)-W*np.sin(th))*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
+					Wt = ((W*np.cos(th)+V*np.sin(th))*np.exp(-1j*t)).real
+					surfs[1].append(go.Isosurface(x=X,y=Y,z=Z,value=Vt,
+												isomin=r*np.min(Vt),isomax=r*np.max(Vt),
+												colorscale=scale, name="radial "+name,
+												caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
+					surfs[2].append(go.Isosurface(x=X,y=Y,z=Z,value=Wt,
+												isomin=r*np.min(Wt),isomax=r*np.max(Wt),
+												colorscale=scale, name="azimuthal "+name,
+												caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 			return surfs
