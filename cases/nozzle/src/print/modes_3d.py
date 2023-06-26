@@ -23,10 +23,6 @@ spyp = SPYP(params,data_path,pert_mesh,direction_map)
 dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
 
-Ss_ref = [1]
-ms_ref = [-2]
-Sts_ref = [.00730566]
-
 # Nozzle surface
 y = np.cos(np.linspace(0,np.pi,15))
 x,y = np.meshgrid([0,1],y)
@@ -38,7 +34,7 @@ def frameArgs(duration):
     return {"frame": {"duration": duration}, "mode": "immediate", "fromcurrent": True,
             "transition": {"duration": duration, "easing": "linear"},}
 
-if p0:
+"""if p0:
 	fig = go.Figure(data=[go.Scatter3d(x=XYZf_sk[0],y=XYZf_sk[1],z=XYZf_sk[2], mode='markers', marker={"size":3,"opacity":.4})])
 	fig.write_html("XYZf_sk.html")
 	fig = go.Figure(data=[go.Scatter3d(x=XYZr_sk[0],y=XYZr_sk[1],z=XYZr_sk[2], mode='markers', marker={"size":3,"opacity":.4})])
@@ -46,54 +42,57 @@ if p0:
 	fig = go.Figure(data=[go.Scatter3d(x=XYZf_kh[0],y=XYZf_kh[1],z=XYZf_kh[2], mode='markers', marker={"size":3,"opacity":.4})])
 	fig.write_html("XYZf_kh.html")
 	fig = go.Figure(data=[go.Scatter3d(x=XYZr_kh[0],y=XYZr_kh[1],z=XYZr_kh[2], mode='markers', marker={"size":3,"opacity":.4})])
-	fig.write_html("XYZr_kh.html")
+	fig.write_html("XYZr_kh.html")"""
 
-for S in Ss_ref:
-	for m in ms_ref:
-		for St in Sts_ref:
-			file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.4e}".replace('.',',') # Usual Re & St based on D but who cares
-			dat={"Re":Re,"S":S,"m":m,"St":St}
-			if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.4e})",flush=True)
-			"""if isfile(file_name):
-				if p0: print("Found an html file, moving on...",flush=True)
+directions=list(direction_map.keys())
+
+print_list=[{'S':1,'m':-2,'St':7.3057e-03,'XYZ':[XYZr_es,XYZf_es],		  'print_f':True,'print_U':False,'all_dirs':True},
+			{'S':1,'m': 2,'St':0,		  'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
+			{'S':1,'m':-2,'St':0,		  'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
+			{'S':0,'m': 0,'St':1,		  'XYZ':[XYZr_kh,XYZf_kh],		  'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':0,'m': 0,'St':0,		  'XYZ':[XYZr_sh,XYZf_sk],		  'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':0,'m':-2,'St':0,		  'XYZ':[XYZr_nr,XYZf_cr],		  'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':0,'m': 2,'St':0,		  'XYZ':[XYZr_nr,XYZf_cr],		  'print_f':True,'print_U':False,'all_dirs':False}]
+
+S_save=-1
+
+for dat in print_list:
+	S,m,St,XYZ,all_dirs=dat['S'],dat['m'],dat['St'],dat['XYZ'],dat['all_dirs']
+	print_f,print_U=dat['print_f'],dat['print_U']
+	if S_save!=S:
+		spyb.loadBaseflow(Re,S,False)
+		S_save=S
+	dat['Re']=Re
+	if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
+	file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.4e}_f={print_f:d}_U={print_f:d}".replace('.',',') # Usual Re & St based on D
+	if isfile(file_name+"_dir=x.html"):
+		if all_dirs:
+			if isfile(file_name+"_dir=r.html") and isfile(file_name+"_dir=th.html"):
+				if p0: print("Found html files, moving on...",flush=True)
 				continue
-			if St > .5 or m == 0:
-				isos_f=spyp.computeIsosurfaces("forcing", dat,XYZf_kh,.1,2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_kh,.1,2,'Picnic',"axial response")
-			elif St == Sts_ref[0] and S == 0:
-				isos_f=spyp.computeIsosurfaces("forcing", dat,XYZf_sk,.1,2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_sh,.1,2,'Picnic',"axial response")
-			elif St == Sts_ref[0] and S < .5:
-				isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_sk,.1,2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_sk,.1,2,'Picnic',"axial response")
-			elif St == Sts_ref[0] and m > 0:
-				isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_sk,.1,2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_st,.1,2,'Picnic',"axial response")
-			elif St == Sts_ref[0] and m < 0:
-				isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_sk,.1,2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_sw,.1,2,'Picnic',"axial response")
-			elif St == Sts_ref[-1]:
-				isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_kh,.1,2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_kh,.1,2,'Picnic',"axial response")
-			else:
-				isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_cr,.1,2,'Earth', "axial forcing")
-				isos_r=spyp.computeIsosurfaces("response",dat,XYZr_nr,.1,2,'Picnic',"axial response")"""
-			#isos_f=spyp.computeIsosurfaces("forcing",dat,XYZf_es,.1,2,'Earth', "axial forcing")
-			isos_r=spyp.computeIsosurfaces("response",dat,XYZr_sw,.1,1,'Picnic',"axial response")
-			# Animation
-			if p0:
-				for i,d in enumerate(['x']):
-					"""fig = go.Figure(data=[#isos_f[i][0],
-										isos_r[i][0], up_nozzle, down_nozzle],
-									layout=go.Layout(updatemenus=[dict(type="buttons", buttons=[dict(label="Play", method="animate", args=[None])])]),
-									frames=[go.Frame(data=[#isos_f[i][j],
-									isos_r[i][j], up_nozzle, down_nozzle], name=str(j)) for j in range(len(isos_r))])
-					fig.update_layout(sliders=[{"pad": {"b": 10, "t": 60}, "len": .9, "x": .1, "y": 0,
-												"steps": [{"args": [[f.name], frameArgs(0)], "label": str(k),
-														"method": "animate",} for k, f in enumerate(fig.frames)],}]	)"""
-					fig = go.Figure(data=[#isos_f[i][0],
-										  isos_r[i][0], up_nozzle, down_nozzle])
-					fig.update_coloraxes(showscale=False)
-					fig.update_layout(scene_aspectmode='data')
-					fig.write_html(file_name+'_dir='+d+".html")
-					if p0: print(f"Wrote {file_name}_dir={d}.html",flush=True)
+		else:
+			if p0: print("Found html file, moving on...",flush=True)
+			continue
+	isos_r=spyp.computeIsosurfaces("response",dat,XYZ[0],.1,1,'Picnic',"response",all_dirs)
+	if print_f: isos_f=spyp.computeIsosurfaces("forcing",dat,XYZ[1],.1,1,'Earth', "forcing",all_dirs)
+	if print_U: quiv_U=spyb.computeQuiver(XYZ[2],"Greens")
+	# Plus d'animation - on économise la place !
+	if p0:
+		data=[isos_r[0][0], up_nozzle, down_nozzle]
+		if print_f: data.append(isos_f[0][0])
+		if print_U: data.append(quiv_U)
+		fig = go.Figure(data=data)
+		fig.update_coloraxes(showscale=False)
+		fig.update_layout(scene_aspectmode='data')
+		fig.write_html(f"{file_name}_dir={directions[0]}.html")
+		if p0: print(f"Wrote {file_name}_dir={directions[0]}.html",flush=True)
+		if all_dirs:
+			for i in (1,2):
+				data=[isos_r[i][0], up_nozzle, down_nozzle]
+				if print_f: data.append(isos_f[i][0])
+				if print_U: data.append(quiv_U)
+				fig = go.Figure(data=data)
+				fig.update_coloraxes(showscale=False)
+				fig.update_layout(scene_aspectmode='data')
+				fig.write_html(f"{file_name}_dir={directions[i]}.html")
+				if p0: print(f"Wrote {file_name}_dir={directions[i]}.html",flush=True)
