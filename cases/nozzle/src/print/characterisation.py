@@ -65,7 +65,7 @@ if p0:
 	plt.savefig(dir+"r2Ut2"+save_str+".png")
 	plt.close()
 
-crls=crl(spyb.r,direction_map['x'],direction_map['r'],direction_map['th'],spyb.mesh,ud,0)[0]
+crls=crl(spyb.r,direction_map['x'],direction_map['r'],direction_map['theta'],spyb.mesh,ud,0)[0]
 expr=dfx.fem.Expression(crls.dx(direction_map['r']),spyb.TH1.element.interpolation_points())
 crls = Function(spyb.TH1)
 crls.interpolate(expr)

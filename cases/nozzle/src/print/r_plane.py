@@ -13,6 +13,5 @@ from spyp import SPYP
 
 spyp= SPYP(params,data_path,"perturbations",direction_map)
 
-dat={"Re":200000,"S":1,"m":-2,"St":7.3057e-03}
-spyp.visualiseXPlane("forcing",dat,.5,1,1000,1000,.95)
-#spyp.visualiseStreaks("forcing",dat,.5,1,1000,1000,100,100)
+dat={"Re":200000,"S":1,"m":-2,"St":7.3057e-03/2}
+spyp.visualiseRPlane("response",dat,1,40,1,1,1000,1000)

@@ -106,7 +106,7 @@ class SPY:
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
 		#F += ufl.inner(gd(u,m),gd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
 		#F += 2*ufl.inner(U[2]*u[2],		  v[1])/r # Cancel out centrifugal force
-		#F -=   ufl.inner(U[1]*u[2]+U[2]*u[1],v[2])/r # Cancel out Coriolis force
+		F -=   ufl.inner(U[1]*u[2]+U[2]*u[1],v[2])/r # Cancel out Coriolis force
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points

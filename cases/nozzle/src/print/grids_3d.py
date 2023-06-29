@@ -2,15 +2,28 @@ import numpy as np
 
 
 # Custom nonuniform grids
-# Extra special grid  for star mode
-Xf_es  = np.linspace(0,1,50)
-YZf_es = np.linspace(0,1,50)
+# Very simple mesh for structs close to nozzle top at S,m,St=0,0,0
+Xf_cl  = np.linspace(0,1.25,50)
+YZf_cl = np.linspace(0,1.25,50)
+YZf_cl = np.hstack((np.flip(-YZf_cl)[:-1],YZf_cl)) # Careful of 0 !
+XYZf_cl = np.meshgrid(Xf_cl,YZf_cl,YZf_cl)
+XYZf_cl = np.vstack([C.flatten() for C in XYZf_cl])
+
+Xr_cl  = np.linspace(0,1.25,50)
+YZr_cl = np.linspace(0,1.25,50)
+YZr_cl = np.hstack((np.flip(-YZr_cl)[:-1],YZr_cl)) # Careful of 0 !
+XYZr_cl = np.meshgrid(Xr_cl,YZr_cl,YZr_cl)
+XYZr_cl= np.vstack([C.flatten() for C in XYZr_cl])
+
+# Extra special grid for star mode
+Xf_es  = np.linspace(0,1.01,70)
+YZf_es = np.linspace(0,1.05,70)
 YZf_es = np.hstack((np.flip(-YZf_es)[:-1],YZf_es)) # Careful of 0 !
 XYZf_es = np.meshgrid(Xf_es,YZf_es,YZf_es)
 XYZf_es = np.vstack([C.flatten() for C in XYZf_es])
 
-Xr_es  = np.geomspace(5.5,35.2,50)
-YZr_es = np.linspace(0,5.6,50)
+Xr_es  = np.geomspace(7.5,47,70)
+YZr_es = np.linspace(0,8,70)
 YZr_es = np.hstack((np.flip(-YZr_es)[:-1],YZr_es)) # Careful of 0 !
 XYZr_es = np.meshgrid(Xr_es,YZr_es,YZr_es)
 XYZr_es = np.vstack([C.flatten() for C in XYZr_es])
@@ -29,8 +42,8 @@ XYZr_cr = np.meshgrid(Xr_cr,YZr_cr,YZr_cr)
 XYZr_cr = np.vstack([C.flatten() for C in XYZr_cr])
 
 # Grid for modes S,m,St=0,-/+2,.05
-Xr_nr  = np.linspace(1.5,17,50)
-YZr_nr = np.linspace(0,1.5,50)
+Xr_nr  = np.linspace(0,1.3,50)
+YZr_nr = np.linspace(0,1.6,50)
 YZr_nr = np.hstack((np.flip(-YZr_nr)[:-1],YZr_nr)) # Careful of 0 !
 XYZr_nr = np.meshgrid(Xr_nr,YZr_nr,YZr_nr)
 XYZr_nr = np.vstack([C.flatten() for C in XYZr_nr])
@@ -70,14 +83,14 @@ XYZr_sw = np.meshgrid(Xr_sw,YZr_sw,YZr_sw)
 XYZr_sw = np.vstack([C.flatten() for C in XYZr_sw])
 
 # KH : shorter structures nozzle
-Xf_kh  = np.linspace(0,1.3,50)
-YZf_kh = np.linspace(0,1.3,50)
+Xf_kh  = np.linspace(0,1.1,60)
+YZf_kh = np.linspace(0,1.01,70)
 YZf_kh = np.hstack((np.flip(-YZf_kh)[:-1],YZf_kh)) # Careful of 0 !
 XYZf_kh = np.meshgrid(Xf_kh,YZf_kh,YZf_kh)
 XYZf_kh = np.vstack([C.flatten() for C in XYZf_kh])
 
-Xr_kh  = np.linspace(.9,12,50)
-YZr_kh = np.linspace(0,1.2,50)
+Xr_kh  = np.linspace(1.5,12,70)
+YZr_kh = np.linspace(0,1.5,70)
 YZr_kh = np.hstack((np.flip(-YZr_kh)[:-1],YZr_kh)) # Careful of 0 !
 XYZr_kh = np.meshgrid(Xr_kh,YZr_kh,YZr_kh)
 XYZr_kh = np.vstack([C.flatten() for C in XYZr_kh])
@@ -85,6 +98,8 @@ XYZr_kh = np.vstack([C.flatten() for C in XYZr_kh])
 Xr_kh2  = np.linspace(.9,8,100)
 XYZr_kh2 = np.meshgrid(Xr_kh2,YZr_kh,YZr_kh)
 XYZr_kh2 = np.vstack([C.flatten() for C in XYZr_kh2])
+
+# Cylindrical meshes for baseflow quivers
 
 # Swirls : very large and spread out helix, some distance from the nozzle
 n=10
@@ -106,3 +121,13 @@ Xc_st = np.tile(Xc_st,2*n)
 Yc_st = np.outer(np.cos(np.linspace(0,2*np.pi,n,endpoint=False)),Rc_st)
 Zc_st = np.outer(np.sin(np.linspace(0,2*np.pi,n,endpoint=False)),Rc_st)
 XYZc_st = np.vstack([C.flatten() for C in (Xc_st,Yc_st,Zc_st)])
+
+# Streaks : longer structures, closer to the nozzle
+x0,x1=(5,1.1),(26,4.7)
+Xc_es = np.linspace(x0[0],x1[0],5)
+Rc_es = (Xc_es-x0[0])*(x1[1]-x0[1])/(x1[0]-x0[0])+x0[1]
+Rc_es = np.hstack((Rc_es,1.1*Rc_es))
+Xc_es = np.tile(Xc_es,2*n)
+Yc_es = np.outer(np.cos(np.linspace(0,2*np.pi,n,endpoint=False)),Rc_es)
+Zc_es = np.outer(np.sin(np.linspace(0,2*np.pi,n,endpoint=False)),Rc_es)
+XYZc_es = np.vstack([C.flatten() for C in (Xc_es,Yc_es,Zc_es)])

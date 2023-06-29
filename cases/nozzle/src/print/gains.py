@@ -13,7 +13,7 @@ from helpers import dirCreator
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'tab:blue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 dir="/home/shared/cases/nozzle/resolvent/gains/"
 dirCreator(dir+"plots/")
-stick_to_ref=True # Use all available gains or limit to those specified in setup ?
+stick_to_ref=False # Use all available gains or limit to those specified in setup ?
 square=False
 sig_lbl=r'$\sigma^{(1)'
 if square: sig_lbl+='2'
@@ -63,7 +63,7 @@ for Re in dat.keys():
 			gains_spl = CubicSpline(Sts, gains)
 			if int(m)<0: x0=0
 			else:		 x0=1
-			print(f"(S;m)=({S};{m}), St_max=",fmin(lambda x: -gains_spl(x),x0))
+			print(f"(S;m)=({S};{m}), St_max=",fmin(lambda x: -gains_spl(x),x0)/2)
 			Sts_fine=np.linspace(Sts[0],Sts[-1],1000)
 			ax.plot(	 Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 			ax_zoom.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)

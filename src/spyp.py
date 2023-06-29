@@ -235,34 +235,66 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(		self.resolvent_path+"response/npy/",	   save_string+f"_i={i+1:d}",velocity_i)
 
-	def visualiseXPlane(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int):
+	def visualiseRPlane(self,str:str,dat:dict,X0:float,X1:float,R0:float,R1:float,n_x:int,n_th:int,n_t:int):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
-
-		rs = np.linspace(0,R,n_r)
-		XYZ = np.array([[x,r,0] for r in rs])
+		Xs = np.linspace(X0,X1,n_x)
+		Rs = np.linspace(R0,R1,n_x)
+		XYZ = np.array([[x,r] for x,r in zip(Xs,Rs)])
 		# Evaluation of projected value
-		Fs = [self.eval(f, XYZ.T) for f in fs]
+		F = self.eval(fs[self.direction_map['x']], 	  XYZ)
+		G = self.eval(fs[self.direction_map['r']],	  XYZ)
+		H = self.eval(fs[self.direction_map['theta']],XYZ)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/r_plane/"
+		dirCreator(dir)
+		if p0:
+			print("Evaluation of perturbations done ! Drawing contours...",flush=True)
+			Fs=azimuthalExtension(n_th,dat['m'],F,G,H)
+			Xs=np.tile(Xs,(n_th,1))
+			Rths=np.outer(np.linspace(0,2*np.pi,n_th,endpoint=False),Rs)
+			for i,t in enumerate(np.linspace(0,np.pi/4,n,endpoint=False)):
+				Fts=[F*np.exp(-1j*t) for F in Fs]
+				for j,d in enumerate(self.direction_map.keys()):
+					plt.contourf(Xs,Rths,Fts[j])
+					plt.title(str+" in direction "+d+r" at plane x-$\theta$")
+					plt.xlabel(r"$x$")
+					plt.ylabel(r"$r\theta$")
+					plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_dir={d}_t={i}_rth".replace('.',',')+".png")
+					plt.close()
+
+	def visualiseXPlane(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int,r_min:float):
+		import matplotlib.pyplot as plt
+
+		fs = self.readMode(str,dat).split()
+		rs = np.linspace(0,R,n_r)
+		XYZ = np.array([[x,r] for r in rs])
+		# Evaluation of projected value
+		F = self.eval(fs[self.direction_map['x']], 	  XYZ)
+		G = self.eval(fs[self.direction_map['r']],	  XYZ)
+		H = self.eval(fs[self.direction_map['theta']],XYZ)
 
 		# Actual plotting
 		dir=self.resolvent_path+str+"/x_plane/"
 		dirCreator(dir)
 		if p0:
-			thetas = np.linspace(0,2*np.pi,n_th,endpoint=False)
-			for i,F in enumerate(Fs):
-				F=np.real(np.outer(F,np.exp(dat['m']*1j*thetas)))
+			print("Evaluation of perturbations done ! Drawing isocontours...",flush=True)
+			Fs=azimuthalExtension(n_th,dat['m'],F,G,H)
 
+			for i,d in enumerate(self.direction_map.keys()):
 				_, ax = plt.subplots(subplot_kw={"projection":'polar'})
-				f=ax.contourf(thetas,rs,F)
-				ax.set_rorigin(0)
+				f=ax.contourf(th,rs,Fs[i])
+				ax.set_rmin(r_min)
+				ax.set_rorigin(.9*r_min)
+				#ax.set_rticks([r_min,r_min+(R-r_min)/4,r_min+(R-r_min)/2,r_min+3*(R-r_min)/4,R])
+				ax.set_rticks([r_min,r_min+(R-r_min)/2,R])
 
 				# Recover direction
-				for d in self.direction_map.keys():
-					if self.direction_map[d]==i: break
 				plt.colorbar(f)
-				plt.title(str+" in direction "+d+" at plane r-"+r"$\theta$"+f" at x={x}")
-				plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.3f}_x={x:00.1f}".replace('.',',')+".png")
+				plt.title(str+" in direction "+d+r" at plane r-$\theta$"+f" at x={x}")
+				plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}_dir={d}".replace('.',',')+".png")
 				plt.close()
 
 	def visualiseCurls(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int):
@@ -271,24 +303,23 @@ class SPYP(SPY):
 		C = self.readCurl(str,dat)
 
 		rs = np.linspace(0,R,n_r)
-		XYZ = np.array([[x,r,0] for r in rs])
+		XYZ = np.array([[x,r] for r in rs])
 		# Evaluation of projected value
-		C = self.eval(C, XYZ.T)
+		C = self.eval(C, XYZ)
 
 		# Actual plotting
 		dir=self.resolvent_path+str+"/vorticity/"
 		dirCreator(dir)
 		if p0:
-			thetas = np.linspace(0,2*np.pi,n_th,endpoint=False)
-			C=np.real(np.outer(C,np.exp(dat['m']*1j*thetas)))
+			C=azimuthalExtension(n_th,dat['m'],C)
 
 			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			c=ax.contourf(thetas,rs,C)
 			ax.set_rorigin(0)
 
 			plt.colorbar(c)
-			plt.title("Rotational of "+str+" at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.3f}_x={x:00.1f}".replace('.',',')+".png")
+			plt.title("Rotational of "+str+r" at plane r-$\theta$"+f" at x={x}")
+			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
 	def visualiseStreaks(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int,r:int,a:int):
@@ -299,34 +330,34 @@ class SPYP(SPY):
 
 		rs = np.linspace(0,R,n_r)
 		rs_r=rs[::r]
-		XYZ   = np.array([[x,r,0] for r in rs])
-		XYZ_r = np.array([[x,r,0] for r in rs_r])
+		XYZ   = np.array([[x,r] for r in rs])
+		XYZ_r = np.array([[x,r] for r in rs_r])
 		# Evaluation of projected value
-		F = self.eval(fs[self.direction_map['r']], XYZ_r.T)
-		G = self.eval(fs[self.direction_map['theta']],XYZ_r.T)
-		U = self.eval(u, XYZ.T)
+		F = self.eval(fs[self.direction_map['r']],	  XYZ_r)
+		G = self.eval(fs[self.direction_map['theta']],XYZ_r)
+		U = self.eval(u, XYZ)
 
 		# Actual plotting
 		dir=self.resolvent_path+str+"/quiver/"
 		dirCreator(dir)
 		if p0:
-			thetas = np.linspace(0,2*np.pi,n_th,endpoint=False)
-			thetas_r = thetas[::r]
-			F=np.real(np.outer(F,np.exp(dat['m']*1j*thetas_r)))*a
-			G=np.real(np.outer(F,np.exp(dat['m']*1j*thetas_r)))*a
-			U=np.real(np.outer(U,np.exp(dat['m']*1j*thetas)))
+			th = np.linspace(0,2*np.pi,n_th,endpoint=False)
+			th_r,jm = th[::r],1j*dat['m']
+			U =np.outer(U,							  np.exp(jm*th)).real
+			F2=np.outer(np.cos(th_r)*F-np.sin(th_r)*G,np.exp(jm*th_r)).real*a
+			G2=np.outer(np.sin(th_r)*F+np.cos(th_r)*G,np.exp(jm*th_r)).real*a
 
 			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			fig.set_size_inches(10,10)
 			plt.rcParams.update({'font.size': 20})
 			fig.set_dpi(200)
-			c=ax.contourf(thetas,rs,U,cmap='bwr')
-			ax.quiver(thetas_r,rs_r,F*np.cos(thetas_r)-G*np.sin(thetas_r),F*np.sin(thetas_r)+G*np.cos(thetas_r))
+			c=ax.contourf(th,rs,U,cmap='bwr')
+			ax.quiver(th_r,rs_r,F2,G2)
 			ax.set_rorigin(0)
 
 			plt.colorbar(c)
-			plt.title("Visualisation of "+str+" vectors on velocity at plane r-"+r"$\theta$"+f" at x={x}")
-			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.3f}_x={x:00.1f}".replace('.',',')+".png")
+			plt.title("Visualisation of "+str+r" vectors\\on velocity at plane r-$\theta$"+f" at x={x}")
+			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
 	def computeIsosurfaces(self,str:str,dat:dict,XYZ:np.array,r:float,n:int,scale:str,name:str,all_dirs:bool=False) -> list:
@@ -357,8 +388,8 @@ class SPYP(SPY):
 										   	  colorscale=scale, name="axial "+name,
 										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 				if all_dirs:
-					Vt = ((V*np.cos(th)-W*np.sin(th))*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
-					Wt = ((W*np.cos(th)+V*np.sin(th))*np.exp(-1j*t)).real
+					Vt = ((np.cos(th)*V-np.sin(th)*W)*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
+					Wt = ((np.cos(th)*W+np.sin(th)*V)*np.exp(-1j*t)).real
 					surfs[1].append(go.Isosurface(x=X,y=Y,z=Z,value=Vt,
 												isomin=r*np.min(Vt),isomax=r*np.max(Vt),
 												colorscale=scale, name="radial "+name,

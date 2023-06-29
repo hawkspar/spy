@@ -46,14 +46,16 @@ def frameArgs(duration):
 
 directions=list(direction_map.keys())
 
-print_list=[{'S':1,'m':-2,'St':7.3057e-03,'XYZ':[XYZr_es,XYZf_es],		  'print_f':True,'print_U':False,'all_dirs':True},
-			{'S':1,'m': 2,'St':0,		  'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
-			{'S':1,'m':-2,'St':0,		  'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
-			{'S':0,'m': 0,'St':1,		  'XYZ':[XYZr_kh,XYZf_kh],		  'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m': 0,'St':0,		  'XYZ':[XYZr_sh,XYZf_sk],		  'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m':-2,'St':0,		  'XYZ':[XYZr_nr,XYZf_cr],		  'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m': 2,'St':0,		  'XYZ':[XYZr_nr,XYZf_cr],		  'print_f':True,'print_U':False,'all_dirs':False}]
-
+print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':True},
+			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
+			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
+			#{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False}#,
+			#{'S':0,'m': 0,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':True,'print_U':False,'all_dirs':True},
+			#{'S':0,'m':-2,'St':0,		    'XYZ':[XYZr_nr,XYZf_cr],		'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':0,'m': 2,'St':0,		    'XYZ':[XYZr_nr,XYZr_nr],		'print_f':True,'print_U':False,'all_dirs':True}
+]
 S_save=-1
 
 for dat in print_list:
@@ -62,19 +64,19 @@ for dat in print_list:
 	if S_save!=S:
 		spyb.loadBaseflow(Re,S,False)
 		S_save=S
-	dat['Re']=Re
+	small_dat={'Re':Re,'S':S,'m':m,'St':St}
 	if p0: print(f"Currently beautifying (Re,S,m,St)=({Re},{S:.1f},{m},{St:.2f})",flush=True)
-	file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.4e}_f={print_f:d}_U={print_f:d}".replace('.',',') # Usual Re & St based on D
-	if isfile(file_name+"_dir=x.html"):
+	file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.4e}_f={print_f:d}_U={print_U:d}".replace('.',',') # Usual Re & St based on D
+	"""if isfile(file_name+"_dir=x.html"):
 		if all_dirs:
 			if isfile(file_name+"_dir=r.html") and isfile(file_name+"_dir=th.html"):
 				if p0: print("Found html files, moving on...",flush=True)
 				continue
 		else:
 			if p0: print("Found html file, moving on...",flush=True)
-			continue
-	isos_r=spyp.computeIsosurfaces("response",dat,XYZ[0],.1,1,'Picnic',"response",all_dirs)
-	if print_f: isos_f=spyp.computeIsosurfaces("forcing",dat,XYZ[1],.1,1,'Earth', "forcing",all_dirs)
+			continue"""
+	isos_r=spyp.computeIsosurfaces("response",small_dat,XYZ[0],.1,1,'Picnic',"response",all_dirs)
+	if print_f: isos_f=spyp.computeIsosurfaces("forcing",small_dat,XYZ[1],.1,1,'Earth', "forcing",all_dirs)
 	if print_U: quiv_U=spyb.computeQuiver(XYZ[2],"Greens")
 	# Plus d'animation - on économise la place !
 	if p0:
