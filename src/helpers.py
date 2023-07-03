@@ -135,12 +135,17 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	configureKSP(ST.getKSP(),params,shift)
 	EPS.setFromOptions()
 
-def azimuthalExtension(n_th,m,F,G=None,H=None):
-	th = np.linspace(0,2*np.pi,n_th,endpoint=False)
+def azimuthalExtension(th,m,F,G=None,H=None,C=False):
 	jm = 1j*m
-	F  = np.outer(F,np.exp(jm*th)).real
+	F  = np.outer(F,np.exp(jm*th))
 	if G is not None:
-		G2 = np.outer(np.cos(th)*G-np.sin(th)*H,np.exp(jm*th)).real # Moving to Cartesian referance frame at last moment
-		H2 = np.outer(np.sin(th)*G+np.cos(th)*H,np.exp(jm*th)).real
-		return [F,G2,H2]
-	else: return F
+		G = np.outer(G,np.exp(jm*th)) # Moving to Cartesian referance frame at last moment
+		H = np.outer(H,np.exp(jm*th))
+		TH=np.tile(th,(G.shape[0],1))
+		G2 = np.cos(TH)*G-np.sin(TH)*H
+		H2 = np.sin(TH)*G+np.cos(TH)*H
+		if not C: return [G.real for G in [F,G2,H2]]
+		else: 	  return [F,G2,H2]
+	else:
+		if not C: return F.real
+		else:	  return F

@@ -13,5 +13,8 @@ from spyp import SPYP
 
 spyp= SPYP(params,data_path,"perturbations",direction_map)
 
-dat={"Re":200000,"S":1,"m":-2,"St":7.3057e-03/2}
-spyp.visualiseRPlane("response",dat,1,40,1,1,1000,1000)
+dats=[{"Re":200000,"S":1,"m":-2,"St":7.3057e-03/2},
+	  {"Re":200000,"S":1,"m": 2,"St":7.3057e-03/2},
+	  {"Re":200000,"S":0,"m":-2,"St":7.3057e-03/2}]
+for dat in dats:
+	spyp.visualiseRPlane("response",dat,1,40,1,5.7,1000,500,5)

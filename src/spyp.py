@@ -252,16 +252,17 @@ class SPYP(SPY):
 		dirCreator(dir)
 		if p0:
 			print("Evaluation of perturbations done ! Drawing contours...",flush=True)
-			Fs=azimuthalExtension(n_th,dat['m'],F,G,H)
-			Xs=np.tile(Xs,(n_th,1))
-			Rths=np.outer(np.linspace(0,2*np.pi,n_th,endpoint=False),Rs)
-			for i,t in enumerate(np.linspace(0,np.pi/4,n,endpoint=False)):
-				Fts=[F*np.exp(-1j*t) for F in Fs]
+			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
+			Fs=azimuthalExtension(th,dat['m'],F,G,H,True)
+			Xs=np.tile(Xs.reshape((n_x,1)),(1,n_th))
+			Rths=np.outer(Rs,th)
+			for i,t in enumerate(np.linspace(0,np.pi/4,n_t,endpoint=False)):
+				Fts=[(F*np.exp(-1j*t)).real for F in Fs]
 				for j,d in enumerate(self.direction_map.keys()):
-					plt.contourf(Xs,Rths,Fts[j])
+					plt.contourf(Rths,Xs,Fts[j])
 					plt.title(str+" in direction "+d+r" at plane x-$\theta$")
-					plt.xlabel(r"$x$")
-					plt.ylabel(r"$r\theta$")
+					plt.xlabel(r"$r\theta$")
+					plt.ylabel(r"$x$")
 					plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_dir={d}_t={i}_rth".replace('.',',')+".png")
 					plt.close()
 
@@ -281,7 +282,8 @@ class SPYP(SPY):
 		dirCreator(dir)
 		if p0:
 			print("Evaluation of perturbations done ! Drawing isocontours...",flush=True)
-			Fs=azimuthalExtension(n_th,dat['m'],F,G,H)
+			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
+			Fs=azimuthalExtension(th,dat['m'],F,G,H)
 
 			for i,d in enumerate(self.direction_map.keys()):
 				_, ax = plt.subplots(subplot_kw={"projection":'polar'})
@@ -311,10 +313,11 @@ class SPYP(SPY):
 		dir=self.resolvent_path+str+"/vorticity/"
 		dirCreator(dir)
 		if p0:
-			C=azimuthalExtension(n_th,dat['m'],C)
+			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
+			C=azimuthalExtension(th,dat['m'],C)
 
 			_, ax = plt.subplots(subplot_kw={"projection":'polar'})
-			c=ax.contourf(thetas,rs,C)
+			c=ax.contourf(th,rs,C)
 			ax.set_rorigin(0)
 
 			plt.colorbar(c)
@@ -342,10 +345,8 @@ class SPYP(SPY):
 		dirCreator(dir)
 		if p0:
 			th = np.linspace(0,2*np.pi,n_th,endpoint=False)
-			th_r,jm = th[::r],1j*dat['m']
-			U =np.outer(U,							  np.exp(jm*th)).real
-			F2=np.outer(np.cos(th_r)*F-np.sin(th_r)*G,np.exp(jm*th_r)).real*a
-			G2=np.outer(np.sin(th_r)*F+np.cos(th_r)*G,np.exp(jm*th_r)).real*a
+			U,F2,G2=azimuthalExtension(th,dat['m'],U,F2,G2)
+			F2,G2=F2[:,::r]*a,G2[:,::r]*a
 
 			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			fig.set_size_inches(10,10)
@@ -375,10 +376,9 @@ class SPYP(SPY):
 		if p0:
 			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
 			X,Y,Z = XYZ_e.T
-			m,th = dat['m'],np.arctan2(Z,Y)
-			U *= np.exp(1j*m*th) # Proper azimuthal decomposition
-			if all_dirs:
-				V,W = V*np.exp(1j*m*th),W*np.exp(1j*m*th)
+			th = np.arctan2(Z,Y)
+			if all_dirs: U,V,W=azimuthalExtension(th,dat['m'],U,V,W,C=False)
+			else: 		 U=azimuthalExtension(th,dat['m'],U,C=False)
 			# Now handling time
 			surfs = [[]]*(1+2*all_dirs)
 			for t in np.linspace(0,np.pi/4,n,endpoint=False):
@@ -388,8 +388,8 @@ class SPYP(SPY):
 										   	  colorscale=scale, name="axial "+name,
 										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 				if all_dirs:
-					Vt = ((np.cos(th)*V-np.sin(th)*W)*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
-					Wt = ((np.cos(th)*W+np.sin(th)*V)*np.exp(-1j*t)).real
+					Vt = (V*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
+					Wt = (W*np.exp(-1j*t)).real
 					surfs[1].append(go.Isosurface(x=X,y=Y,z=Z,value=Vt,
 												isomin=r*np.min(Vt),isomax=r*np.max(Vt),
 												colorscale=scale, name="radial "+name,
