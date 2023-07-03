@@ -34,27 +34,21 @@ def frameArgs(duration):
     return {"frame": {"duration": duration}, "mode": "immediate", "fromcurrent": True,
             "transition": {"duration": duration, "easing": "linear"},}
 
-"""if p0:
-	fig = go.Figure(data=[go.Scatter3d(x=XYZf_sk[0],y=XYZf_sk[1],z=XYZf_sk[2], mode='markers', marker={"size":3,"opacity":.4})])
-	fig.write_html("XYZf_sk.html")
-	fig = go.Figure(data=[go.Scatter3d(x=XYZr_sk[0],y=XYZr_sk[1],z=XYZr_sk[2], mode='markers', marker={"size":3,"opacity":.4})])
-	fig.write_html("XYZr_sk.html")
-	fig = go.Figure(data=[go.Scatter3d(x=XYZf_kh[0],y=XYZf_kh[1],z=XYZf_kh[2], mode='markers', marker={"size":3,"opacity":.4})])
-	fig.write_html("XYZf_kh.html")
-	fig = go.Figure(data=[go.Scatter3d(x=XYZr_kh[0],y=XYZr_kh[1],z=XYZr_kh[2], mode='markers', marker={"size":3,"opacity":.4})])
-	fig.write_html("XYZr_kh.html")"""
+if p0:
+	for mesh in ["XYZ_pt"]:
+		exec("fig = go.Figure(data=[go.Scatter3d(x="+mesh+"[0],y="+mesh+"[1],z="+mesh+"[2], mode='markers', marker={'size':3,'opacity':.4})]); fig.write_html('"+dir+mesh+".html')")
 
 directions=list(direction_map.keys())
 
-print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':True},
-			{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
-			{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
-			{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m': 0,'St':0,		    'XYZ':[XYZ_cl,XYZ_cl],			'print_f':True,'print_U':False,'all_dirs':True},
-			{'S':0,'m':-2,'St':0,		    'XYZ':[XYZr_nr,XYZf_cr],		'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m': 2,'St':0,		    'XYZ':[XYZr_nr,XYZr_nr],		'print_f':True,'print_U':False,'all_dirs':True}
+print_list=[#{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':True,'all_dirs':True},
+			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
+			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
+			#{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':0,'m': 0,'St':0,		    'XYZ':[XYZf_cl,XYZr_cl],			'print_f':True,'print_U':False,'all_dirs':True},
+			{'S':0,'m':-2,'St':0,		    'XYZ':[XYZf_cl,XYZr_cl],		'print_f':True,'print_U':False,'all_dirs':True},
+			{'S':0,'m': 2,'St':0,		    'XYZ':[XYZf_cl,XYZr_cl],		'print_f':True,'print_U':False,'all_dirs':False}
 ]
 S_save=-1
 
@@ -69,7 +63,7 @@ for dat in print_list:
 	file_name=dir+f"Re={Re:d}_S={S:.1f}_m={m:d}_St={St:.4e}_f={print_f:d}_U={print_U:d}".replace('.',',') # Usual Re & St based on D
 	"""if isfile(file_name+"_dir=x.html"):
 		if all_dirs:
-			if isfile(file_name+"_dir=r.html") and isfile(file_name+"_dir=th.html"):
+			if isfile(file_name+"_dir=r.html") and isfile(file_name+"_dir=theta.html"):
 				if p0: print("Found html files, moving on...",flush=True)
 				continue
 		else:

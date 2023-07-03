@@ -135,17 +135,21 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	configureKSP(ST.getKSP(),params,shift)
 	EPS.setFromOptions()
 
-def azimuthalExtension(th,m,F,G=None,H=None,C=False):
+def azimuthalExtension(th,m,F,G=None,H=None,real=True,outer=True):
 	jm = 1j*m
-	F  = np.outer(F,np.exp(jm*th))
+	if outer: F = np.outer(F,np.exp(jm*th)) # Operating on a cut plane
+	else: 	  F *= np.exp(jm*th)			# Already in 3D
 	if G is not None:
-		G = np.outer(G,np.exp(jm*th)) # Moving to Cartesian referance frame at last moment
-		H = np.outer(H,np.exp(jm*th))
-		TH=np.tile(th,(G.shape[0],1))
-		G2 = np.cos(TH)*G-np.sin(TH)*H
-		H2 = np.sin(TH)*G+np.cos(TH)*H
-		if not C: return [G.real for G in [F,G2,H2]]
-		else: 	  return [F,G2,H2]
-	else:
-		if not C: return F.real
-		else:	  return F
+		if outer:
+			G = np.outer(G,np.exp(jm*th))
+			H = np.outer(H,np.exp(jm*th))
+			th=np.tile(th,(G.shape[0],1))
+		else:
+			G *= np.exp(jm*th)
+			H *= np.exp(jm*th)
+		G2 = np.cos(th)*G-np.sin(th)*H # Moving to Cartesian referance frame at last moment
+		H2 = np.sin(th)*G+np.cos(th)*H
+		if real: return [G.real.astype(np.float64) for G in [F,G2,H2]] # Reduce memory footprint
+		else: 	 return [G.astype(np.complex64)    for G in [F,G2,H2]]
+	if real: return F.real.astype(np.float64)
+	else: 	 return F.astype(np.complex64)

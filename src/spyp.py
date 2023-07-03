@@ -253,7 +253,7 @@ class SPYP(SPY):
 		if p0:
 			print("Evaluation of perturbations done ! Drawing contours...",flush=True)
 			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
-			Fs=azimuthalExtension(th,dat['m'],F,G,H,True)
+			Fs=azimuthalExtension(th,dat['m'],F,G,H,real=False)
 			Xs=np.tile(Xs.reshape((n_x,1)),(1,n_th))
 			Rths=np.outer(Rs,th)
 			for i,t in enumerate(np.linspace(0,np.pi/4,n_t,endpoint=False)):
@@ -346,14 +346,14 @@ class SPYP(SPY):
 		if p0:
 			th = np.linspace(0,2*np.pi,n_th,endpoint=False)
 			U,F2,G2=azimuthalExtension(th,dat['m'],U,F2,G2)
-			F2,G2=F2[:,::r]*a,G2[:,::r]*a
+			F2,G2=F2[::r,::r]*a,G2[::r,::r]*a
 
 			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			fig.set_size_inches(10,10)
 			plt.rcParams.update({'font.size': 20})
 			fig.set_dpi(200)
 			c=ax.contourf(th,rs,U,cmap='bwr')
-			ax.quiver(th_r,rs_r,F2,G2)
+			ax.quiver(th[::r],rs_r,F2,G2)
 			ax.set_rorigin(0)
 
 			plt.colorbar(c)
@@ -377,8 +377,8 @@ class SPYP(SPY):
 			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
 			X,Y,Z = XYZ_e.T
 			th = np.arctan2(Z,Y)
-			if all_dirs: U,V,W=azimuthalExtension(th,dat['m'],U,V,W,C=False)
-			else: 		 U=azimuthalExtension(th,dat['m'],U,C=False)
+			if all_dirs: U,V,W=azimuthalExtension(th,dat['m'],U,V,W,real=False,outer=False)
+			else: 		 U=azimuthalExtension(th,dat['m'],U,real=False,outer=False)
 			# Now handling time
 			surfs = [[]]*(1+2*all_dirs)
 			for t in np.linspace(0,np.pi/4,n,endpoint=False):
