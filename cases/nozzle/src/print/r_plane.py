@@ -17,4 +17,4 @@ dats=[{"Re":200000,"S":1,"m":-2,"St":7.3057e-03/2},
 	  {"Re":200000,"S":1,"m": 2,"St":7.3057e-03/2},
 	  {"Re":200000,"S":0,"m":-2,"St":7.3057e-03/2}]
 for dat in dats:
-	spyp.visualiseRPlane("response",dat,1,40,1,5.7,1000,500,5)
+	spyp.visualiseRPlane("response",dat,(7.5,1),(45,6.2),1000,500,5)

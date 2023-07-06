@@ -11,6 +11,7 @@ from spyp import SPYP
 spyp=SPYP(params, data_path, pert_mesh, direction_map)
 spyp.Re=Re
 
+spyp.assembleNMatrix()
 for S in Ss_ref:
     spyb.loadBaseflow(Re,S)
     # Interpolate and cut baseflow
@@ -20,6 +21,6 @@ for S in Ss_ref:
         # BCs
         boundaryConditionsPerturbations(spyp,m)
         # For efficiency, matrix is assembled only once
-        spyp.assembleJNMatrices(m)
+        spyp.assembleJMatrix(m)
         # Shift invert to near origin
         spyp.eigenvalues(1e-4,10,Re,S,m) # Built-in memoisation

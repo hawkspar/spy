@@ -43,13 +43,13 @@ class R_class:
 
 # Necessary for matrix-free routine (R^HQR)
 class LHS_class:
-	def __init__(self,R,Q,TH) -> None:
-		self.R,self.Q=R,Q
+	def __init__(self,R,N,TH) -> None:
+		self.R,self.N=R,N
 		self.tmp1,self.tmp2=Function(TH),Function(TH)
 
 	def mult(self,A,x:pet.Vec,y:pet.Vec):
 		self.R.mult(x,self.tmp2.vector)
-		self.Q.mult(self.tmp2.vector,self.tmp1.vector)
+		self.N.mult(self.tmp2.vector,self.tmp1.vector)
 		self.tmp1.x.scatter_forward()
 		self.R.multHermitian(self.tmp1.vector,y)
 
@@ -88,21 +88,20 @@ class SPYP(SPY):
 		k.interpolate(expr)
 		return k
 
-	# To be run in complex mode, assemble crucial matrices
-	def assembleJNMatrices(self,m:int) -> None:
-		# Functions
-		u, v = self.u, self.v
-
+	# To be run in complex mode, assemble crucial matrix
+	def assembleJMatrix(self,m:int) -> None:
 		# Complex Jacobian of NS operator
 		J_form = self.linearisedNavierStokes(m)
-		# Forcing Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,v)*self.r*ufl.dx # Same multiplication process as base equations
-		
-		# Assemble matrices
 		self.J = assembleForm(J_form,self.bcs,diag=1)
-		self.N = assembleForm(N_form,self.bcs,True)
+		if p0: print("Jacobian matrix computed !",flush=True)
 
-		if p0: print("Jacobian & Norm matrices computed !",flush=True)
+	def assembleNMatrix(self,indic=1) -> None:
+		# Shorthands
+		u, v = self.u, self.v
+		# Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
+		N_form = ufl.inner(u,v)*self.r*indic*ufl.dx # Same multiplication process as base equations		
+		self.N = assembleForm(N_form,self.bcs,indic==1)
+		if p0: print("Norm matrix computed !",flush=True)
 
 	# Modal analysis
 	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
@@ -140,25 +139,23 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,indic=1) -> None:
+	def assembleMRMatrices(self,indic_f=1,indic_q=1) -> None:
 		# Velocity and full space functions
-		u, v = self.u, self.v
+		v = self.v
 		w = ufl.TrialFunction(self.TH0c)
 		z = ufl.TestFunction( self.TH0c)
 
-		# Mass Q (m*m): norm is u^2
-		Q_form = ufl.inner(u,v)*self.r*ufl.dx
-		# Mass M (n*n): required to have a proper maximisation problem in a cylindrical geometry
-		M_form = ufl.inner(w,z)*self.r*ufl.dx # Quadrature corresponds to L2 integration
-		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1) and compensates the r-multiplication.
-		B_form = ufl.inner(w,v)*self.r*indic*ufl.dx # Also includes forcing indicator to enforce placement
+		# Norms - required to have a proper maximisation problem in a cylindrical geometry. Also includes indicators to enforce placement
+		# Mass M (n*n): functionally same as above with additional zeroes for pressure
+		M_form = ufl.inner(w,z)*self.r*indic_q*ufl.dx
+		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1)
+		B_form = ufl.inner(w,v)*self.r*indic_f*ufl.dx
 
 		# Assembling matrices
-		Q 	   = assembleForm(Q_form,sym=True)
-		self.M = assembleForm(M_form,sym=True)
+		self.M = assembleForm(M_form,sym=indic_q==1)
 		B 	   = assembleForm(B_form,self.bcs)
 
-		if p0: print("Quadrature, Extractor & Mass matrices computed !",flush=True)
+		if p0: print("Mass & extensor matrices computed !",flush=True)
 
 		# Sizes
 		m,		n 		= B.getSize()
@@ -166,7 +163,7 @@ class SPYP(SPY):
 
 		self.R_obj =   R_class(B,self.TH,self.TH0c)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
-		LHS_obj    = LHS_class(self.R,Q,self.TH)
+		LHS_obj    = LHS_class(self.R,self.N,self.TH)
 		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,   comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
@@ -235,12 +232,12 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(		self.resolvent_path+"response/npy/",	   save_string+f"_i={i+1:d}",velocity_i)
 
-	def visualiseRPlane(self,str:str,dat:dict,X0:float,X1:float,R0:float,R1:float,n_x:int,n_th:int,n_t:int):
+	def visualiseRPlane(self,str:str,dat:dict,x0:tuple,x1:tuple,n_x:int,n_th:int,n_t:int):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
-		Xs = np.linspace(X0,X1,n_x)
-		Rs = np.linspace(R0,R1,n_x)
+		Xs = np.linspace(x0[0],x1[0],n_x)
+		Rs = np.linspace(x0[1],x1[1],n_x)
 		XYZ = np.array([[x,r] for x,r in zip(Xs,Rs)])
 		# Evaluation of projected value
 		F = self.eval(fs[self.direction_map['x']], 	  XYZ)
@@ -325,7 +322,7 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
-	def visualiseStreaks(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int,r:int,a:int):
+	def visualiseQuiver(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int,r:int,a:int,r_min:float):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
@@ -345,16 +342,18 @@ class SPYP(SPY):
 		dirCreator(dir)
 		if p0:
 			th = np.linspace(0,2*np.pi,n_th,endpoint=False)
-			U,F2,G2=azimuthalExtension(th,dat['m'],U,F2,G2)
-			F2,G2=F2[::r,::r]*a,G2[::r,::r]*a
+			U,F,G=azimuthalExtension(th,dat['m'],U,F,G)
+			F,G=F[::r,::r]*a,G[::r,::r]*a
 
 			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			fig.set_size_inches(10,10)
 			plt.rcParams.update({'font.size': 20})
 			fig.set_dpi(200)
 			c=ax.contourf(th,rs,U,cmap='bwr')
-			ax.quiver(th[::r],rs_r,F2,G2)
-			ax.set_rorigin(0)
+			ax.quiver(th[::r],rs_r,F,G)
+			ax.set_rmin(r_min)
+			ax.set_rorigin(.9*r_min)
+			ax.set_rticks([r_min,r_min+(R-r_min)/2,R])
 
 			plt.colorbar(c)
 			plt.title("Visualisation of "+str+r" vectors\\on velocity at plane r-$\theta$"+f" at x={x}")

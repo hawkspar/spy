@@ -17,9 +17,9 @@ XYZ_pt = XYZ(X,YZ)
 # Custom nonuniform grids
 # Very simple mesh for structs close to nozzle top at S,m,St=0,0,0
 Xf_cl  = np.linspace(0,1,n)
-XYZf_cl = XYZ(Xf_cl,1.1)
+XYZf_cl = XYZ(Xf_cl,1.2)
 
-Xr_cl  = np.linspace(0,1.1,n)
+Xr_cl  = np.linspace(0,1.3,n)
 XYZr_cl = XYZ(Xr_cl,1.5)
 
 # Extra special grid for star mode

@@ -18,9 +18,10 @@ with cProfile.Profile() as pr:
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
 	W = FunctionSpace(spyp.mesh,FE_constant)
 	indic = Function(W)
-	indic.interpolate(forcingIndicator)
+	indic.interpolate(forcingIndicator)#lambda x: slope(x[0]-1))
 	#spyp.printStuff('./','indic',indic)
-	spyp.assembleMRMatrices(indic)
+	spyp.assembleNMatrix()
+	spyp.assembleMRMatrices(indic_f=indic)
 
 	for S in Ss_ref:
 		# Load baseflow
@@ -32,7 +33,7 @@ with cProfile.Profile() as pr:
 		for m in ms_ref:
 			boundaryConditionsPerturbations(spyp,m)
 			# For efficiency, matrices assembled once per Sts
-			spyp.assembleJNMatrices(m)
+			spyp.assembleJMatrix(m)
 			# Resolvent analysis
 			spyp.resolvent(3,Sts_ref,Re,S,m)
 	
