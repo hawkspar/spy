@@ -19,9 +19,6 @@ class SPY:
 		self.baseflow_path =self.case_path+'baseflow/'
 		self.q_path	 	   =self.baseflow_path+'q/'
 		self.nut_path	   =self.baseflow_path+'nut/'
-		self.print_path	   =self.baseflow_path+'print/'
-		self.resolvent_path=self.case_path+'resolvent/'
-		self.eig_path	   =self.case_path+'eigenvalues/'
 
 		# Mesh from file
 		meshpath=self.case_path+"mesh/"+mesh_name+".xdmf"
@@ -34,18 +31,16 @@ class SPY:
 		self.dofs = np.empty(0,dtype=np.int32)
 		self.bcs  = []
 
-	# TO be rerun if mesh changes
+	# To be rerun if mesh changes
 	def defineFunctionSpaces(self) -> None:
 		# Extraction of r
 		self.r = ufl.SpatialCoordinate(self.mesh)[self.direction_map['r']]
 		# Finite elements & function spaces
 		FE_vector =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
 		FE_scalar =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-		FE_scalar2=ufl.FiniteElement("CG",self.mesh.ufl_cell(),2)
 		#Constant =ufl.FiniteElement("Real",self.mesh.ufl_cell(),0)
 		self.TH0 = dfx.fem.FunctionSpace(self.mesh,FE_vector)
 		self.TH1 = dfx.fem.FunctionSpace(self.mesh,FE_scalar)
-		self.TH2 = dfx.fem.FunctionSpace(self.mesh,FE_scalar2)
 		# Taylor Hodd elements ; stable element pair + eddy viscosity
 		self.TH = dfx.fem.FunctionSpace(self.mesh,FE_vector*FE_scalar)
 		self.TH0c, self.TH_to_TH0 = self.TH.sub(0).collapse()
@@ -84,7 +79,6 @@ class SPY:
 		F -= ufl.inner(	  P, dv(v)) # Pressure
 		F += ufl.inner(gd(U)+gd(U).T,
 							 gd(v))*nu # Diffusion (grad u.T significant with nut)
-		#F += ufl.inner(gd(U),gd(v,1))*nu # Diffusion (grad u.T significant with nut)
 		return F*r*ufl.dx
 	
 	# Not automatic because of convection term
@@ -104,7 +98,6 @@ class SPY:
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
-		#F += ufl.inner(gd(u,m),gd(v,m,1))*nu # Diffusion (grad u.T significant with nut)
 		#F += 2*ufl.inner(U[2]*u[2],v[1])/r # Cancel out centrifugal force
 		#F -=   ufl.inner(U[1]*u[2]+U[2]*u[1],v[2])/r # Cancel out Coriolis force
 		#F -=   ufl.inner(u[1]*U[2].dx(1),v[1]) # Cancel d_rU_th (main azimuthal KH ?)
@@ -146,7 +139,7 @@ class SPY:
 		if return_pts: return None, None
 
 	# Code factorisation
-	def constantBC(self, direction:chr, boundary:bool, value:float=0) -> tuple:
+	def constantBC(self, direction:str, boundary:bool, value:float=0) -> tuple:
 		subspace=self.TH.sub(0).sub(self.direction_map[direction])
 		subspace_collapsed,_=subspace.collapse()
 		# Compute unflattened DoFs (don't care for flattened ones)

@@ -11,14 +11,15 @@ from setup import *
 from helpers import dirCreator
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'tab:blue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
-dir="/home/shared/cases/nozzle/resolvent/gains/"
+dir="/home/shared/cases/no_nozzle/resolvent/gains/"
 dirCreator(dir+"plots/")
 stick_to_ref=False # Use all available gains or limit to those specified in setup ?
-square=False
+square=True
+suboptimals=False
 sig_lbl=r'$\sigma^{(1)'
 if square: sig_lbl+='2'
 sig_lbl+='}$'
-lims=[0,2]
+lims=[0,1]
 lims_zoom=[0,.1]
 # Read all the gains in a dictionary
 dat={}
@@ -89,30 +90,31 @@ for Re in dat.keys():
 		fig_zoom.savefig(dir+"plots/"+f"Re={int(Re)}_S={S}_zoom.png")
 
 		# Plotting suboptimals
-		n=3
-		for m in dat[Re][S].keys(): # pretty ms in order
-			fig = plt.figure(figsize=(13,10),dpi=200)
-			ax = plt.subplot(111)
-			Sts,gains=[[] for _ in range(n+1)],[[] for _ in range(n+1)]
-			for St in dat[Re][S][m].keys():
-				#if stick_to_ref and (not np.any(np.isclose(float(St),Sts_ref,atol=.005))): continue
-				for i in range(min(dat[Re][S][m][St].size,n+1)):
-					Sts[i].append(float(St))
-					gains[i].append(dat[Re][S][m][St][i])
-			for i in range(n):
-				# Transform into nice arrays
-				ids=np.argsort(Sts[i])
-				Sts[i],gains[i]=(np.array(Sts[i])*2)[ids],(np.array(gains[i])**(1+square))[ids]
-				# Nice smooth splines
-				gains_spl = CubicSpline(Sts[i], gains[i])
-				Sts_fine=np.linspace(Sts[i][0],Sts[i][-1],1000)
-				ax.plot(Sts_fine,gains_spl(Sts_fine),label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
-			plt.xlabel(r'$St$')
-			plt.ylabel(sig_lbl)
-			plt.yscale('log')
-			plt.xticks([0,.5,1,1.5,2])
-			box = ax.get_position()
-			ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
-			plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-			plt.savefig(dir+"plots/"+f"Re={Re}_S={S}_m={m}.png")
-			plt.close()
+		if suboptimals:
+			n=3
+			for m in dat[Re][S].keys(): # pretty ms in order
+				fig = plt.figure(figsize=(13,10),dpi=200)
+				ax = plt.subplot(111)
+				Sts,gains=[[] for _ in range(n+1)],[[] for _ in range(n+1)]
+				for St in dat[Re][S][m].keys():
+					#if stick_to_ref and (not np.any(np.isclose(float(St),Sts_ref,atol=.005))): continue
+					for i in range(min(dat[Re][S][m][St].size,n+1)):
+						Sts[i].append(float(St))
+						gains[i].append(dat[Re][S][m][St][i])
+				for i in range(n):
+					# Transform into nice arrays
+					ids=np.argsort(Sts[i])
+					Sts[i],gains[i]=(np.array(Sts[i])*2)[ids],(np.array(gains[i])**(1+square))[ids]
+					# Nice smooth splines
+					gains_spl = CubicSpline(Sts[i], gains[i])
+					Sts_fine=np.linspace(Sts[i][0],Sts[i][-1],1000)
+					ax.plot(Sts_fine,gains_spl(Sts_fine),label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
+				plt.xlabel(r'$St$')
+				plt.ylabel(sig_lbl)
+				plt.yscale('log')
+				plt.xticks([0,.5,1,1.5,2])
+				box = ax.get_position()
+				ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
+				plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
+				plt.savefig(dir+"plots/"+f"Re={Re}_S={S}_m={m}.png")
+				plt.close()

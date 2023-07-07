@@ -51,7 +51,7 @@ class SPYB(SPY):
 		# Actual heavyweight
 		n,_=solver.solve(q)
 
-		if refinement:
+		if refinement: # Work in Progress
 			# Locate high error areas
 			def high_error(points):
 				expr = Expression(self.navierStokesError(),self.TH1.element.interpolation_points())
@@ -137,7 +137,6 @@ class SPYB(SPY):
 		if p0:
 			print("Evaluation of baseflow done ! Plotting quiver...",flush=True)
 			X,Y,Z = XYZ_e.T
-			th = np.arctan2(Z,Y)
-			V,W=V*np.cos(th)-W*np.sin(th),W*np.cos(th)+V*np.sin(th)
-			return go.Cone(x=X,y=Y,z=Z,u=U.real,v=V.real,w=W.real, # Correcting orientation
+			U,V,W=azimuthalExtension(np.arctan2(Z,Y),0,U,V,W,outer=False)
+			return go.Cone(x=X,y=Y,z=Z,u=U,v=V,w=W, # Correcting orientation
 						   colorscale=scale,sizemode="scaled",sizeref=1,name="baseflow",opacity=.6,showscale=False)

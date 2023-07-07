@@ -17,11 +17,13 @@ with cProfile.Profile() as pr:
 
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
 	W = FunctionSpace(spyp.mesh,FE_constant)
-	indic = Function(W)
-	indic.interpolate(forcingIndicator)#lambda x: slope(x[0]-1))
-	#spyp.printStuff('./','indic',indic)
-	spyp.assembleNMatrix()
-	spyp.assembleMRMatrices(indic_f=indic)
+	indic_q,indic_f = Function(W),Function(W)
+	#indic_q.interpolate(lambda x: slope(x[0]-1))
+	indic_f.interpolate(forcingIndicator)
+	#spyp.printStuff('./','indic_q',indic_q)
+	#spyp.printStuff('./','indic_f',indic_f)
+	spyp.assembleNMatrix()#indic_q)
+	spyp.assembleMRMatrices(indic_f)
 
 	for S in Ss_ref:
 		# Load baseflow

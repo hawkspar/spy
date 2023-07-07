@@ -14,41 +14,37 @@ from helpers import *
 	
 # Resolvent operator (L^-1B)
 class R_class:
-	def __init__(self,B,TH,TH0c) -> None:
+	def __init__(self,B:pet.Mat,TH:dfx.fem.FunctionSpace,TH0c:dfx.fem.FunctionSpace) -> None:
 		self.B=B
 		self.KSP = pet.KSP().create(comm)
 		self.tmp1,self.tmp2=Function(TH),Function(TH)
-		self.tmp3=Function(TH0c)
 	
-	def setL(self,L,params):
+	def setL(self,L:pet.Mat,params:dict):
 		self.KSP.setOperators(L)
 		configureKSP(self.KSP,params)
 
-	def mult(self,A,x:pet.Vec,y:pet.Vec) -> None:
+	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None:
 		self.B.mult(x,self.tmp1.vector)
 		self.tmp1.x.scatter_forward()
-		self.KSP.solve(self.tmp1.vector,self.tmp2.vector)
-		self.tmp2.x.scatter_forward()
-		self.tmp2.vector.copy(y)
+		self.KSP.solve(self.tmp1.vector,y)
 
-	def multHermitian(self,A,x:pet.Vec,y:pet.Vec) -> None:
+	def multHermitian(self,_,x:pet.Vec,y:pet.Vec) -> None:
 		# Hand made solveHermitianTranspose (save extra LU factorisation)
 		x.conjugate()
 		self.KSP.solveTranspose(x,self.tmp2.vector)
 		self.tmp2.vector.conjugate()
 		self.tmp2.x.scatter_forward()
-		self.B.multTranspose(self.tmp2.vector,self.tmp3.vector)
-		self.tmp3.x.scatter_forward()
-		self.tmp3.vector.copy(y)
+		self.B.multTranspose(self.tmp2.vector,y)
 
 # Necessary for matrix-free routine (R^HQR)
 class LHS_class:
-	def __init__(self,R,N,TH) -> None:
+	def __init__(self,R:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
 		self.R,self.N=R,N
 		self.tmp1,self.tmp2=Function(TH),Function(TH)
 
 	def mult(self,A,x:pet.Vec,y:pet.Vec):
 		self.R.mult(x,self.tmp2.vector)
+		self.tmp2.x.scatter_forward()
 		self.N.mult(self.tmp2.vector,self.tmp1.vector)
 		self.tmp1.x.scatter_forward()
 		self.R.multHermitian(self.tmp1.vector,y)
@@ -57,6 +53,8 @@ class LHS_class:
 class SPYP(SPY):
 	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, mesh_name, direction_map)
+		self.eig_path=self.case_path+"eigenvalues/"
+		self.resolvent_path=self.case_path+"resolvent/"
 
 	# Handle
 	def interpolateBaseflow(self,spy:SPY) -> None:
@@ -98,8 +96,8 @@ class SPYP(SPY):
 	def assembleNMatrix(self,indic=1) -> None:
 		# Shorthands
 		u, v = self.u, self.v
-		# Norm (m*m): here we choose ux^2+ur^2+uth^2 as forcing norm
-		N_form = ufl.inner(u,v)*self.r*indic*ufl.dx # Same multiplication process as base equations		
+		# Mass (m*m): here we choose L2
+		N_form = ufl.inner(u,v)*self.r*indic*ufl.dx # Same multiplication process as base equations, indicator constrains response
 		self.N = assembleForm(N_form,self.bcs,indic==1)
 		if p0: print("Norm matrix computed !",flush=True)
 
@@ -114,9 +112,8 @@ class SPYP(SPY):
 
 		# File management shenanigans
 		save_string=f"Re={Re:d}_S={S:.2f}_m={m:d}".replace('.',',')
+		for append in ["","values/"]: dirCreator(self.eig_path+append)
 		eig_name=self.eig_path+"values/"+save_string+f"_sig={sigma}".replace('.',',')+".txt"
-		dirCreator(self.eig_path)
-		dirCreator(self.eig_path+"values/")
 		if isfile(eig_name):
 			if p0: print("Found "+eig_name+" file, assuming it has enough eigenvalues, moving on...",flush=True)
 			return
@@ -136,32 +133,29 @@ class SPYP(SPY):
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
 			u,_ = q.split()
-			self.printStuff(self.eig_path+"print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
+			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,indic_f=1,indic_q=1) -> None:
+	def assembleMRMatrices(self,indic=1) -> None:
 		# Velocity and full space functions
 		v = self.v
 		w = ufl.TrialFunction(self.TH0c)
 		z = ufl.TestFunction( self.TH0c)
-
-		# Norms - required to have a proper maximisation problem in a cylindrical geometry. Also includes indicators to enforce placement
-		# Mass M (n*n): functionally same as above with additional zeroes for pressure
-		M_form = ufl.inner(w,z)*self.r*indic_q*ufl.dx
+		# Norms - required to have a proper maximisation problem in a cylindrical geometry
+		# Mass M (n*n): functionally same as N with additional zeroes for pressure
+		M_form = ufl.inner(w,z)*self.r*ufl.dx
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1)
-		B_form = ufl.inner(w,v)*self.r*indic_f*ufl.dx
-
+		B_form = ufl.inner(w,v)*self.r*indic*ufl.dx # Indicator here constrains forcing
 		# Assembling matrices
-		self.M = assembleForm(M_form,sym=indic_q==1)
+		self.M = assembleForm(M_form,sym=True)
 		B 	   = assembleForm(B_form,self.bcs)
-
 		if p0: print("Mass & extensor matrices computed !",flush=True)
 
 		# Sizes
 		m,		n 		= B.getSize()
 		m_local,n_local = B.getLocalSize()
 
-		self.R_obj =   R_class(B,self.TH,self.TH0c)
+		self.R_obj = R_class(B,self.TH,self.TH0c)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
 		LHS_obj    = LHS_class(self.R,self.N,self.TH)
 		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,   comm)
@@ -171,11 +165,8 @@ class SPYP(SPY):
 		EPS = slp.EPS(); EPS.create(comm)
 		for St in St_list:
 			# Folder creation
-			dirCreator(self.resolvent_path)
-			dirCreator(self.resolvent_path+"gains/")
-			dirCreator(self.resolvent_path+"gains/txt/")
-			dirCreator(self.resolvent_path+"forcing/")
-			dirCreator(self.resolvent_path+"response/")
+			for append in ["","gains/","gains/txt/","forcing/","response/"]:
+				dirCreator(self.resolvent_path+append)
 			save_string=f"Re={Re:d}_S={S:.1f}"
 			save_string=(save_string+f"_m={m:d}_St={St:.4e}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/txt/"+save_string+".txt"
@@ -220,7 +211,7 @@ class SPYP(SPY):
 				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
-				saveStuff(		self.resolvent_path+"forcing/npy/",		  save_string+f"_i={i+1:d}",forcing_i)
+				saveStuff(		self.resolvent_path+"forcing/npy/",		 save_string+f"_i={i+1:d}",forcing_i)
 				# Obtain response from forcing
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
@@ -230,7 +221,7 @@ class SPYP(SPY):
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
-				saveStuff(		self.resolvent_path+"response/npy/",	   save_string+f"_i={i+1:d}",velocity_i)
+				saveStuff(		self.resolvent_path+"response/npy/",	      save_string+f"_i={i+1:d}",velocity_i)
 
 	def visualiseRPlane(self,str:str,dat:dict,x0:tuple,x1:tuple,n_x:int,n_th:int,n_t:int):
 		import matplotlib.pyplot as plt
@@ -263,11 +254,11 @@ class SPYP(SPY):
 					plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_dir={d}_t={i}_rth".replace('.',',')+".png")
 					plt.close()
 
-	def visualiseXPlane(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int,r_min:float):
+	def visualiseXPlane(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
-		rs = np.linspace(0,R,n_r)
+		rs = np.linspace(0,r_max,n_r)
 		XYZ = np.array([[x,r] for r in rs])
 		# Evaluation of projected value
 		F = self.eval(fs[self.direction_map['x']], 	  XYZ)
@@ -287,12 +278,10 @@ class SPYP(SPY):
 				f=ax.contourf(th,rs,Fs[i])
 				ax.set_rmin(r_min)
 				ax.set_rorigin(.9*r_min)
-				#ax.set_rticks([r_min,r_min+(R-r_min)/4,r_min+(R-r_min)/2,r_min+3*(R-r_min)/4,R])
-				ax.set_rticks([r_min,r_min+(R-r_min)/2,R])
-
+				ax.set_rticks([r_min,r_min+(r_max-r_min)/2,r_max])
 				# Recover direction
 				plt.colorbar(f)
-				plt.title(str+" in direction "+d+r" at plane r-$\theta$"+f" at x={x}")
+				#plt.title(str+" in direction "+d+r" at plane r-$\theta$"+f" at x={x}")
 				plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}_dir={d}".replace('.',',')+".png")
 				plt.close()
 
@@ -300,7 +289,6 @@ class SPYP(SPY):
 		import matplotlib.pyplot as plt
 
 		C = self.readCurl(str,dat)
-
 		rs = np.linspace(0,R,n_r)
 		XYZ = np.array([[x,r] for r in rs])
 		# Evaluation of projected value
@@ -310,6 +298,7 @@ class SPYP(SPY):
 		dir=self.resolvent_path+str+"/vorticity/"
 		dirCreator(dir)
 		if p0:
+			print("Evaluation of perturbations done ! Drawing curl...",flush=True)
 			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
 			C=azimuthalExtension(th,dat['m'],C)
 
@@ -322,14 +311,14 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
-	def visualiseQuiver(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int,r:int,a:int,r_min:float):
+	def visualiseQuiver(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int,step:int,s:float):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
 		u = self.readMode("response",dat).split()[self.direction_map['x']]
 
-		rs = np.linspace(0,R,n_r)
-		rs_r=rs[::r]
+		rs = np.linspace(0,r_max,n_r)
+		rs_r=rs[::step]
 		XYZ   = np.array([[x,r] for r in rs])
 		XYZ_r = np.array([[x,r] for r in rs_r])
 		# Evaluation of projected value
@@ -341,22 +330,23 @@ class SPYP(SPY):
 		dir=self.resolvent_path+str+"/quiver/"
 		dirCreator(dir)
 		if p0:
+			print("Evaluation of perturbations done ! Drawing quiver...",flush=True)
 			th = np.linspace(0,2*np.pi,n_th,endpoint=False)
 			U,F,G=azimuthalExtension(th,dat['m'],U,F,G)
-			F,G=F[::r,::r]*a,G[::r,::r]*a
+			F,G=F[:,::step],G[:,::step]
 
 			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			fig.set_size_inches(10,10)
-			plt.rcParams.update({'font.size': 20})
+			#plt.rcParams.update({'font.size': 20})
 			fig.set_dpi(200)
 			c=ax.contourf(th,rs,U,cmap='bwr')
-			ax.quiver(th[::r],rs_r,F,G)
+			ax.quiver(th[::step],rs_r,F,G,scale=s)
 			ax.set_rmin(r_min)
 			ax.set_rorigin(.9*r_min)
-			ax.set_rticks([r_min,r_min+(R-r_min)/2,R])
+			ax.set_rticks([r_min,r_min+(r_max-r_min)/2,r_max])
 
 			plt.colorbar(c)
-			plt.title("Visualisation of "+str+r" vectors\\on velocity at plane r-$\theta$"+f" at x={x}")
+			#plt.title("Visualisation of "+str+r" vectors\non velocity at plane r-$\theta$"+f" at x={x}")
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
@@ -367,11 +357,10 @@ class SPYP(SPY):
 		fs = self.readMode(str,dat).split()
 		# Evaluation of projected value
 		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
-		XYZ_e, U = self.eval(fs[self.direction_map['x']], XYZ_p.T,XYZ.T)
+		XYZ_e, U = self.eval(fs[self.direction_map['x']], 	 XYZ_p.T,XYZ.T)
 		if all_dirs:
-			_, 	   V = self.eval(fs[self.direction_map['r']], XYZ_p.T,XYZ.T)
-			_, 	   W = self.eval(fs[self.direction_map['theta']],XYZ_p.T,XYZ.T)
-
+			_, V = self.eval(fs[self.direction_map['r']], 	 XYZ_p.T,XYZ.T)
+			_, W = self.eval(fs[self.direction_map['theta']],XYZ_p.T,XYZ.T)
 		if p0:
 			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
 			X,Y,Z = XYZ_e.T

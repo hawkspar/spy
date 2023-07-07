@@ -19,8 +19,8 @@ XYZ_pt = XYZ(X,YZ)
 Xf_cl  = np.linspace(0,1,n)
 XYZf_cl = XYZ(Xf_cl,1.2)
 
-Xr_cl  = np.linspace(0,1.3,n)
-XYZr_cl = XYZ(Xr_cl,1.5)
+Xr_cl  = np.linspace(0,1.3,70)
+XYZr_cl = XYZ(Xr_cl,1.6)
 
 # Extra special grid for star mode
 Xf_es  = np.linspace(0,1.01,70)

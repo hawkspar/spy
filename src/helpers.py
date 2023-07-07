@@ -15,23 +15,11 @@ def grd(r,dx:int,dr:int,dt:int,v,m:int):
 						  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
 						  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
 
-def rgrd(r,dx:int,dr:int,dt:int,v,i:bool,m:int):
-	if len(v.ufl_shape)==0: return ufl.as_vector([r*v.dx(dx), r*v.dx(dr)+i*v, m*1j*v])
-	return ufl.as_tensor([[r*v[dx].dx(dx), r*v[dx].dx(dr)+i*v[dx], m*1j*v[dx]	   ],
-						  [r*v[dr].dx(dx), r*v[dr].dx(dr)+i*v[dr], m*1j*v[dr]-v[dt]],
-						  [r*v[dt].dx(dx), r*v[dt].dx(dr)+i*v[dt], m*1j*v[dt]+v[dr]]])
-
 def div(r,dx:int,dr:int,dt:int,v,m:int):
 	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
 	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+v[dr,dx]+ m*1j*v[dt,dx]		   /r,
 						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*1j*v[dt,dr]-v[dt,dt])/r,
 						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*1j*v[dt,dt]+v[dt,dr])/r])
-
-def rdiv(r,dx:int,dr:int,dt:int,v,i:bool,m:int):
-	if len(v.ufl_shape)==1: return r*v[dx].dx(dx) + r*v[dr].dx(dr) + (i+1)*v[dr] + m*1j*v[dt]
-	return ufl.as_vector([r*v[dx,dx].dx(dx)+r*v[dr,dx].dx(dr)+(i+1)*v[dr,dx]+m*1j*v[dt,dx],
-						  r*v[dx,dr].dx(dx)+r*v[dr,dr].dx(dr)+(i+1)*v[dr,dr]+m*1j*v[dt,dr]-v[dt,dt],
-						  r*v[dx,dt].dx(dx)+r*v[dr,dt].dx(dr)+(i+1)*v[dr,dt]+m*1j*v[dt,dt]+v[dt,dr]])
 
 def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
 	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
@@ -137,19 +125,19 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 
 def azimuthalExtension(th,m,F,G=None,H=None,real=True,outer=True):
 	jm = 1j*m
-	if outer: F = np.outer(F,np.exp(jm*th)) # Operating on a cut plane
+	if outer: F  = np.outer(F,np.exp(jm*th)) # Operating on a cut plane
 	else: 	  F *= np.exp(jm*th)			# Already in 3D
-	if G is not None:
-		if outer:
-			G = np.outer(G,np.exp(jm*th))
-			H = np.outer(H,np.exp(jm*th))
-			th=np.tile(th,(G.shape[0],1))
-		else:
-			G *= np.exp(jm*th)
-			H *= np.exp(jm*th)
-		G2 = np.cos(th)*G-np.sin(th)*H # Moving to Cartesian referance frame at last moment
-		H2 = np.sin(th)*G+np.cos(th)*H
-		if real: return [G.real.astype(np.float64) for G in [F,G2,H2]] # Reduce memory footprint
-		else: 	 return [G.astype(np.complex64)    for G in [F,G2,H2]]
-	if real: return F.real.astype(np.float64)
-	else: 	 return F.astype(np.complex64)
+	if G is None:
+		if real: return F.real.astype(np.float64)
+		else: 	 return F.astype(np.complex64)
+	if outer:
+		G = np.outer(G,np.exp(jm*th))
+		H = np.outer(H,np.exp(jm*th))
+		th = np.tile(th,(G.shape[0],1))
+	else:
+		G *= np.exp(jm*th)
+		H *= np.exp(jm*th)
+	G2 = np.cos(th)*G-np.sin(th)*H # Moving to Cartesian referance frame at last moment
+	H2 = np.sin(th)*G+np.cos(th)*H
+	if real: return [G.real.astype(np.float64) for G in [F,G2,H2]] # Reduce memory footprint
+	else: 	 return [G.astype(np.complex64)    for G in [F,G2,H2]]
