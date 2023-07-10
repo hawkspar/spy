@@ -11,10 +11,29 @@ from os.path import isfile
 
 from spy import SPY
 from helpers import *
+
+# Alternate B (B+PR)
+class C_class:
+	def __init__(self,B:pet.Mat,P:pet.Mat,R:pet.Mat,TH:dfx.fem.FunctionSpace,TH0c:dfx.fem.FunctionSpace) -> None:
+		self.B,self.P,self.R=B,P,R
+		self.tmp1,self.tmp2=Function(TH),Function(TH)
+		self.tmp3=Function(TH0c)
+
+	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None:
+		self.R.mult(x,self.tmp1.vector)
+		self.tmp1.x.scatter_forward()
+		self.P.mult(self.tmp1.vector,self.tmp2.vector)
+		self.B.multAdd(x,self.tmp2.vector,y)
+
+	def multTranspose(self,_,x:pet.Vec,y:pet.Vec) -> None:
+		self.P.multTranspose(x,self.tmp1.vector)
+		self.tmp1.x.scatter_forward()
+		self.R.multHermitian(self.tmp1.vector,self.tmp3.vector)
+		self.B.multTransposeAdd(x,self.tmp3.vector,y)
 	
 # Resolvent operator (L^-1B)
 class R_class:
-	def __init__(self,B:pet.Mat,TH:dfx.fem.FunctionSpace,TH0c:dfx.fem.FunctionSpace) -> None:
+	def __init__(self,B:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
 		self.B=B
 		self.KSP = pet.KSP().create(comm)
 		self.tmp1,self.tmp2=Function(TH),Function(TH)
@@ -23,7 +42,7 @@ class R_class:
 		self.KSP.setOperators(L)
 		configureKSP(self.KSP,params)
 
-	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None:
+	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
 		self.B.mult(x,self.tmp1.vector)
 		self.tmp1.x.scatter_forward()
 		self.KSP.solve(self.tmp1.vector,y)
@@ -40,14 +59,14 @@ class R_class:
 class LHS_class:
 	def __init__(self,R:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
 		self.R,self.N=R,N
-		self.tmp1,self.tmp2=Function(TH),Function(TH)
+		self.tmp1,self.tmp2=Function(TH),Function(TH) # Necessary to have 2 - they have the correct dims
 
-	def mult(self,A,x:pet.Vec,y:pet.Vec):
-		self.R.mult(x,self.tmp2.vector)
-		self.tmp2.x.scatter_forward()
-		self.N.mult(self.tmp2.vector,self.tmp1.vector)
+	def mult(self,_,x:pet.Vec,y:pet.Vec): # Middle argument is necessary for EPS in SLEPc
+		self.R.mult(x,self.tmp1.vector)
 		self.tmp1.x.scatter_forward()
-		self.R.multHermitian(self.tmp1.vector,y)
+		self.N.mult(self.tmp1.vector,self.tmp2.vector)
+		self.tmp2.x.scatter_forward()
+		self.R.multHermitian(self.tmp2.vector,y)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -155,10 +174,23 @@ class SPYP(SPY):
 		m,		n 		= B.getSize()
 		m_local,n_local = B.getLocalSize()
 
-		self.R_obj = R_class(B,self.TH,self.TH0c)
+		# Resolvent operator : takes forcing, returns full state
+		self.R_obj = R_class(B,self.TH)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
-		LHS_obj    = LHS_class(self.R,self.N,self.TH)
-		self.LHS   = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,   comm)
+		
+		# Projection (m*n) catches u_r component and projects it on an e_th component with a grad U multiplication
+		U,_=self.Q.split()
+		P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx
+		# Assembling matrices
+		P = assembleForm(P_form)
+
+		C_obj	 = C_class(B,P,self.R,self.TH,self.TH0c)
+		C     	 = pythonMatrix([[m_local,m],[n_local,n]],C_obj,  comm)
+		S_obj 	 = R_class(C,self.TH)
+		S_obj.KSP=self.R_obj.KSP # Same operator L
+		S     	 = pythonMatrix([[m_local,m],[n_local,n]],S_obj,  comm)
+		LHS_obj  = LHS_class(S,self.N,self.TH)
+		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
 		# Solver
