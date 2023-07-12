@@ -98,9 +98,6 @@ class SPY:
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
-		#F += 2*ufl.inner(U[2]*u[2],v[1])/r # Cancel out centrifugal force
-		#F -=   ufl.inner(U[1]*u[2]+U[2]*u[1],v[2])/r # Cancel out Coriolis force
-		#F -=   ufl.inner(u[1]*U[2].dx(1),v[1]) # Cancel d_rU_th (main azimuthal KH ?)
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points

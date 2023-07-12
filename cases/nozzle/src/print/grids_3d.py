@@ -1,4 +1,8 @@
+import plotly.graph_objects as go
+import plotly.io as pio
 import numpy as np
+
+pio.renderers.default="firefox"
 
 n=50
 
@@ -65,13 +69,17 @@ Xr_kh  = np.linspace(1.5,12,70)
 YZr_kh = np.linspace(0,1.5,70)
 XYZr_kh = XYZ(Xr_kh,YZr_kh)
 
+# Baseflow
+Xb  = np.linspace(0,20,50)
+XYZb = XYZ(Xb,1.1)
+
 # Cylindrical meshes for baseflow quivers
 n=10
-def XYZc(x0,x1):
+def XYZc(x0,x1,rs=[1,1.1]):
 	X = np.linspace(x0[0],x1[0],n//2)
 	R = (X-x0[0])/(x1[0]-x0[0])*(x1[1]-x0[1])+x0[1]
-	R = np.hstack((R,1.1*R))
-	X = np.tile(X,2*n)
+	R = np.hstack([r*R for r in rs])
+	X = np.tile(X,len(rs)*n)
 	Y = np.outer(np.cos(np.linspace(0,2*np.pi,n,endpoint=False)),R)
 	Z = np.outer(np.sin(np.linspace(0,2*np.pi,n,endpoint=False)),R)
 	return np.vstack([C.flatten() for C in (X,Y,Z)])
@@ -84,6 +92,21 @@ XYZc_sw = XYZc(x0,x1)
 x0,x1=(2.9,.8),(7,1.7)
 XYZc_st = XYZc(x0,x1)
 
-# Streaks : longer structures, closer to the nozzle
+# Star mode : long structures, away from the nozzle
 x0,x1=(5,1.1),(26,4.7)
 XYZc_es = XYZc(x0,x1)
+
+# Star mode rotationals : large structures, closer to the nozzle
+x0,x1=(10,1),(23,2.4)
+XYZt_es = XYZc(x0,x1,[.5,1,1.5])
+
+# Nozzle surface
+y = np.cos(np.linspace(0,np.pi,15))
+x,y = np.meshgrid([0,1],y)
+z = np.sqrt(1-y**2)
+up_nozzle   = go.Surface(x=x, y=y, z= z, colorscale=[[0,'black'],[1,'black']], opacity=.5, showscale=False, name="nozzle")
+down_nozzle = go.Surface(x=x, y=y, z=-z, colorscale=[[0,'black'],[1,'black']], opacity=.5, showscale=False, name="nozzle")
+
+def frameArgs(duration):
+    return {"frame": {"duration": duration}, "mode": "immediate", "fromcurrent": True,
+            "transition": {"duration": duration, "easing": "linear"},}

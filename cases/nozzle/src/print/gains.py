@@ -3,7 +3,7 @@ from re import search
 from os import listdir
 from matplotlib import pyplot as plt
 from scipy.optimize import fmin
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, interp1d
 
 path.append('/home/shared/cases/nozzle/src/')
 
@@ -12,11 +12,11 @@ from helpers import dirCreator
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'tab:blue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 #color_code={'0':'tab:blue','1':'tab:red','2':'orange','3':'rebeccapurple','4':'olivedrab','5':'cyan'} # Pickering colorscheme
-dir="/home/shared/cases/nozzle/resolvent/gains/"
+dir="/home/shared/cases/nozzle/resolvent_no_Uth_transport/gains/"
 dirCreator(dir+"plots/")
 stick_to_ref=False # Use all available gains or limit to those specified in setup ?
 square=False
-suboptimals=True
+suboptimals=False
 sig_lbl=r'$\sigma^{(1)'+'2'*square+'}$'
 lims=[0,2]
 lims_zoom=[0,.05]
@@ -60,11 +60,9 @@ for Re in dat.keys():
 			ids=np.argsort(Sts)
 			Sts,gains=(np.array(Sts)*2)[ids],(np.array(gains)**(1+square))[ids] # Usual St=fD/U not fR/U
 			# Nice smooth splines
-			gains_spl = CubicSpline(Sts, gains)
+			gains_spl = interp1d(Sts, gains)
 			if int(m)<0: x0=0
 			else:		 x0=1
-			#print(f"(S;m)=({S};{m}), St_max=",fmin(lambda x: -gains_spl(x),x0)/2)
-			#print(f"(S;m)=({S};{m}), St_max=",fmin(lambda x: -gains_spl(x),x0)/2)
 			Sts_fine=np.linspace(Sts[0],Sts[-1],1000)
 			ax.plot(	 Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 			ax_zoom.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)

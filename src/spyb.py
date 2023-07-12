@@ -127,9 +127,9 @@ class SPYB(SPY):
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ
-		# Evaluation of projected value
 		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
 		U,V,W=self.Q.split()[0].split()
+		# Evaluation of projected value
 		XYZ_e, U = self.eval(U,XYZ_p.T,XYZ.T)
 		_, 	   V = self.eval(V,XYZ_p.T,XYZ.T)
 		_, 	   W = self.eval(W,XYZ_p.T,XYZ.T)
@@ -137,6 +137,38 @@ class SPYB(SPY):
 		if p0:
 			print("Evaluation of baseflow done ! Plotting quiver...",flush=True)
 			X,Y,Z = XYZ_e.T
-			U,V,W=azimuthalExtension(np.arctan2(Z,Y),0,U,V,W,outer=False)
-			return go.Cone(x=X,y=Y,z=Z,u=U,v=V,w=W, # Correcting orientation
+			U,V,W=azimuthalExtension(np.arctan2(Z,Y),0,U,V,W,outer=False,cartesian=True)
+			return go.Cone(x=X,y=Y,z=Z,u=U,v=V,w=W,
 						   colorscale=scale,sizemode="scaled",sizeref=1,name="baseflow",opacity=.6,showscale=False)
+
+	def computeIsosurfaces(self,XYZ:np.array,r:float,scale:str,all_dirs=False):
+		import plotly.graph_objects as go #pip3 install plotly
+		
+		X,Y,Z = XYZ
+		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
+		U,V,W=self.Q.split()[0].split()
+		# Evaluation of projected value
+		XYZ_e, U = self.eval(U,XYZ_p.T,XYZ.T)
+		if all_dirs:
+			_, V = self.eval(V,XYZ_p.T,XYZ.T)
+			_, W = self.eval(W,XYZ_p.T,XYZ.T)
+		if p0:
+			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
+			X,Y,Z = XYZ_e.T
+			U,V,W=U.real,V.real,W.real
+			if all_dirs: return (go.Isosurface(x=X,y=Y,z=Z,value=U,
+											   isomin=r*np.max(U),isomax=r*np.max(U),
+											   colorscale=scale, name="axial baseflow",
+											   caps=dict(x_show=False, y_show=False, z_show=False),showscale=False),
+								 go.Isosurface(x=X,y=Y,z=Z,value=V,
+											   isomin=r*np.max(V),isomax=r*np.max(V),
+											   colorscale=scale, name="radial baseflow",
+											   caps=dict(x_show=False, y_show=False, z_show=False),showscale=False),
+								 go.Isosurface(x=X,y=Y,z=Z,value=W,
+											   isomin=r*np.max(W),isomax=r*np.max(W),
+											   colorscale=scale, name="azimuthal baseflow",
+											   caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
+			else: return go.Isosurface(x=X,y=Y,z=Z,value=U,
+									   isomin=r*np.max(U),isomax=r*np.max(U),
+									   colorscale=scale, name="axial baseflow",
+									   caps=dict(x_show=False, y_show=False, z_show=False),showscale=False)

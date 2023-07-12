@@ -23,7 +23,6 @@ with cProfile.Profile() as pr:
 	#spyp.printStuff('./','indic_q',indic_q)
 	#spyp.printStuff('./','indic_f',indic_f)
 	spyp.assembleNMatrix()#indic_q)
-	spyp.assembleMRMatrices(indic_f)
 
 	for S in Ss_ref:
 		# Load baseflow
@@ -33,6 +32,7 @@ with cProfile.Profile() as pr:
 		spyp.interpolateBaseflow(spyb)
 
 		for m in ms_ref:
+			spyp.assembleMRMatrices(1j*m,indic_f)
 			boundaryConditionsPerturbations(spyp,m)
 			# For efficiency, matrices assembled once per Sts
 			spyp.assembleJMatrix(m)

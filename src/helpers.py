@@ -123,21 +123,20 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	configureKSP(ST.getKSP(),params,shift)
 	EPS.setFromOptions()
 
-def azimuthalExtension(th,m,F,G=None,H=None,real=True,outer=True):
-	jm = 1j*m
-	if outer: F  = np.outer(F,np.exp(jm*th)) # Operating on a cut plane
-	else: 	  F *= np.exp(jm*th)			# Already in 3D
+def azimuthalExtension(th,m,F,G=None,H=None,real=True,outer=True,cartesian=False):
+	if outer: F  = np.outer(F,np.exp(1j*m*th)) # Operating on a cut plane
+	else: 	  F *= 			  np.exp(1j*m*th)	 # Already in 3D
 	if G is None:
 		if real: return F.real.astype(np.float64)
 		else: 	 return F.astype(np.complex64)
 	if outer:
-		G = np.outer(G,np.exp(jm*th))
-		H = np.outer(H,np.exp(jm*th))
+		G = np.outer(G,np.exp(1j*m*th))
+		H = np.outer(H,np.exp(1j*m*th))
 		th = np.tile(th,(G.shape[0],1))
 	else:
-		G *= np.exp(jm*th)
-		H *= np.exp(jm*th)
-	G2 = np.cos(th)*G-np.sin(th)*H # Moving to Cartesian referance frame at last moment
-	H2 = np.sin(th)*G+np.cos(th)*H
-	if real: return [G.real.astype(np.float64) for G in [F,G2,H2]] # Reduce memory footprint
-	else: 	 return [G.astype(np.complex64)    for G in [F,G2,H2]]
+		G *= np.exp(1j*m*th)
+		H *= np.exp(1j*m*th)
+	if cartesian:
+		G,H = np.cos(th)*G-np.sin(th)*H,np.sin(th)*G+np.cos(th)*H # Moving to Cartesian referance frame at last moment
+	if real: return [I.real.astype(np.float64) for I in [F,G,H]] # Reduce memory footprint
+	else: 	 return [I.astype(np.complex64)    for I in [F,G,H]]

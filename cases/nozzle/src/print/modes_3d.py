@@ -6,9 +6,6 @@ Created on Wed Oct  13 17:07:00 2021
 """
 from sys import path
 from os.path import isfile
-import plotly.graph_objects as go
-import plotly.io as pio
-pio.renderers.default="firefox"
 
 path.append('/home/shared/cases/nozzle/src/')
 
@@ -23,31 +20,20 @@ spyp = SPYP(params,data_path,pert_mesh,direction_map)
 dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
 
-# Nozzle surface
-y = np.cos(np.linspace(0,np.pi,15))
-x,y = np.meshgrid([0,1],y)
-z = np.sqrt(1-y**2)
-up_nozzle   = go.Surface(x=x, y=y, z= z, colorscale=[[0,'black'],[1,'black']], opacity=.5, showscale=False, name="nozzle")
-down_nozzle = go.Surface(x=x, y=y, z=-z, colorscale=[[0,'black'],[1,'black']], opacity=.5, showscale=False, name="nozzle")
-
-def frameArgs(duration):
-    return {"frame": {"duration": duration}, "mode": "immediate", "fromcurrent": True,
-            "transition": {"duration": duration, "easing": "linear"},}
-
 if p0:
 	for mesh in ["XYZ_pt"]:
 		exec("fig = go.Figure(data=[go.Scatter3d(x="+mesh+"[0],y="+mesh+"[1],z="+mesh+"[2], mode='markers', marker={'size':3,'opacity':.4})]); fig.write_html('"+dir+mesh+".html')")
 
 directions=list(direction_map.keys())
 
-print_list=[#{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
-			#{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':True,'all_dirs':True},
-			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
-			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
-			#{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
-			#{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
-			#{'S':0,'m': 0,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],			'print_f':True,'print_U':False,'all_dirs':True},
-			#{'S':0,'m':-2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':True,'print_U':False,'all_dirs':True},
+print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':True,'all_dirs':True},
+			{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
+			{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
+			{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':0,'m': 0,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],			'print_f':True,'print_U':False,'all_dirs':True},
+			{'S':0,'m':-2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':True,'print_U':False,'all_dirs':True},
 			{'S':0,'m': 2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':False,'print_U':False,'all_dirs':False}
 ]
 S_save=-1
@@ -55,7 +41,7 @@ S_save=-1
 for dat in print_list:
 	S,m,St,XYZ,all_dirs=dat['S'],dat['m'],dat['St'],dat['XYZ'],dat['all_dirs']
 	print_f,print_U=dat['print_f'],dat['print_U']
-	if S_save!=S:
+	if S_save!=S: # If current swirl isn't correct, load the correct one
 		spyb.loadBaseflow(Re,S,False)
 		S_save=S
 	small_dat={'Re':Re,'S':S,'m':m,'St':St}
@@ -81,7 +67,7 @@ for dat in print_list:
 		fig.update_coloraxes(showscale=False)
 		fig.update_layout(scene_aspectmode='data')
 		fig.write_html(f"{file_name}_dir={directions[0]}.html")
-		if p0: print(f"Wrote {file_name}_dir={directions[0]}.html",flush=True)
+		print(f"Wrote {file_name}_dir={directions[0]}.html",flush=True)
 		if all_dirs:
 			for i in (1,2):
 				data=[isos_r[i][0], up_nozzle, down_nozzle]
@@ -91,4 +77,4 @@ for dat in print_list:
 				fig.update_coloraxes(showscale=False)
 				fig.update_layout(scene_aspectmode='data')
 				fig.write_html(f"{file_name}_dir={directions[i]}.html")
-				if p0: print(f"Wrote {file_name}_dir={directions[i]}.html",flush=True)
+				print(f"Wrote {file_name}_dir={directions[i]}.html",flush=True)

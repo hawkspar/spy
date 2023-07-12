@@ -155,7 +155,7 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,indic=1) -> None:
+	def assembleMRMatrices(self,mj,indic=1) -> None:
 		# Velocity and full space functions
 		v = self.v
 		w = ufl.TrialFunction(self.TH0c)
@@ -180,7 +180,12 @@ class SPYP(SPY):
 		
 		# Projection (m*n) catches u_r component and projects it on an e_th component with a grad U multiplication
 		U,_=self.Q.split()
-		P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx
+		P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx # Cancel out azimuthal shear
+		#P_form = ufl.inner(U[2].dx(0)*self.u[0],v[2])*ufl.dx # Cancel out azimuthal shear in x
+		#P_form = ufl.inner(U[0].dx(1)*self.u[1],v[0])*ufl.dx # Cancel out axial shear
+		#P_form = ufl.inner(-2*U[2]*self.u[2]/self.r,v[1])*ufl.dx # Cancel out centrifugal force
+		P_form += ufl.inner((U[1]*self.u[2]+U[2]*self.u[1])/self.r,v[2])*ufl.dx # Cancel out Coriolis force
+		#P_form = ufl.inner(U[2]*mj/self.r*self.u,v)*ufl.dx # Cancel out Uth transport
 		# Assembling matrices
 		P = assembleForm(P_form)
 
@@ -255,7 +260,7 @@ class SPYP(SPY):
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
 				saveStuff(		self.resolvent_path+"response/npy/",	      save_string+f"_i={i+1:d}",velocity_i)
 
-	def visualiseRPlane(self,str:str,dat:dict,x0:tuple,x1:tuple,n_x:int,n_th:int,n_t:int):
+	def saveRPlane(self,str:str,dat:dict,x0:tuple,x1:tuple,n_x:int,n_th:int,n_t:int):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
@@ -286,7 +291,7 @@ class SPYP(SPY):
 					plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_dir={d}_t={i}_rth".replace('.',',')+".png")
 					plt.close()
 
-	def visualiseXPlane(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int):
+	def saveXPlane(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
@@ -317,7 +322,7 @@ class SPYP(SPY):
 				plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}_dir={d}".replace('.',',')+".png")
 				plt.close()
 
-	def visualiseCurls(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int):
+	def save2DCurls(self,str:str,dat:dict,x:float,R:float,n_r:int,n_th:int):
 		import matplotlib.pyplot as plt
 
 		C = self.readCurl(str,dat)
@@ -343,7 +348,7 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
-	def visualiseQuiver(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int,step:int,s:float):
+	def save2DQuiver(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int,step:int,s:float):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
@@ -364,7 +369,7 @@ class SPYP(SPY):
 		if p0:
 			print("Evaluation of perturbations done ! Drawing quiver...",flush=True)
 			th = np.linspace(0,2*np.pi,n_th,endpoint=False)
-			U,F,G=azimuthalExtension(th,dat['m'],U,F,G)
+			U,F,G=azimuthalExtension(th,dat['m'],U,F,G,cartesian=True)
 			F,G=F[:,::step],G[:,::step]
 
 			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
@@ -382,6 +387,30 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
+	def compute3DCurlsCones(self,str:str,dat:dict,XYZ:np.array,s:float,n:int,scale:str,name:str) -> list:
+		import plotly.graph_objects as go #pip3 install plotly
+		
+		X,Y,Z = XYZ
+		Cs = [self.readCurl(str,dat,d) for d in self.direction_map.keys()]
+		# Evaluation of projected value
+		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
+		XYZ_e, Cx = self.eval(Cs[self.direction_map['x']], 	 XYZ_p.T,XYZ.T)
+		_, 	   Cr = self.eval(Cs[self.direction_map['r']], 	 XYZ_p.T,XYZ.T)
+		_, 	   Ct = self.eval(Cs[self.direction_map['theta']],XYZ_p.T,XYZ.T)
+		if p0:
+			print("Evaluation of rotationals done ! Drawing quiver...",flush=True)
+			X,Y,Z = XYZ_e.T
+			Cx,Cr,Ct=azimuthalExtension(np.arctan2(Z,Y),dat['m'],Cx,Cr,Ct,real=False,outer=False,cartesian=True)
+			# Now handling time
+			cones = []
+			for t in np.linspace(0,np.pi/4,n,endpoint=False):
+				Cxt = (Cx*np.exp(-1j*t)).real # Time-shift
+				Crt = (Cr*np.exp(-1j*t)).real
+				Ctt = (Ct*np.exp(-1j*t)).real
+				cones.append(go.Cone(x=X,y=Y,z=Z,u=Cxt,v=Crt,w=Ctt,
+						   			colorscale=scale,showscale=False,name="rotational of "+name,sizemode="scaled",sizeref=s,opacity=.6))
+			return cones
+
 	def computeIsosurfaces(self,str:str,dat:dict,XYZ:np.array,r:float,n:int,scale:str,name:str,all_dirs:bool=False) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
 		
@@ -397,8 +426,8 @@ class SPYP(SPY):
 			print("Evaluation of perturbations done ! Drawing isosurfaces...",flush=True)
 			X,Y,Z = XYZ_e.T
 			th = np.arctan2(Z,Y)
-			if all_dirs: U,V,W=azimuthalExtension(th,dat['m'],U,V,W,real=False,outer=False)
-			else: 		 U=azimuthalExtension(th,dat['m'],U,real=False,outer=False)
+			if all_dirs: U,V,W=azimuthalExtension(th,dat['m'],U,V,W,real=False,outer=False) # Also moving to Cartesian referance frame
+			else: 		 U	  =azimuthalExtension(th,dat['m'],U,	real=False,outer=False)
 			# Now handling time
 			surfs = [[]]*(1+2*all_dirs)
 			for t in np.linspace(0,np.pi/4,n,endpoint=False):
@@ -408,7 +437,7 @@ class SPYP(SPY):
 										   	  colorscale=scale, name="axial "+name,
 										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 				if all_dirs:
-					Vt = (V*np.exp(-1j*t)).real # Moving to Cartesian referance frame at last moment
+					Vt = (V*np.exp(-1j*t)).real
 					Wt = (W*np.exp(-1j*t)).real
 					surfs[1].append(go.Isosurface(x=X,y=Y,z=Z,value=Vt,
 												isomin=r*np.min(Vt),isomax=r*np.max(Vt),

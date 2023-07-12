@@ -27,9 +27,10 @@ h=1e-4
 U_m,a=.05,6
 
 # Easier standardisation across files
-Ss_ref = [1]#np.linspace(0,1,6)
-ms_ref = [-2,0]
-Sts_ref = np.linspace(0,.1,5)
+Ss_ref = [1]
+ms_ref = [-2]
+Sts_ref = [.00730566/2]
+#Sts_ref = np.hstack((.00730566/2,np.linspace(0,.1,10)))
 
 # Numerical Parameters
 params = {"rp":.97,    #relaxation_parameter
