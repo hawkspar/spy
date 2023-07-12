@@ -21,20 +21,20 @@ dir=spyp.resolvent_path+"/3d/"
 dirCreator(dir)
 
 if p0:
-	for mesh in ["XYZ_pt"]:
+	for mesh in []:
 		exec("fig = go.Figure(data=[go.Scatter3d(x="+mesh+"[0],y="+mesh+"[1],z="+mesh+"[2], mode='markers', marker={'size':3,'opacity':.4})]); fig.write_html('"+dir+mesh+".html')")
 
 directions=list(direction_map.keys())
 
-print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':True,'all_dirs':True},
-			{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
-			{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
-			{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m': 0,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],			'print_f':True,'print_U':False,'all_dirs':True},
-			{'S':0,'m':-2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':True,'print_U':False,'all_dirs':True},
-			{'S':0,'m': 2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':False,'print_U':False,'all_dirs':False}
+print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':True}#,
+			#{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':True,'all_dirs':True},
+			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
+			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
+			#{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':0,'m': 0,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],			'print_f':True,'print_U':False,'all_dirs':True},
+			#{'S':0,'m':-2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':True,'print_U':False,'all_dirs':True},
+			#{'S':0,'m': 2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':False,'print_U':False,'all_dirs':False}
 ]
 S_save=-1
 

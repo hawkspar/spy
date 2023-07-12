@@ -155,7 +155,7 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,mj,indic=1) -> None:
+	def assembleMRMatrices(self,indic=1) -> None:
 		# Velocity and full space functions
 		v = self.v
 		w = ufl.TrialFunction(self.TH0c)
@@ -178,13 +178,24 @@ class SPYP(SPY):
 		self.R_obj = R_class(B,self.TH)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
 		
-		# Projection (m*n) catches u_r component and projects it on an e_th component with a grad U multiplication
+		"""# Projection (m*n) catches u_r component and projects it on an e_th component with a grad U multiplication
 		U,_=self.Q.split()
-		P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx # Cancel out azimuthal shear
+		nu = 1/self.Re + self.Nu
+		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
+		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['theta']
+		dv, gd = lambda v: div(r,dx,dr,dt,v,m2), lambda v,m: grd(r,dx,dr,dt,v,m)
+		P_form  = ufl.inner(dv(u),   s)
+		# Momentum (different test functions and IBP)
+		P_form += ufl.inner(gd(U,0)*u, v) # Convection
+		P_form -= ufl.inner(   p,   dv(v)) # Pressure
+		P_form += ufl.inner(gd(u,m2)+gd(u,m2).T,
+							   		gd(v,m2))*nu # Diffusion (grad u.T significant with nut)
+		P_form=P_form*r*ufl.dx
+		#P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx # Cancel out azimuthal shear
 		#P_form = ufl.inner(U[2].dx(0)*self.u[0],v[2])*ufl.dx # Cancel out azimuthal shear in x
 		#P_form = ufl.inner(U[0].dx(1)*self.u[1],v[0])*ufl.dx # Cancel out axial shear
 		#P_form = ufl.inner(-2*U[2]*self.u[2]/self.r,v[1])*ufl.dx # Cancel out centrifugal force
-		P_form += ufl.inner((U[1]*self.u[2]+U[2]*self.u[1])/self.r,v[2])*ufl.dx # Cancel out Coriolis force
+		#P_form += ufl.inner((U[1]*self.u[2]+U[2]*self.u[1])/self.r,v[2])*ufl.dx # Cancel out Coriolis force
 		#P_form = ufl.inner(U[2]*mj/self.r*self.u,v)*ufl.dx # Cancel out Uth transport
 		# Assembling matrices
 		P = assembleForm(P_form)
@@ -193,8 +204,8 @@ class SPYP(SPY):
 		C     	 = pythonMatrix([[m_local,m],[n_local,n]],C_obj,  comm)
 		S_obj 	 = R_class(C,self.TH)
 		S_obj.KSP=self.R_obj.KSP # Same operator L
-		S     	 = pythonMatrix([[m_local,m],[n_local,n]],S_obj,  comm)
-		LHS_obj  = LHS_class(S,self.N,self.TH)
+		S     	 = pythonMatrix([[m_local,m],[n_local,n]],S_obj,  comm)"""
+		LHS_obj  = LHS_class(self.R,self.N,self.TH)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
@@ -230,6 +241,7 @@ class SPYP(SPY):
 				print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
 				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
+				print("Squared first gain : " +str(EPS.getEigenvalue(0)), flush=True)
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.array([EPS.getEigenvalue(i).real for i in range(n)], dtype=np.float)**.5
 				# Write gains

@@ -12,7 +12,7 @@ from helpers import dirCreator
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'tab:blue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 #color_code={'0':'tab:blue','1':'tab:red','2':'orange','3':'rebeccapurple','4':'olivedrab','5':'cyan'} # Pickering colorscheme
-dir="/home/shared/cases/nozzle/resolvent_no_Uth_transport/gains/"
+dir="/home/shared/cases/nozzle/resolvent_only_convection/gains/"
 dirCreator(dir+"plots/")
 stick_to_ref=False # Use all available gains or limit to those specified in setup ?
 square=False

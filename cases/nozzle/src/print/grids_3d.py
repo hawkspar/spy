@@ -31,7 +31,7 @@ Xf_es  = np.linspace(0,1.01,70)
 YZf_es  = np.linspace(0,1.3,70)
 XYZf_es = XYZ(Xf_es,YZf_es)
 
-Xr_es  = np.geomspace(7.5,47,70)
+Xr_es  = np.geomspace(5.5,47,70)
 YZr_es = np.linspace(0,8,70)
 XYZr_es = XYZ(Xr_es,YZr_es)
 
