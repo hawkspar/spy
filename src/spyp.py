@@ -12,25 +12,64 @@ from os.path import isfile
 from spy import SPY
 from helpers import *
 
-# Alternate B (B+PR)
-class C_class:
-	def __init__(self,B:pet.Mat,P:pet.Mat,R:pet.Mat,TH:dfx.fem.FunctionSpace,TH0c:dfx.fem.FunctionSpace) -> None:
-		self.B,self.P,self.R=B,P,R
+# New mass matrix
+class RHS_class: # M2 = M+(PR)^H N PR
+	def __init__(self,M:pet.Mat,R:pet.Mat,P:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace,TH0c,TH_2_TH0) -> None:
+		self.M,self.R,self.P,self.N=M,R,P,N
 		self.tmp1,self.tmp2=Function(TH),Function(TH)
 		self.tmp3=Function(TH0c)
 
-	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None:
-		self.R.mult(x,self.tmp1.vector)
-		self.tmp1.x.scatter_forward()
-		self.P.mult(self.tmp1.vector,self.tmp2.vector)
-		self.B.multAdd(x,self.tmp2.vector,y)
+		self.TH_2_TH0=np.array(TH_2_TH0,dtype='int32')
+		self.l=TH0c.dofmap.index_map.size_local
+		I,J=TH0c.dofmap.index_map.local_range
+		self.dof_map=np.arange(I,J,dtype='int32')
 
-	def multTranspose(self,_,x:pet.Vec,y:pet.Vec) -> None:
-		self.P.multTranspose(x,self.tmp1.vector)
-		self.tmp1.x.scatter_forward()
-		self.R.multHermitian(self.tmp1.vector,self.tmp3.vector)
-		self.B.multTransposeAdd(x,self.tmp3.vector,y)
+	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
+		v1,v2,v3=self.tmp1.vector,self.tmp2.vector,self.tmp3.vector
+		x1,x2   =self.tmp1.x,	  self.tmp2.x
+		self.R.mult(x, v1); x1.scatter_forward()
+		self.P.mult(v1,v2); x2.scatter_forward()
+		self.N.mult(v2,v1); x1.scatter_forward()
+		self.P.multHermitian(v1,v2); x2.scatter_forward()
+		self.R.multHermitian(v2,v3)
+		self.M.multAdd(x,v3,y)
 	
+	def approximate(self,k:int) -> pet.Mat: return self.M
+"""
+		m,		n 		= self.R.getSize()
+		m_local,n_local = self.R.getLocalSize()
+		v3=self.tmp3.vector
+		S=pet.Mat().create(comm=comm); S.setSizes([[n_local,n],[n_local,n]])
+		U=pet.Mat().create(comm=comm); U.setSizes([[n_local,n],[m_local,m]]) # Since these are column matrices but PETSc handles CSR
+		V=pet.Mat().create(comm=comm); V.setSizes([[n_local,n],[n_local,n]])
+		for A in (U,S,V):
+			A.setUp()
+			A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1)
+		
+		g=np.loadtxt("/home/shared/cases/nozzle/resolvent_save/gains/txt/Re=200000_S=1,0_m=-2_St=3,6529e-03.txt")
+		for i in range(k):
+			S.setValue(i,i,g[i])
+			loadStuff("/home/shared/cases/nozzle/resolvent_save/response/npy/",{"S":1,"St":.00730566/2,"m":-2,"i":i},self.tmp3)
+			v3.chop(1e-4); U.setValues([i],self.TH_2_TH0[:self.l],v3)
+			loadStuff("/home/shared/cases/nozzle/resolvent_save/forcing/npy/", {"S":1,"St":.00730566/2,"m":-2,"i":i},self.tmp3)
+			v3.chop(1e-4); V.setValues([i],self.dof_map,		  v3)
+		if p0: print("Begin assembly",flush=True)
+		for A in (U,S,V): A.assemble()
+
+		if p0: print("Begin matrices products",flush=True)
+		U.transpose(U); V.conjugate(V)
+		V=S.matMult(V)
+		aR=U.matMult(V)
+		for A in (U,S,V): A.destroy()
+		aR=self.P.matMult(aR) # Multiplication in place (everyone is square except U & aR)
+		
+		if p0: print("Hermitiating...",flush=True)
+		M2=self.N.matMult(aR)
+		M2=aR.hermitianTranspose().matMult(M2)
+		if p0: print("Approximate done !",flush=True)
+
+		return self.M+M2"""
+
 # Resolvent operator (L^-1B)
 class R_class:
 	def __init__(self,B:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
@@ -43,30 +82,32 @@ class R_class:
 		configureKSP(self.KSP,params)
 
 	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
-		self.B.mult(x,self.tmp1.vector)
-		self.tmp1.x.scatter_forward()
-		self.KSP.solve(self.tmp1.vector,y)
+		v1,x1=self.tmp1.vector,self.tmp1.x
+		self.B.mult(x,v1)
+		x1.scatter_forward()
+		self.KSP.solve(v1,y)
 
 	def multHermitian(self,_,x:pet.Vec,y:pet.Vec) -> None:
 		# Hand made solveHermitianTranspose (save extra LU factorisation)
+		v2,x2=self.tmp2.vector,self.tmp2.x
 		x.conjugate()
-		self.KSP.solveTranspose(x,self.tmp2.vector)
-		self.tmp2.vector.conjugate()
-		self.tmp2.x.scatter_forward()
-		self.B.multTranspose(self.tmp2.vector,y)
+		self.KSP.solveTranspose(x,v2)
+		v2.conjugate()
+		x2.scatter_forward()
+		self.B.multTranspose(v2,y)
 
-# Necessary for matrix-free routine (R^HQR)
-class LHS_class:
+# Necessary for matrix-free routine
+class LHS_class: # A = R^H N R
 	def __init__(self,R:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
 		self.R,self.N=R,N
 		self.tmp1,self.tmp2=Function(TH),Function(TH) # Necessary to have 2 - they have the correct dims
 
 	def mult(self,_,x:pet.Vec,y:pet.Vec): # Middle argument is necessary for EPS in SLEPc
-		self.R.mult(x,self.tmp1.vector)
-		self.tmp1.x.scatter_forward()
-		self.N.mult(self.tmp1.vector,self.tmp2.vector)
-		self.tmp2.x.scatter_forward()
-		self.R.multHermitian(self.tmp2.vector,y)
+		v1,v2=self.tmp1.vector,self.tmp2.vector
+		x1,x2=self.tmp1.x,	   self.tmp2.x
+		self.R.mult(x, v1); x1.scatter_forward()
+		self.N.mult(v1,v2); x2.scatter_forward()
+		self.R.multHermitian(v2,y)
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
@@ -115,7 +156,7 @@ class SPYP(SPY):
 	def assembleNMatrix(self,indic=1) -> None:
 		# Shorthands
 		u, v = self.u, self.v
-		# Mass (m*m): here we choose L2
+		# Mass (m*m): here we choose L2 on velocity, no weight for pressure
 		N_form = ufl.inner(u,v)*self.r*indic*ufl.dx # Same multiplication process as base equations, indicator constrains response
 		self.N = assembleForm(N_form,self.bcs,indic==1)
 		if p0: print("Norm matrix computed !",flush=True)
@@ -161,7 +202,7 @@ class SPYP(SPY):
 		w = ufl.TrialFunction(self.TH0c)
 		z = ufl.TestFunction( self.TH0c)
 		# Norms - required to have a proper maximisation problem in a cylindrical geometry
-		# Mass M (n*n): functionally same as N with additional zeroes for pressure
+		# Mass M (n*n): naive L2
 		M_form = ufl.inner(w,z)*self.r*ufl.dx
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1)
 		B_form = ufl.inner(w,v)*self.r*indic*ufl.dx # Indicator here constrains forcing
@@ -177,36 +218,18 @@ class SPYP(SPY):
 		# Resolvent operator : takes forcing, returns full state
 		self.R_obj = R_class(B,self.TH)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
-		
-		"""# Projection (m*n) catches u_r component and projects it on an e_th component with a grad U multiplication
+		LHS_obj  = LHS_class(self.R,self.N,self.TH)
+		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
+
+		# Projection (m*n) catches u_r component and projects it on an e_th component with a grad U multiplication
 		U,_=self.Q.split()
-		nu = 1/self.Re + self.Nu
-		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
-		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['theta']
-		dv, gd = lambda v: div(r,dx,dr,dt,v,m2), lambda v,m: grd(r,dx,dr,dt,v,m)
-		P_form  = ufl.inner(dv(u),   s)
-		# Momentum (different test functions and IBP)
-		P_form += ufl.inner(gd(U,0)*u, v) # Convection
-		P_form -= ufl.inner(   p,   dv(v)) # Pressure
-		P_form += ufl.inner(gd(u,m2)+gd(u,m2).T,
-							   		gd(v,m2))*nu # Diffusion (grad u.T significant with nut)
-		P_form=P_form*r*ufl.dx
-		#P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx # Cancel out azimuthal shear
-		#P_form = ufl.inner(U[2].dx(0)*self.u[0],v[2])*ufl.dx # Cancel out azimuthal shear in x
-		#P_form = ufl.inner(U[0].dx(1)*self.u[1],v[0])*ufl.dx # Cancel out axial shear
-		#P_form = ufl.inner(-2*U[2]*self.u[2]/self.r,v[1])*ufl.dx # Cancel out centrifugal force
-		#P_form += ufl.inner((U[1]*self.u[2]+U[2]*self.u[1])/self.r,v[2])*ufl.dx # Cancel out Coriolis force
-		#P_form = ufl.inner(U[2]*mj/self.r*self.u,v)*ufl.dx # Cancel out Uth transport
+		P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx
 		# Assembling matrices
 		P = assembleForm(P_form)
 
-		C_obj	 = C_class(B,P,self.R,self.TH,self.TH0c)
-		C     	 = pythonMatrix([[m_local,m],[n_local,n]],C_obj,  comm)
-		S_obj 	 = R_class(C,self.TH)
-		S_obj.KSP=self.R_obj.KSP # Same operator L
-		S     	 = pythonMatrix([[m_local,m],[n_local,n]],S_obj,  comm)"""
-		LHS_obj  = LHS_class(self.R,self.N,self.TH)
-		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
+		RHS_obj  = RHS_class(self.M,self.R,P,self.N,self.TH,self.TH0c,self.TH_to_TH0)
+		self.app=RHS_obj.approximate(4)
+		self.RHS = pythonMatrix([[n_local,n],[n_local,n]],RHS_obj,comm)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
 		# Solver
@@ -226,8 +249,9 @@ class SPYP(SPY):
 			# Equations
 			self.R_obj.setL(self.J-2j*np.pi*St*self.N,self.params)
 			# Eigensolver
-			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
-			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
+			#EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
+			EPS.setOperators(self.LHS,self.RHS)
+			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP,app=self.app) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
 			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.4e})...",flush=True)
 			EPS.solve()
@@ -260,7 +284,7 @@ class SPYP(SPY):
 				gain_i=EPS.getEigenpair(i,forcing_i.vector).real**.5
 				forcing_i.x.scatter_forward()
 				self.printStuff(self.resolvent_path+"forcing/print/","f_"+save_string+f"_i={i+1:d}",forcing_i)
-				saveStuff(		self.resolvent_path+"forcing/npy/",		 save_string+f"_i={i+1:d}",forcing_i)
+				saveStuff(		self.resolvent_path+"forcing/npy/",		  save_string+f"_i={i+1:d}",forcing_i)
 				# Obtain response from forcing
 				response_i=Function(self.TH)
 				self.R.mult(forcing_i.vector,response_i.vector)
@@ -270,7 +294,7 @@ class SPYP(SPY):
 				# Scale response so that it is still unitary
 				velocity_i.x.array[:]=response_i.x.array[self.TH_to_TH0]/gain_i
 				self.printStuff(self.resolvent_path+"response/print/","r_"+save_string+f"_i={i+1:d}",velocity_i)
-				saveStuff(		self.resolvent_path+"response/npy/",	      save_string+f"_i={i+1:d}",velocity_i)
+				saveStuff(		self.resolvent_path+"response/npy/",	   save_string+f"_i={i+1:d}",velocity_i)
 
 	def saveRPlane(self,str:str,dat:dict,x0:tuple,x1:tuple,n_x:int,n_th:int,n_t:int):
 		import matplotlib.pyplot as plt

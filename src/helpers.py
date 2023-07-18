@@ -102,16 +102,16 @@ def pythonMatrix(dims:list,py,comm) -> pet.Mat:
 # Krylov subspace
 def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
-	# Krylov subspace
+	# Direct solver
 	KSP.setType('preonly')
-	# Preconditioner
+	# Brutal LU preconditioner (performance nightmare !)
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
 	KSP.setFromOptions()
 	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
 
 # Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
+def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False,app=None) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
 	EPS.setProblemType(pb_type)
@@ -120,7 +120,15 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	if shift:
 		ST.setType('sinvert')
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
-	configureKSP(ST.getKSP(),params,shift)
+		configureKSP(ST.getKSP(),params,shift)
+	else:
+		KSP = ST.getKSP()
+		KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
+		KSP.setType('cg')
+		ST.setPreconditionerMat(app)
+		PC = KSP.getPC(); PC.setType('lu')
+		PC.setFactorSolverType('mumps')
+		KSP.setFromOptions()
 	EPS.setFromOptions()
 
 def azimuthalExtension(th,m,F,G=None,H=None,real=True,outer=True,cartesian=False):

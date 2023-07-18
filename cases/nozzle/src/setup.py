@@ -28,14 +28,15 @@ U_m,a=.05,6
 
 # Easier standardisation across files
 Ss_ref = [1]
-ms_ref = [-2]
-Sts_ref = np.hstack((.00730566/2,np.linspace(0,.1,4)))
+ms_ref = [-2]#,0,2]
+#Sts_ref = np.hstack((.00730566/2,np.linspace(0,.1,3)))
+Sts_ref = [.00730566/2]
 
 # Numerical Parameters
 params = {"rp":.97,    #relaxation_parameter
 		  "atol":1e-12, #absolute_tolerance
 		  "rtol":1e-9, #DOLFIN_EPS does not work well
-		  "max_iter":50}
+		  "max_iter":100}
 data_path='nozzle' #folder for results
 direction_map={'x':0,'r':1,'theta':2}
 
