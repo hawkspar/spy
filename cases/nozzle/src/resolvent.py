@@ -12,6 +12,8 @@ from mpi4py.MPI import COMM_WORLD as comm
 from setup import *
 from spyp import SPYP # Must be after setup
 
+from helpers import loadStuff
+
 with cProfile.Profile() as pr:
 	spyp=SPYP(params,data_path,pert_mesh,direction_map)
 
@@ -27,7 +29,9 @@ with cProfile.Profile() as pr:
 
 	for S in Ss_ref:
 		# Load baseflow
-		spyb.loadBaseflow(Re,S)
+		#spyb.loadBaseflow(Re,S)
+		loadStuff(spyb.q_path,  {'Re':Re,'S':S},spyb.Q)
+		loadStuff(spyb.nut_path,{'Re':Re,'S':0},spyb.Nu)
 		# Initialise resolvent toolbox (careful order sensitive)
 		spyp.Re=Re
 		spyp.interpolateBaseflow(spyb)

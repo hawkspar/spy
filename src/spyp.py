@@ -13,62 +13,19 @@ from spy import SPY
 from helpers import *
 
 # New mass matrix
-class RHS_class: # M2 = M+(PR)^H N PR
-	def __init__(self,M:pet.Mat,R:pet.Mat,P:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace,TH0c,TH_2_TH0) -> None:
-		self.M,self.R,self.P,self.N=M,R,P,N
+class MP_class: # MP = (PR)^H N PR
+	def __init__(self,R:pet.Mat,P:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
+		self.R,self.P,self.N=R,P,N
 		self.tmp1,self.tmp2=Function(TH),Function(TH)
-		self.tmp3=Function(TH0c)
-
-		self.TH_2_TH0=np.array(TH_2_TH0,dtype='int32')
-		self.l=TH0c.dofmap.index_map.size_local
-		I,J=TH0c.dofmap.index_map.local_range
-		self.dof_map=np.arange(I,J,dtype='int32')
 
 	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
-		v1,v2,v3=self.tmp1.vector,self.tmp2.vector,self.tmp3.vector
-		x1,x2   =self.tmp1.x,	  self.tmp2.x
+		v1,v2=self.tmp1.vector,self.tmp2.vector
+		x1,x2=self.tmp1.x,	   self.tmp2.x
 		self.R.mult(x, v1); x1.scatter_forward()
 		self.P.mult(v1,v2); x2.scatter_forward()
 		self.N.mult(v2,v1); x1.scatter_forward()
 		self.P.multHermitian(v1,v2); x2.scatter_forward()
-		self.R.multHermitian(v2,v3)
-		self.M.multAdd(x,v3,y)
-	
-	def approximate(self,k:int) -> pet.Mat: return self.M
-"""
-		m,		n 		= self.R.getSize()
-		m_local,n_local = self.R.getLocalSize()
-		v3=self.tmp3.vector
-		S=pet.Mat().create(comm=comm); S.setSizes([[n_local,n],[n_local,n]])
-		U=pet.Mat().create(comm=comm); U.setSizes([[n_local,n],[m_local,m]]) # Since these are column matrices but PETSc handles CSR
-		V=pet.Mat().create(comm=comm); V.setSizes([[n_local,n],[n_local,n]])
-		for A in (U,S,V):
-			A.setUp()
-			A.setOption(A.Option.IGNORE_ZERO_ENTRIES, 1)
-		
-		g=np.loadtxt("/home/shared/cases/nozzle/resolvent_save/gains/txt/Re=200000_S=1,0_m=-2_St=3,6529e-03.txt")
-		for i in range(k):
-			S.setValue(i,i,g[i])
-			loadStuff("/home/shared/cases/nozzle/resolvent_save/response/npy/",{"S":1,"St":.00730566/2,"m":-2,"i":i},self.tmp3)
-			v3.chop(1e-4); U.setValues([i],self.TH_2_TH0[:self.l],v3)
-			loadStuff("/home/shared/cases/nozzle/resolvent_save/forcing/npy/", {"S":1,"St":.00730566/2,"m":-2,"i":i},self.tmp3)
-			v3.chop(1e-4); V.setValues([i],self.dof_map,		  v3)
-		if p0: print("Begin assembly",flush=True)
-		for A in (U,S,V): A.assemble()
-
-		if p0: print("Begin matrices products",flush=True)
-		U.transpose(U); V.conjugate(V)
-		V=S.matMult(V)
-		aR=U.matMult(V)
-		for A in (U,S,V): A.destroy()
-		aR=self.P.matMult(aR) # Multiplication in place (everyone is square except U & aR)
-		
-		if p0: print("Hermitiating...",flush=True)
-		M2=self.N.matMult(aR)
-		M2=aR.hermitianTranspose().matMult(M2)
-		if p0: print("Approximate done !",flush=True)
-
-		return self.M+M2"""
+		self.R.multHermitian(v2,y)
 
 # Resolvent operator (L^-1B)
 class R_class:
@@ -96,7 +53,16 @@ class R_class:
 		x2.scatter_forward()
 		self.B.multTranspose(v2,y)
 
-# Necessary for matrix-free routine
+# Right hand side
+class RHS_class: # M = M+MPi
+	def __init__(self,M:pet.Mat,MPs:list) -> None:
+		self.M,self.MPs=M,MPs
+
+	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
+		self.M.mult(x, y)
+		for MP in self.MPs: MP.multAdd(x,y,y)
+
+# Left hand side
 class LHS_class: # A = R^H N R
 	def __init__(self,R:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
 		self.R,self.N=R,N
@@ -196,7 +162,7 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,indic=1) -> None:
+	def assembleMRMatrices(self,jm,indic=1) -> None:
 		# Velocity and full space functions
 		v = self.v
 		w = ufl.TrialFunction(self.TH0c)
@@ -221,15 +187,24 @@ class SPYP(SPY):
 		LHS_obj  = LHS_class(self.R,self.N,self.TH)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
 
-		# Projection (m*n) catches u_r component and projects it on an e_th component with a grad U multiplication
+		"""# Projection (m*n)
 		U,_=self.Q.split()
-		P_form = ufl.inner(U[2].dx(1)*self.u[1],v[2])*ufl.dx
-		# Assembling matrices
-		P = assembleForm(P_form)
-
-		RHS_obj  = RHS_class(self.M,self.R,P,self.N,self.TH,self.TH0c,self.TH_to_TH0)
-		self.app=RHS_obj.approximate(4)
-		self.RHS = pythonMatrix([[n_local,n],[n_local,n]],RHS_obj,comm)
+		us,vs=[U[2].dx(1)*self.u[1],-2*U[2]*self.u[2],(U[1]*self.u[2]+U[2]*self.u[1])/self.r],[v[2],v[1],v[2]]
+		if jm!=0:
+			us.append(U[2]*jm*self.u/self.r)
+			vs.append(v)
+		MPs=[]
+		for u,v in zip(us,vs):
+			P_form = ufl.inner(u,v)*ufl.dx
+			# Assembling matrices
+			P  = assembleForm(P_form)
+			# Python matrices
+			MP_obj = MP_class(self.R,P,self.N,self.TH)
+			MPs.append(pythonMatrix([[n_local,n],[n_local,n]],MP_obj,comm))
+		# Right hand side
+		RHS_obj  = RHS_class(self.M,MPs)
+		self.RHS = pythonMatrix([[n_local,n],[n_local,n]],RHS_obj, comm)"""
+		self.RHS=self.M
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
 		# Solver
@@ -251,7 +226,7 @@ class SPYP(SPY):
 			# Eigensolver
 			#EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			EPS.setOperators(self.LHS,self.RHS)
-			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP,app=self.app) # Specify that A is hermitian (by construction), & M is semi-definite
+			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP,app=self.M) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
 			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.4e})...",flush=True)
 			EPS.solve()
