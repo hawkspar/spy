@@ -12,26 +12,18 @@ from mpi4py.MPI import COMM_WORLD as comm
 from setup import *
 from spyp import SPYP # Must be after setup
 
-from helpers import loadStuff
-
 with cProfile.Profile() as pr:
 	spyp=SPYP(params,data_path,pert_mesh,direction_map)
 
 	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
-	W = FunctionSpace(spyp.mesh,FE_constant)
-	indic_q,indic_f = Function(W),Function(W)
-	#indic_q.interpolate(lambda x: slope(x[0]-1))
+	indic_f = Function(FunctionSpace(spyp.mesh,FE_constant))
 	indic_f.interpolate(forcingIndicator)
-	#spyp.printStuff('./','indic_q',indic_q)
-	#spyp.printStuff('./','indic_f',indic_f)
-	spyp.assembleNMatrix()#indic_q)
+	spyp.assembleNMatrix()
 	spyp.assembleMRMatrices(indic_f)
 
 	for S in Ss_ref:
 		# Load baseflow
-		#spyb.loadBaseflow(Re,S)
-		loadStuff(spyb.q_path,  {'Re':Re,'S':S},spyb.Q)
-		loadStuff(spyb.nut_path,{'Re':Re,'S':0},spyb.Nu)
+		spyb.loadBaseflow(Re,S)
 		# Initialise resolvent toolbox (careful order sensitive)
 		spyp.Re=Re
 		spyp.interpolateBaseflow(spyb)

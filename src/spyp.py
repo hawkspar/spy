@@ -12,21 +12,6 @@ from os.path import isfile
 from spy import SPY
 from helpers import *
 
-# New mass matrix
-class MP_class: # MP = (PR)^H N PR
-	def __init__(self,R:pet.Mat,P:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
-		self.R,self.P,self.N=R,P,N
-		self.tmp1,self.tmp2=Function(TH),Function(TH)
-
-	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
-		v1,v2=self.tmp1.vector,self.tmp2.vector
-		x1,x2=self.tmp1.x,	   self.tmp2.x
-		self.R.mult(x, v1); x1.scatter_forward()
-		self.P.mult(v1,v2); x2.scatter_forward()
-		self.N.mult(v2,v1); x1.scatter_forward()
-		self.P.multHermitian(v1,v2); x2.scatter_forward()
-		self.R.multHermitian(v2,y)
-
 # Resolvent operator (L^-1B)
 class R_class:
 	def __init__(self,B:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
@@ -52,15 +37,6 @@ class R_class:
 		v2.conjugate()
 		x2.scatter_forward()
 		self.B.multTranspose(v2,y)
-
-# Right hand side
-class RHS_class: # M = M+MPi
-	def __init__(self,M:pet.Mat,MPs:list) -> None:
-		self.M,self.MPs=M,MPs
-
-	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
-		self.M.mult(x, y)
-		for MP in self.MPs: MP.multAdd(x,y,y)
 
 # Left hand side
 class LHS_class: # A = R^H N R
@@ -187,25 +163,6 @@ class SPYP(SPY):
 		LHS_obj  = LHS_class(self.R,self.N,self.TH)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
 
-		"""# Projection (m*n)
-		U,_=self.Q.split()
-		us,vs=[U[2].dx(1)*self.u[1],-2*U[2]*self.u[2],(U[1]*self.u[2]+U[2]*self.u[1])/self.r],[v[2],v[1],v[2]]
-		if jm!=0:
-			us.append(U[2]*jm*self.u/self.r)
-			vs.append(v)
-		MPs=[]
-		for u,v in zip(us,vs):
-			P_form = ufl.inner(u,v)*ufl.dx
-			# Assembling matrices
-			P  = assembleForm(P_form)
-			# Python matrices
-			MP_obj = MP_class(self.R,P,self.N,self.TH)
-			MPs.append(pythonMatrix([[n_local,n],[n_local,n]],MP_obj,comm))
-		# Right hand side
-		RHS_obj  = RHS_class(self.M,MPs)
-		self.RHS = pythonMatrix([[n_local,n],[n_local,n]],RHS_obj, comm)"""
-		self.RHS=self.M
-
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
@@ -225,8 +182,8 @@ class SPYP(SPY):
 			self.R_obj.setL(self.J-2j*np.pi*St*self.N,self.params)
 			# Eigensolver
 			#EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
-			EPS.setOperators(self.LHS,self.RHS)
-			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP,app=self.M) # Specify that A is hermitian (by construction), & M is semi-definite
+			EPS.setOperators(self.LHS,self.M)
+			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
 			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.4e})...",flush=True)
 			EPS.solve()

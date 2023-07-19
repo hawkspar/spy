@@ -123,7 +123,6 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 		configureKSP(ST.getKSP(),params,shift)
 	else:
 		KSP = ST.getKSP()
-		ST.setPreconditionerMat(app)
 		KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
 		KSP.setType('cg')
 		PC = KSP.getPC(); PC.setType('lu')
