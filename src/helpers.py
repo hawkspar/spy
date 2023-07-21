@@ -59,7 +59,7 @@ def saveStuff(dir:str,name:str,fun:Function) -> None:
 	if p0: print("Saved "+proc_name+".npy",flush=True)
 
 # Memoisation routine - find closest in param
-def findStuff(path:str,params:dict,format=lambda f:True,distributed=True):
+def findStuff(path:str,params:dict,format=lambda _:True,distributed=True):
 	closest_file_name=path
 	d=np.infty
 	for file_name in os.listdir(path):
@@ -80,30 +80,33 @@ def loadStuff(path:str,params:dict,fun:Function) -> None:
 	fun.x.scatter_forward()
 
 # Wrapper
-def assembleForm(form:ufl.Form,bcs:list=[],sym=False,diag=0) -> pet.Mat:
+def assembleForm(form:ufl.Form,bcs:list=[],sym:bool=False,diag=0) -> pet.Mat:
 	# JIT options for speed
 	form = dfx.fem.form(form, jit_options={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]})
 	M = dfx.cpp.fem.petsc.create_matrix(form)
 	M.setOption(M.Option.IGNORE_ZERO_ENTRIES, 1)
+	M.setOption(M.Option.SYMMETRIC, 	   sym)
 	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
 	dfx.fem.petsc._assemble_matrix_mat(M, form, bcs, diag)
 	M.assemble()
 	return M
 
 # PETSc Matrix free method
-def pythonMatrix(dims:list,py,comm) -> pet.Mat:
+def pythonMatrix(dims:list,py,comm,sym:bool=False) -> pet.Mat:
 	M = pet.Mat().create(comm)
 	M.setSizes(dims)
 	M.setType(pet.Mat.Type.PYTHON)
+	M.setOption(M.Option.HERMITIAN, 	   sym)
+	M.setOption(M.Option.SYMMETRY_ETERNAL, sym)
 	M.setPythonContext(py)
 	M.setUp()
 	return M
 
 # Krylov subspace
-def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
+def configureKSP(KSP:pet.KSP,params:dict,ksp_type:str='preonly',icntl:bool=False) -> None:
 	KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
 	# Direct solver
-	KSP.setType('preonly')
+	KSP.setType(ksp_type)
 	# Brutal LU preconditioner (performance nightmare !)
 	PC = KSP.getPC(); PC.setType('lu')
 	PC.setFactorSolverType('mumps')
@@ -111,7 +114,7 @@ def configureKSP(KSP:pet.KSP,params:dict,icntl:bool=False) -> None:
 	if icntl: PC.getFactorMatrix().setMumpsIcntl(14,1000)
 
 # Eigenvalue problem solver
-def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False,app=None) -> None:
+def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift:bool=False) -> None:
 	EPS.setDimensions(k,max(10,2*k)) # Find k eigenvalues only with max number of Lanczos vectors
 	EPS.setTolerances(params['atol'],params['max_iter']) # Set absolute tolerance and number of iterations
 	EPS.setProblemType(pb_type)
@@ -122,21 +125,18 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
 		configureKSP(ST.getKSP(),params,shift)
 	else:
-		KSP = ST.getKSP()
-		KSP.setTolerances(rtol=params['rtol'], atol=params['atol'], max_it=params['max_iter'])
-		KSP.setType('cg')
-		PC = KSP.getPC(); PC.setType('lu')
-		PC.setFactorSolverType('mumps')
-		KSP.setFromOptions()
+		configureKSP(ST.getKSP(),params,'cg',shift)
 	EPS.setFromOptions()
 
-def azimuthalExtension(th,m,F,G=None,H=None,real=True,outer=True,cartesian=False):
+# Handler for representation purposes
+def azimuthalExtension(th:np.ndarray,m:int,F:np.ndarray,G:np.ndarray=None,H:np.ndarray=None,
+					   real:bool=True,outer:bool=True,cartesian:bool=False):
 	if outer: F  = np.outer(F,np.exp(1j*m*th)) # Operating on a cut plane
-	else: 	  F *= 			  np.exp(1j*m*th)	 # Already in 3D
-	if G is None:
+	else: 	  F *= 			  np.exp(1j*m*th)  # Already in 3D
+	if G is None: # Only axial stuff to handle
 		if real: return F.real.astype(np.float64)
 		else: 	 return F.astype(np.complex64)
-	if outer:
+	if outer: # Handling radial and azimuthal stuff
 		G = np.outer(G,np.exp(1j*m*th))
 		H = np.outer(H,np.exp(1j*m*th))
 		th = np.tile(th,(G.shape[0],1))

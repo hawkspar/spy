@@ -38,7 +38,6 @@ class SPY:
 		# Finite elements & function spaces
 		FE_vector =ufl.VectorElement("CG",self.mesh.ufl_cell(),2,3)
 		FE_scalar =ufl.FiniteElement("CG",self.mesh.ufl_cell(),1)
-		#Constant =ufl.FiniteElement("Real",self.mesh.ufl_cell(),0)
 		self.TH0 = dfx.fem.FunctionSpace(self.mesh,FE_vector)
 		self.TH1 = dfx.fem.FunctionSpace(self.mesh,FE_scalar)
 		# Taylor Hodd elements ; stable element pair + eddy viscosity
@@ -66,7 +65,7 @@ class SPY:
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:
 		# Shortforms
-		nu = 1/self.Re+self.Nu
+		nu = 1/self.Re + self.Nu
 		r, v, s = self.r, self.v, self.s
 		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['theta']
 		dv, gd = lambda v: div(r,dx,dr,dt,v,0), lambda v: grd(r,dx,dr,dt,v,0)

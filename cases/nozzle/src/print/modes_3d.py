@@ -26,8 +26,8 @@ if p0:
 
 directions=list(direction_map.keys())
 
-print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':True}#,
-			#{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_es,XYZf_es,XYZc_es],'print_f':True,'print_U':True,'all_dirs':True},
+print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_esn,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False}#,
+			#{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_esp,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':True}#,
 			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
 			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
 			#{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},

@@ -58,13 +58,14 @@ class SPYP(SPY):
 		self.eig_path=self.case_path+"eigenvalues/"
 		self.resolvent_path=self.case_path+"resolvent/"
 
-	# Handle
+	# Handle, notice pressure is just ignored as baseflow pressure has no impact on perturbations
 	def interpolateBaseflow(self,spy:SPY) -> None:
 		U_spy,_=spy.Q.split()
 		U,	  _=self.Q.split()
 		U.interpolate(U_spy)
 		self.Nu.interpolate(spy.Nu)
 
+	# Handler
 	def readMode(self,str:str,dat:dict):
 		funs = Function(self.TH0c)
 		dat['i']=1
@@ -161,7 +162,7 @@ class SPYP(SPY):
 		self.R_obj = R_class(B,self.TH)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
 		LHS_obj  = LHS_class(self.R,self.N,self.TH)
-		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm)
+		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm,True)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
 		# Solver
@@ -181,8 +182,7 @@ class SPYP(SPY):
 			# Equations
 			self.R_obj.setL(self.J-2j*np.pi*St*self.N,self.params)
 			# Eigensolver
-			#EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
-			EPS.setOperators(self.LHS,self.M)
+			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
 			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.4e})...",flush=True)
@@ -248,7 +248,7 @@ class SPYP(SPY):
 			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
 			Fs=azimuthalExtension(th,dat['m'],F,G,H,real=False)
 			Xs=np.tile(Xs.reshape((n_x,1)),(1,n_th))
-			Rths=np.outer(Rs,th)
+			Rths=np.outer(Rs,th-np.pi)
 			for i,t in enumerate(np.linspace(0,np.pi/4,n_t,endpoint=False)):
 				Fts=[(F*np.exp(-1j*t)).real for F in Fs]
 				for j,d in enumerate(self.direction_map.keys()):
@@ -258,6 +258,36 @@ class SPYP(SPY):
 					plt.ylabel(r"$x$")
 					plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_dir={d}_t={i}_rth".replace('.',',')+".png")
 					plt.close()
+
+	def saveRPlanePhase(self,str:str,dat:dict,x0:tuple,x1:tuple,n_x:int,n_th:int,n_t:int):
+		import matplotlib.pyplot as plt
+
+		fs = self.readMode(str,dat).split()
+		Xs = np.linspace(x0[0],x1[0],n_x)
+		Rs = np.linspace(x0[1],x1[1],n_x)
+		XYZ = np.array([[x,r] for x,r in zip(Xs,Rs)])
+		# Evaluation of projected value
+		F = self.eval(fs[self.direction_map['x']], 	  XYZ)
+		G = self.eval(fs[self.direction_map['r']],	  XYZ)
+		H = self.eval(fs[self.direction_map['theta']],XYZ)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/r_plane/"
+		dirCreator(dir)
+		if p0:
+			print("Evaluation of perturbations done ! Drawing contours...",flush=True)
+			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
+			Fs=azimuthalExtension(th,dat['m'],F,G,H,real=False)
+			Xs=np.tile(Xs.reshape((n_x,1)),(1,n_th))
+			Rths=np.outer(Rs,th-np.pi)
+			Fts=[np.arctan2(F.imag/F.real) for F in Fs]
+			for j,d in enumerate(self.direction_map.keys()):
+				plt.contourf(Rths,Xs,Fts[j])
+				plt.title(str+" in direction "+d+r" at plane x-$\theta$")
+				plt.xlabel(r"$r\theta$")
+				plt.ylabel(r"$x$")
+				plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_dir={d}_phase_rth".replace('.',',')+".png")
+				plt.close()
 
 	def saveXPlane(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int):
 		import matplotlib.pyplot as plt

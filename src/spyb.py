@@ -34,7 +34,7 @@ class SPYB(SPY):
 		dbase_form = self.linearisedNavierStokes(0) # m=0
 		return self.solver(Re,S,base_form,dbase_form,self.Q,save,refinement)
 
-	# Recommand running in real
+	# Run in real, it's faster and more stable
 	def solver(self,Re:int,S:float,base_form:ufl.Form,dbase_form:ufl.Form,q:Function,save:bool=True,refinement:bool=False) -> int:
 		# Encapsulations
 		problem = NonlinearProblem(base_form,q,self.bcs,dbase_form)

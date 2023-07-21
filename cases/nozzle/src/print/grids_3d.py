@@ -27,13 +27,19 @@ Xr_cl  = np.linspace(0,1.3,70)
 XYZr_cl = XYZ(Xr_cl,1.6)
 
 # Extra special grid for star mode
-Xf_es  = np.linspace(0,1.01,70)
-YZf_es  = np.linspace(0,1.3,70)
+Xf_es  = np.flip(2-np.geomspace(.99,2,25))
+YZf_es  = np.linspace(0,1.015,70)
 XYZf_es = XYZ(Xf_es,YZf_es)
 
-Xr_es  = np.geomspace(5.5,47,70)
-YZr_es = np.linspace(0,8,70)
-XYZr_es = XYZ(Xr_es,YZr_es)
+# Negative m
+Xr_esn  = np.geomspace(5.5,45,50)
+YZr_esn = np.linspace(0,7.5,50)
+XYZr_esn = XYZ(Xr_esn,YZr_esn)
+
+# Positive m
+Xr_esp  = np.geomspace(4.5,34,50)
+YZr_esp = np.linspace(0,7,50)
+XYZr_esp = XYZ(Xr_esp,YZr_esp)
 
 # Grid for modes S,m,St=1,-/+2,0
 Xf_cr  = np.flip(1-np.geomspace(1e-6,1,n))

@@ -33,7 +33,7 @@ with cProfile.Profile() as pr:
 			# For efficiency, matrices assembled once per Sts
 			spyp.assembleJMatrix(m)
 			# Resolvent analysis
-			spyp.resolvent(3,Sts_ref,Re,S,m)
+			spyp.resolvent(5,Sts_ref,Re,S,m)
 	
 	if comm.rank==0:
 		pr.dump_stats('stats')

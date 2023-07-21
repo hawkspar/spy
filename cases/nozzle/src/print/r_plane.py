@@ -13,8 +13,9 @@ from spyp import SPYP
 
 spyp= SPYP(params,data_path,"perturbations",direction_map)
 
-dats=[{"Re":200000,"S":1,"m":-2,"St":7.3057e-03/2},
-	  {"Re":200000,"S":1,"m": 2,"St":7.3057e-03/2},
-	  {"Re":200000,"S":0,"m":-2,"St":7.3057e-03/2}]
-for dat in dats:
-	spyp.saveRPlane("response",dat,(7.5,1),(45,6.2),1000,500,5)
+tups=[({"Re":200000,"S":1,"m":-2,"St":7.3057e-03/2},(5.8,1),(42.5,6)),
+	  ({"Re":200000,"S":1,"m": 2,"St":7.3057e-03/2},(8.5,1),(37,  5)),
+	  ({"Re":200000,"S":0,"m":-2,"St":7.3057e-03/2},(5,  1),(40,  2))]
+
+for tup in tups:
+	spyp.saveRPlane("response",tups[0],tup[1],tup[2],1000,500,2)
