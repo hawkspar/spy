@@ -68,7 +68,7 @@ class SPY:
 		nu = 1/self.Re + self.Nu
 		r, v, s = self.r, self.v, self.s
 		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['theta']
-		dv, gd = lambda v: div(r,dx,dr,dt,v,0), lambda v: grd(r,dx,dr,dt,v,0)
+		dv, gd = lambda v: div(r,dx,dr,dt,self.mesh,v,0), lambda v: grd(r,dx,dr,dt,self.mesh,v,0)
 		# Functions
 		U, P = ufl.split(self.Q)
 		# Mass (variational formulation)
@@ -86,7 +86,7 @@ class SPY:
 		nu = 1/self.Re + self.Nu
 		r, u, p, v, s = self.r, self.u, self.p, self.v, self.s
 		dx, dr, dt = self.direction_map['x'], self.direction_map['r'], self.direction_map['theta']
-		dv, gd = lambda v,m: div(r,dx,dr,dt,v,m), lambda v,m: grd(r,dx,dr,dt,v,m)
+		dv, gd = lambda v,m: div(r,dx,dr,dt,self.mesh,v,m), lambda v,m: grd(r,dx,dr,dt,self.mesh,v,m)
 		# Functions
 		U, _ = ufl.split(self.Q) # Baseflow
 		# Mass (variational formulation)
@@ -97,16 +97,16 @@ class SPY:
 		F -= ufl.inner(   p,   dv(v,m)) # Pressure
 		F += ufl.inner(gd(u,m)+gd(u,m).T,
 							   gd(v,m))*nu # Diffusion (grad u.T significant with nut)
+		F += 
 		return F*r*ufl.dx
 	
 	# Evaluate velocity at provided points
-	def eval(self,f,proj_pts,ref_pts=None) -> np.array:
+	def eval(self,f:Function,proj_pts:np.ndarray,ref_pts:np.ndarray=None) -> np.ndarray:
 		proj_pts = np.hstack((proj_pts,np.zeros((proj_pts.shape[0],1))))
 		if ref_pts is None:
 			ref_pts=proj_pts
 			return_pts=False
-		else:
-			return_pts=True
+		else: return_pts=True
 		bbtree = dfx.geometry.BoundingBoxTree(self.mesh, 2)
 		local_proj, local_ref, local_cells = [], [], []
 		# Find cells whose bounding-box collide with the the points

@@ -41,6 +41,11 @@ Xr_esp  = np.geomspace(4.5,34,50)
 YZr_esp = np.linspace(0,7,50)
 XYZr_esp = XYZ(Xr_esp,YZr_esp)
 
+# Swirl-less version of star mode (extremely long)
+Xr_ln  = np.geomspace(1e-6,45,50)
+YZr_ln  = np.linspace(0,8,70)
+XYZr_ln = XYZ(Xr_ln,YZr_ln)
+
 # Grid for modes S,m,St=1,-/+2,0
 Xf_cr  = np.flip(1-np.geomspace(1e-6,1,n))
 YZf_cr = np.hstack((np.linspace(0,1,40,endpoint=False), np.linspace(1,1.1,10)))
@@ -101,6 +106,10 @@ XYZc_st = XYZc(x0,x1)
 # Star mode : long structures, away from the nozzle
 x0,x1=(5,1.1),(26,4.7)
 XYZc_es = XYZc(x0,x1)
+
+# Star mode, quiver at the start
+x0,x1=(4,1),(14,4)
+XYZq_es = XYZc(x0,x1,np.linspace(1,n))
 
 # Star mode rotationals : large structures, closer to the nozzle
 x0,x1=(10,1),(23,2.4)

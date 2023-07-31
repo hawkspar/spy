@@ -7,7 +7,7 @@ from scipy.interpolate import griddata
 path.append('/home/shared/cases/nozzle/src/')
 
 from setup import *
-from spy import crl, dirCreator
+from spy import grd, crl, dirCreator
 
 # Dimensionalised stuff
 C = np.cos(np.pi/360) # 0.5°
@@ -30,22 +30,24 @@ if openfoam:
 	# Dimensionless
 	ud = openfoam_data.point_data['U'].T
 
+	# Handler to interpolate baseflow
 	def interp(v,target_xy,coord=0): return griddata(xy, v[:,coord], target_xy, 'cubic')
 # Read dolfinx
 else:
 	spyb.loadBaseflow(Re,S)
 	ud,_=spyb.Q.split()
 
+	# Handler to interpolate baseflow
 	def interp(_, target_xy,coord=0):
 		r = spyb.eval(ud.split()[coord],target_xy)
 		if p0: return r
 
 n = 1000
+# Speed on the axis
 X = np.linspace(0,50,n)
 target_xy = np.zeros((n,2))
 target_xy[:,0] = X
 u = interp(ud,target_xy)
-
 if p0:
 	plt.plot(X, u)
 	plt.xlabel(r'$x$')
@@ -53,11 +55,11 @@ if p0:
 	plt.savefig(dir+"Ur0(x)"+save_str+".png")
 	plt.close()
 
+# (ru_th)^2 at nozzle
 R = np.linspace(0,15,n)
 target_xy = np.ones((n,2))+1e-6
 target_xy[:,1] = R
 u = interp(ud,target_xy,2)
-
 if p0:
 	plt.plot(R, R**2*u**2)
 	plt.xlabel(r'$r$')
@@ -65,16 +67,26 @@ if p0:
 	plt.savefig(dir+"r2Ut2"+save_str+".png")
 	plt.close()
 
-crls=crl(spyb.r,direction_map['x'],direction_map['r'],direction_map['theta'],spyb.mesh,ud,0)[0]
-expr=dfx.fem.Expression(crls.dx(direction_map['r']),spyb.TH1.element.interpolation_points())
-crls = Function(spyb.TH1)
-crls.interpolate(expr)
-spyb.printStuff(dir,"dcrl_m=0"+save_str,crls)
+FS = dfx.fem.FunctionSpace(spyb.mesh,ufl.TensorElement("CG",spyb.mesh.ufl_cell(),2,(3,3)))
+grds = Function(FS)
+crls = Function(spyb.TH0)
 
+grds_ufl=grd(spyb.r,direction_map['x'],direction_map['r'],direction_map['theta'],ud,0)
+crls_ufl=crl(spyb.r,direction_map['x'],direction_map['r'],direction_map['theta'],spyb.mesh,ud,0)
+# Baseflow gradient
+grds.interpolate(dfx.fem.Expression(grds_ufl,FS.element.interpolation_points()))
+spyb.printStuff(dir,"grd"+save_str,grds)
+# Baseflow vorticity
+crls.interpolate(dfx.fem.Expression(crls_ufl,spyb.TH0.element.interpolation_points()))
+spyb.printStuff(dir,"crl"+save_str,crls)
+# Derivative of vorticity
+crls.interpolate(dfx.fem.Expression(crls_ufl.dx(direction_map['r']),spyb.TH0.element.interpolation_points()))
+spyb.printStuff(dir,"d_r crl"+save_str,crls)
+
+# Shear layer thickness
 RR, XX = np.meshgrid(R,X)
 target_xy = np.vstack((XX.flatten(),RR.flatten())).T
 u = interp(ud,target_xy)
-
 if p0:
 	ths = np.empty(n)
 	for i in range(n):

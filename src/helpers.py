@@ -8,22 +8,24 @@ from mpi4py.MPI import COMM_WORLD as comm
 
 p0=comm.rank==0
 
-# Cylindrical operators
-def grd(r,dx:int,dr:int,dt:int,v,m:int):
-	if len(v.ufl_shape)==0: return ufl.as_vector([v.dx(dx), v.dx(dr), m*1j*v/r])
-	return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*1j*v[dx]		 /r],
-						  [v[dr].dx(dx), v[dr].dx(dr), (m*1j*v[dr]-v[dt])/r],
-						  [v[dt].dx(dx), v[dt].dx(dr), (m*1j*v[dt]+v[dr])/r]])
+def j(mesh:ufl.Mesh): return dfx.fem.Constant(mesh, 1j)
 
-def div(r,dx:int,dr:int,dt:int,v,m:int):
-	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*1j*v[dt]/r
-	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+v[dr,dx]+ m*1j*v[dt,dx]		   /r,
-						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*1j*v[dt,dr]-v[dt,dt])/r,
-						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*1j*v[dt,dt]+v[dt,dr])/r])
+# Cylindrical operators
+def grd(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int):
+	if len(v.ufl_shape)==0: return ufl.as_vector([v.dx(dx), v.dx(dr), m*j(mesh)*v/r])
+	return ufl.as_tensor([[v[dx].dx(dx), v[dx].dx(dr),  m*j(mesh)*v[dx]		 /r],
+						  [v[dr].dx(dx), v[dr].dx(dr), (m*j(mesh)*v[dr]-v[dt])/r],
+						  [v[dt].dx(dx), v[dt].dx(dr), (m*j(mesh)*v[dt]+v[dr])/r]])
+
+def div(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int):
+	if len(v.ufl_shape)==1: return v[dx].dx(dx) + (r*v[dr]).dx(dr)/r + m*j(mesh)*v[dt]/r
+	return ufl.as_vector([v[dx,dx].dx(dx)+v[dr,dx].dx(dr)+v[dr,dx]+ m*j(mesh)*v[dt,dx]		   /r,
+						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*j(mesh)*v[dt,dr]-v[dt,dt])/r,
+						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*j(mesh)*v[dt,dt]+v[dt,dr])/r])
 
 def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
-	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*dfx.fem.Constant(mesh, 1j)*v[dr],
-    m*dfx.fem.Constant(mesh,1j)*v[dx]		-  v[dt].dx(dx),
+	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*j(mesh)*v[dr],
+    				  m*j(mesh)*v[dx]		-  v[dt].dx(dx),
 								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
 
 # Helpers

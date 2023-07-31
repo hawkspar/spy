@@ -22,10 +22,10 @@ dirCreator(dir)
 
 directions=list(direction_map.keys())
 
-print_list=[#{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZt_es,XYZf_es,XYZb],'print_f':False,'print_U':True}#,
-			{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZt_es,XYZf_es,XYZb],'print_f':False,'print_U':True}#,
-			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True},
-			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True},
+print_list=[#{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZt_es,XYZf_es,XYZb],'print_f':False,'print_U':True},
+			{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZt_es,XYZf_es,XYZb],'print_f':False,'print_U':True},
+			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZb],'print_f':True,'print_U':True},
+			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZb],'print_f':True,'print_U':True},
 			#{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False},
 			#{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False},
 			#{'S':0,'m': 0,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],			'print_f':True,'print_U':False},
@@ -51,8 +51,8 @@ for dat in print_list:
 		else:
 			if p0: print("Found html file, moving on...",flush=True)
 			continue"""
-	cones_r=spyp.compute3DCurlsCones("response",small_dat,XYZ[0],1,1,'Picnic',"response")
-	if print_f: cones_f=spyp.compute3DCurlsCones("forcing",small_dat,XYZ[1],1,1,'Earth', "forcing")
+	cones_r=spyp.computeCurlsCones("response",small_dat,XYZ[0],1,1,'Picnic',"response")
+	if print_f: cones_f=spyp.computeCurlsCones("forcing",small_dat,XYZ[1],1,1,'Earth', "forcing")
 	if print_U: isos_U=spyb.computeIsosurfaces(XYZ[2],.9,"Greens",True)
 	# Plus d'animation - on économise la place !
 	if p0:

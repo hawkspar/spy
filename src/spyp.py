@@ -83,7 +83,7 @@ class SPYP(SPY):
 	# Probably better to do Fourier 2D
 	def readK(self,str:str,dat:dict,coord=0):
 		tup=self.readMode(str,dat).split()
-		grds=grd(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],tup[coord],dat['m'])
+		grds=grd(self.r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],self.mesh,tup[coord],dat['m'])
 		expr=dfx.fem.Expression(grds[0]/tup[coord],self.TH1.element.interpolation_points())
 		k = Function(self.TH1)
 		k.interpolate(expr)
@@ -139,7 +139,7 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,jm,indic=1) -> None:
+	def assembleMRMatrices(self,indic=1) -> None:
 		# Velocity and full space functions
 		v = self.v
 		w = ufl.TrialFunction(self.TH0c)
@@ -164,7 +164,7 @@ class SPYP(SPY):
 		LHS_obj  = LHS_class(self.R,self.N,self.TH)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm,True)
 
-	def resolvent(self,k:int,St_list,Re:int,S:float,m:int) -> None:
+	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,overwrite:bool=False) -> None:
 		# Solver
 		EPS = slp.EPS(); EPS.create(comm)
 		for St in St_list:
@@ -175,7 +175,7 @@ class SPYP(SPY):
 			save_string=(save_string+f"_m={m:d}_St={St:.4e}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/txt/"+save_string+".txt"
 			# Memoisation
-			if isfile(gains_name):
+			if isfile(gains_name) and not overwrite:
 				if p0: print("Found "+gains_name+" file, assuming it has enough gains, moving on...",flush=True)
 				continue
 
@@ -289,14 +289,14 @@ class SPYP(SPY):
 				plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_dir={d}_phase_rth".replace('.',',')+".png")
 				plt.close()
 
-	def saveXPlane(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int):
+	def saveXPlane(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int,o:float=.9):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
-		rs = np.linspace(0,r_max,n_r)
+		rs = np.linspace(r_min,r_max,n_r)
 		XYZ = np.array([[x,r] for r in rs])
 		# Evaluation of projected value
-		F = self.eval(fs[self.direction_map['x']], 	  XYZ)
+		XYZn,F = self.eval(fs[self.direction_map['x']],XYZ,XYZ)
 		G = self.eval(fs[self.direction_map['r']],	  XYZ)
 		H = self.eval(fs[self.direction_map['theta']],XYZ)
 
@@ -310,9 +310,10 @@ class SPYP(SPY):
 
 			for i,d in enumerate(self.direction_map.keys()):
 				_, ax = plt.subplots(subplot_kw={"projection":'polar'})
-				f=ax.contourf(th,rs,Fs[i])
+				f=ax.contourf(th,np.unique(XYZn[:,1]),Fs[i])
 				ax.set_rmin(r_min)
-				ax.set_rorigin(.9*r_min)
+				ax.set_rorigin(o*r_min)
+
 				ax.set_rticks([r_min,r_min+(r_max-r_min)/2,r_max])
 				# Recover direction
 				plt.colorbar(f)
@@ -346,7 +347,45 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
-	def save2DQuiver(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int,step:int,s:float):
+	def saveLiftUpTip(self,str:str,dat:dict,X:np.ndarray,R:np.ndarray,step:int):
+		import matplotlib.pyplot as plt
+
+		fs = self.readMode(str,dat).split()
+		u = self.readMode("response",dat).split()[self.direction_map['x']]
+
+		X_r,R_r = X[::step],R[::step]
+		X_mr,R_mr = np.meshgrid(X_r,R_r)
+		XR_r = np.hstack((X_mr.reshape((-1,1)),R_mr.reshape((-1,1))))
+		X_m,R_m = np.meshgrid(X,R)
+		XR = np.hstack((X_m.reshape((-1,1)),R_m.reshape((-1,1))))
+		# Evaluation of projected value
+		U = self.eval(u, XR)
+		F = self.eval(fs[self.direction_map['x']],XR_r)
+		G = self.eval(fs[self.direction_map['r']],XR_r)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/quiver/"
+		dirCreator(dir)
+		if p0:
+			print("Evaluation of perturbations done ! Drawing quiver...",flush=True)
+			fig, ax = plt.subplots()
+			fig.set_size_inches(10,10)
+			fig.set_dpi(200)
+			ax.quiver(X_r,R_r,-F.reshape((X_r.size,-1)).real.T,-G.reshape((X_r.size,-1)).real.T)
+			ax.plot([np.min(X),1],[1,1],'k-')
+
+			"""# Plot response
+			U=U.reshape((X.size,-1)).real.T
+			c=ax.contourf(X,R,U,cmap='bwr',vmax=np.max(np.abs(U)),vmin=-np.max(np.abs(U)))
+			plt.colorbar(c)"""
+
+			plt.rcParams.update({'font.size': 16})
+			plt.xlabel(r'$x$')
+			plt.ylabel(r'$r$')
+			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_tip".replace('.',',')+".png")
+			plt.close()
+
+	def save2DQuiver(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int,step:int,s:float,o:float=.9):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
@@ -375,9 +414,9 @@ class SPYP(SPY):
 			#plt.rcParams.update({'font.size': 20})
 			fig.set_dpi(200)
 			c=ax.contourf(th,rs,U,cmap='bwr')
-			ax.quiver(th[::step],rs_r,F,G,scale=s)
+			ax.quiver(th[::step],rs_r,-F,-G,scale=s)
 			ax.set_rmin(r_min)
-			ax.set_rorigin(.9*r_min)
+			ax.set_rorigin(o*r_min)
 			ax.set_rticks([r_min,r_min+(r_max-r_min)/2,r_max])
 
 			plt.colorbar(c)
@@ -385,7 +424,40 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
-	def compute3DCurlsCones(self,str:str,dat:dict,XYZ:np.array,s:float,n:int,scale:str,name:str) -> list:
+	def computeWavevector(self,str:str,dat:dict,XYZ:np.array,s:float,n:int,scale:str,name:str) -> list:
+		import plotly.graph_objects as go #pip3 install plotly
+		
+		# Shortforms
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['theta']
+
+		X,Y,Z = XYZ
+		u,_,_=self.readMode(str,dat).split() # Only take axial velocity
+		u.x.array[:]=np.arctan2(u.x.array.imag,u.x.array.real) # Compute phase
+		u.x.scatter_forward()
+		grd_phi = Function(self.TH0)
+		# Baseflow gradient
+		grd_phi.interpolate(dfx.fem.Expression(grd(self.r,dx,dr,dt,self.mesh,u,dat['m']),self.TH0.element.interpolation_points()))
+		grds_phi=grd_phi.split()
+		# Evaluation of projected value
+		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
+		XYZ_e, gx = self.eval(grds_phi[dx],XYZ_p.T,XYZ.T)
+		_, 	   gr = self.eval(grds_phi[dr],XYZ_p.T,XYZ.T)
+		_, 	   gt = self.eval(grds_phi[dt],XYZ_p.T,XYZ.T)
+		if p0:
+			print("Evaluation of gradients done ! Drawing quiver...",flush=True)
+			X,Y,Z = XYZ_e.T
+			gx,gr,gt=azimuthalExtension(np.arctan2(Z,Y),dat['m'],gx,gr,gt,real=False,outer=False,cartesian=True)
+			# Now handling time
+			cones = []
+			for t in np.linspace(0,np.pi/4,n,endpoint=False):
+				gxt = (gx*np.exp(-1j*t)).real # Time-shift
+				grt = (gr*np.exp(-1j*t)).real
+				gtt = (gt*np.exp(-1j*t)).real
+				cones.append(go.Cone(x=X,y=Y,z=Z,u=gxt,v=grt,w=gtt,
+						   			colorscale=scale,showscale=False,name="gradient of axial phase of "+name,sizemode="scaled",sizeref=s,opacity=.6))
+			return cones
+
+	def computeCurlsCones(self,str:str,dat:dict,XYZ:np.array,s:float,n:int,scale:str,name:str) -> list:
 		import plotly.graph_objects as go #pip3 install plotly
 		
 		X,Y,Z = XYZ

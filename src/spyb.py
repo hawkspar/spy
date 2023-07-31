@@ -102,7 +102,7 @@ class SPYB(SPY):
 	def smoothenF(self, e:float, F:Function):
 		r = self.r
 		f, g = ufl.TrialFunction(self.TH1), ufl.TestFunction(self.TH1)
-		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],v,0)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],self.mesh,v,0)
 		F = self.smoother(ufl.inner(f,g)+e*ufl.inner(gd(f),gd(g)),ufl.inner(F,g))
 		return F
 			
@@ -119,7 +119,7 @@ class SPYB(SPY):
 		r = self.r
 		u, p, v, s = self.u, self.p, self.v, self.s
 		U, P = ufl.split(self.Q)
-		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],v,0)
+		gd = lambda v: grd(r,self.direction_map['x'],self.direction_map['r'],self.direction_map['theta'],self.mesh,v,0)
 		if dir is None: self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u),	 gd(v))		+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 		else: 			self.Q = self.smoother(ufl.inner(u,v)+e*ufl.inner(gd(u[dir]),gd(v[dir]))+ufl.inner(p,s),ufl.inner(U,v)+ufl.inner(P,s))
 
@@ -135,11 +135,37 @@ class SPYB(SPY):
 		_, 	   W = self.eval(W,XYZ_p.T,XYZ.T)
 
 		if p0:
-			print("Evaluation of baseflow done ! Plotting quiver...",flush=True)
+			print("Evaluation of baseflow done ! Drawing quiver...",flush=True)
 			X,Y,Z = XYZ_e.T
 			U,V,W=azimuthalExtension(np.arctan2(Z,Y),0,U,V,W,outer=False,cartesian=True)
 			return go.Cone(x=X,y=Y,z=Z,u=U,v=V,w=W,
 						   colorscale=scale,sizemode="scaled",sizeref=1,name="baseflow",opacity=.6,showscale=False)
+
+	def computeShear(self,XYZ:np.array,scale:str) -> list:
+		import plotly.graph_objects as go #pip3 install plotly
+		
+		# Shorforms
+		dx,dr,dt=self.direction_map['x'],self.direction_map['r'],self.direction_map['theta']
+
+		X,Y,Z = XYZ
+		XYZ_p = np.vstack((X,np.sqrt(Y**2+Z**2)))
+		U,_=self.Q.split()
+		# Baseflow gradient
+		grds_ufl=grd(self.r,dx,dr,dt,self.mesh,U,0)
+		drU = Function(self.TH0)
+		drU.interpolate(dfx.fem.Expression(ufl.as_vector([grds_ufl[dx,dr],grds_ufl[dr,dr],grds_ufl[dt,dr]]),self.TH0.element.interpolation_points()))
+		drU, drV, drW = drU.split()
+		# Evaluation of projected value
+		XYZ_e, drU = self.eval(drU,XYZ_p.T,XYZ.T)
+		_, 	   drV = self.eval(drV,XYZ_p.T,XYZ.T)
+		_, 	   drW = self.eval(drW,XYZ_p.T,XYZ.T)
+
+		if p0:
+			print("Evaluation of baseflow done ! Drawing quiver...",flush=True)
+			X,Y,Z = XYZ_e.T
+			drU,drV,drW=azimuthalExtension(np.arctan2(Z,Y),0,drU,drV,drW,outer=False,cartesian=True)
+			return go.Cone(x=X,y=Y,z=Z,u=drU,v=drV,w=drW,
+						   colorscale=scale,sizemode="scaled",sizeref=1,name="baseflow radial shear",opacity=.6,showscale=False)
 
 	def computeIsosurfaces(self,XYZ:np.array,r:float,scale:str,all_dirs=False):
 		import plotly.graph_objects as go #pip3 install plotly

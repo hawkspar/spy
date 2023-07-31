@@ -15,8 +15,8 @@ from helpers import dirCreator, grd
 spyp= SPYP(params,data_path,"perturbations",direction_map)
 
 dats=[
-	  #{"Re":200000,"S":1,"m":-2,"St":7.3057e-03}#,
-	  {"Re":200000,"S":1,"m":2,"St":7.3057e-03}#,
+	  #{"Re":200000,"S":1,"m":-2,"St":7.3057e-03},
+	  {"Re":200000,"S":1,"m":2,"St":7.3057e-03},
 	  #{"Re":200000,"S":0,"m":2,"St":0}
 ]
 
@@ -24,7 +24,7 @@ f = Function(spyp.TH1)
 dir=spyp.resolvent_path+"response/phase/"
 dirCreator(dir)
 for dat in dats:
-	us=spyp.readMode("response",dat).split() # Only take axial velocity
+	us=spyp.readMode("response",dat).split()
 	for u,d in zip(us,direction_map.keys()):
 		u.x.array[:]=np.arctan2(u.x.array.imag,u.x.array.real)
 		u.x.scatter_forward()

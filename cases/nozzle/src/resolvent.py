@@ -7,7 +7,6 @@ Created on Wed Oct  13 17:07:00 2021
 import cProfile, pstats
 from pstats import SortKey
 from dolfinx.fem import FunctionSpace
-from mpi4py.MPI import COMM_WORLD as comm
 
 from setup import *
 from spyp import SPYP # Must be after setup
@@ -35,7 +34,7 @@ with cProfile.Profile() as pr:
 			# Resolvent analysis
 			spyp.resolvent(5,Sts_ref,Re,S,m)
 	
-	if comm.rank==0:
+	if p0:
 		pr.dump_stats('stats')
 		p = pstats.Stats('stats')
 		p.sort_stats(SortKey.CUMULATIVE).print_stats(10)
