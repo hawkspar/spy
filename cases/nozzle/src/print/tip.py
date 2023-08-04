@@ -21,9 +21,10 @@ R=np.linspace(.99,1.01,n)
 
 dats=[
 	  {"S":1,"m":-2,"St":7.3057e-03/2},
-	  {"S":1,"m": 2,"St":7.3057e-03/2},
-	  {"S":0,"m":-2,"St":7.3057e-03/2}
+	  #{"S":1,"m": 2,"St":7.3057e-03/2},
+	  #{"S":0,"m":-2,"St":7.3057e-03/2}
 ]
 for dat in dats:
 	dat["Re"]=Re
-	spyp.saveLiftUpTip("forcing",dat,X,R,m)
+	spyp.save2DQuiver("forcing",dat,1,.95,1.07,300,300,5,150,.9)
+	#spyp.saveLiftUpTip("forcing",dat,X,R,m)

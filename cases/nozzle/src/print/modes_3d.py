@@ -26,8 +26,8 @@ if p0:
 
 directions=list(direction_map.keys())
 
-print_list=[#{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_esn,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
-			#{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_esp,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':True},
+print_list=[{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_esn,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
+			{'S':1,'m': 2,'St':7.3057e-03/2,'XYZ':[XYZr_esp,XYZf_es,XYZc_es],'print_f':True,'print_U':False,'all_dirs':False},
 			#{'S':1,'m': 2,'St':0,		    'XYZ':[XYZr_st,XYZf_cr,XYZc_st],'print_f':True,'print_U':True, 'all_dirs':False},
 			#{'S':1,'m':-2,'St':0,		    'XYZ':[XYZr_sw,XYZf_cr,XYZc_sw],'print_f':True,'print_U':True, 'all_dirs':False},
 			#{'S':1,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
@@ -35,7 +35,7 @@ print_list=[#{'S':1,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_esn,XYZf_es,XYZc_es],'p
 			#{'S':0,'m': 0,'St':.5,		    'XYZ':[XYZr_kh,XYZf_kh],		'print_f':True,'print_U':False,'all_dirs':False},
 			#{'S':0,'m': 0,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':True,'print_U':False,'all_dirs':False},
 			#{'S':0,'m':-2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':True,'print_U':False,'all_dirs':False},
-			{'S':0,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_ln,XYZf_es],		'print_f':True,'print_U':False,'all_dirs':False},
+			#{'S':0,'m':-2,'St':7.3057e-03/2,'XYZ':[XYZr_ln,XYZf_es],		'print_f':True,'print_U':False,'all_dirs':False},
 			#{'S':0,'m': 2,'St':0,		    'XYZ':[XYZr_cl,XYZf_cl],		'print_f':False,'print_U':False,'all_dirs':False}
 ]
 S_save=-1
@@ -62,14 +62,15 @@ for dat in print_list:
 	if print_U: quiv_U=spyb.computeQuiver(XYZ[2],"Greens")
 	# Plus d'animation - on économise la place !
 	if p0:
-		data=[isos_r[0][0], up_nozzle, down_nozzle]
+		data=[isos_r[0][0], up_nozzle, down_nozzle, dot]
 		if print_f: data.append(isos_f[0][0])
 		if print_U: data.append(quiv_U)
 		fig = go.Figure(data=data)
 		fig.update_coloraxes(showscale=False)
-		fig.update_layout(scene_aspectmode='data')
+		fig.update_layout(scene_aspectmode='data',scene_camera={"up":{'x':0,'y':0,'z':1},"center":{'x':0,'y':0,'z':-.25},"eye":{'x':-1.5,'y':-1.25,'z':1.25}})
 		fig.write_html(f"{file_name}_dir={directions[0]}.html")
 		print(f"Wrote {file_name}_dir={directions[0]}.html",flush=True)
+
 		if all_dirs:
 			for i in (1,2):
 				data=[isos_r[i][0], up_nozzle, down_nozzle]
@@ -77,6 +78,6 @@ for dat in print_list:
 				if print_U: data.append(quiv_U)
 				fig = go.Figure(data=data)
 				fig.update_coloraxes(showscale=False)
-				fig.update_layout(scene_aspectmode='data')
+				fig.update_layout(scene_aspectmode='data',scene_camera={"up":{'x':0,'y':0,'z':1},"center":{'x':0,'y':0,'z':-.25},"eye":{'x':-1.5,'y':-1.25,'z':1.25}})
 				fig.write_html(f"{file_name}_dir={directions[i]}.html")
 				print(f"Wrote {file_name}_dir={directions[i]}.html",flush=True)

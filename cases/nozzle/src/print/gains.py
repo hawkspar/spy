@@ -12,7 +12,7 @@ from helpers import dirCreator
 
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'tab:blue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 #color_code={'0':'tab:blue','1':'tab:red','2':'orange','3':'rebeccapurple','4':'olivedrab','5':'cyan'} # Pickering colorscheme
-dir="/home/shared/cases/nozzle/resolvent_nut0/gains/"
+dir="/home/shared/cases/nozzle/resolvent/gains/"
 dirCreator(dir+"plots/")
 stick_to_ref=False # Use all available gains or limit to those specified in setup ?
 square=False
@@ -60,9 +60,11 @@ for Re in dat.keys():
 			ids=np.argsort(Sts)
 			Sts,gains=(np.array(Sts)*2)[ids],(np.array(gains)**(1+square))[ids] # Usual St=fD/U not fR/U
 			# Nice smooth splines
-			gains_spl = interp1d(Sts, gains)
+			gains_spl = CubicSpline(Sts, gains)
 			if int(m)<0: x0=0
 			else:		 x0=1
+			min=fmin(lambda x: -gains_spl(x),0,xtol=params['atol'],maxiter=params['max_iter'])
+			print("(S;m)=(",S,';',m,"):S_max=",min[0])
 			Sts_fine=np.linspace(Sts[0],Sts[-1],1000)
 			ax.plot(	 Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 			ax_zoom.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)

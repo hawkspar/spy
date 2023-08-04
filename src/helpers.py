@@ -23,10 +23,10 @@ def div(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int):
 						  v[dx,dr].dx(dx)+v[dr,dr].dx(dr)+v[dr,dr]+(m*j(mesh)*v[dt,dr]-v[dt,dt])/r,
 						  v[dx,dt].dx(dx)+v[dr,dt].dx(dr)+v[dr,dt]+(m*j(mesh)*v[dt,dt]+v[dt,dr])/r])
 
-def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int,i:int=0):
-	return ufl.as_vector([(i+1)*v[dt]		+r*v[dt].dx(dr)-m*j(mesh)*v[dr],
-    				  m*j(mesh)*v[dx]		-  v[dt].dx(dx),
-								v[dr].dx(dx)-i*v[dx]-v[dx].dx(dr)])
+def crl(r,dx:int,dr:int,dt:int,mesh:ufl.Mesh,v,m:int):
+	return ufl.as_vector([((r*v[dt]).dx(dr)-m*j(mesh)*v[dr])/r,
+    				m*j(mesh)*v[dx]/r	   -          v[dt].dx(dx),
+							  v[dr].dx(dx) -		  v[dx].dx(dr)])
 
 # Helpers
 def dirCreator(path:str) -> None:

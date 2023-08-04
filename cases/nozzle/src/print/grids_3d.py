@@ -27,12 +27,12 @@ Xr_cl  = np.linspace(0,1.3,70)
 XYZr_cl = XYZ(Xr_cl,1.6)
 
 # Extra special grid for star mode
-Xf_es  = np.flip(2-np.geomspace(.99,2,25))
-YZf_es  = np.linspace(0,1.015,70)
+Xf_es  = np.flip(2-np.geomspace(.99,2,40))
+YZf_es  = np.linspace(0,1.015,75)
 XYZf_es = XYZ(Xf_es,YZf_es)
 
 # Negative m
-Xr_esn  = np.geomspace(5.5,45,50)
+Xr_esn  = np.geomspace(5.5,45,70)
 YZr_esn = np.linspace(0,7.5,50)
 XYZr_esn = XYZ(Xr_esn,YZr_esn)
 
@@ -117,10 +117,11 @@ XYZt_es = XYZc(x0,x1,[.5,1,1.5])
 
 # Nozzle surface
 y = np.cos(np.linspace(0,np.pi,15))
-x,y = np.meshgrid([0,1],y)
+x,y = np.meshgrid([-1,0],y)
 z = np.sqrt(1-y**2)
 up_nozzle   = go.Surface(x=x, y=y, z= z, colorscale=[[0,'black'],[1,'black']], opacity=.5, showscale=False, name="nozzle")
 down_nozzle = go.Surface(x=x, y=y, z=-z, colorscale=[[0,'black'],[1,'black']], opacity=.5, showscale=False, name="nozzle")
+dot = go.Scatter3d(x=[44,0,0], y=[0,8,0], z=[0,0,8], opacity=0)
 
 def frameArgs(duration):
     return {"frame": {"duration": duration}, "mode": "immediate", "fromcurrent": True,

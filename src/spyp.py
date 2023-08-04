@@ -247,7 +247,7 @@ class SPYP(SPY):
 			print("Evaluation of perturbations done ! Drawing contours...",flush=True)
 			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
 			Fs=azimuthalExtension(th,dat['m'],F,G,H,real=False)
-			Xs=np.tile(Xs.reshape((n_x,1)),(1,n_th))
+			Xs=np.tile(Xs.reshape(-1,1),(1,n_th))
 			Rths=np.outer(Rs,th-np.pi)
 			for i,t in enumerate(np.linspace(0,np.pi/4,n_t,endpoint=False)):
 				Fts=[(F*np.exp(-1j*t)).real for F in Fs]
@@ -278,7 +278,7 @@ class SPYP(SPY):
 			print("Evaluation of perturbations done ! Drawing contours...",flush=True)
 			th=np.linspace(0,2*np.pi,n_th,endpoint=False)
 			Fs=azimuthalExtension(th,dat['m'],F,G,H,real=False)
-			Xs=np.tile(Xs.reshape((n_x,1)),(1,n_th))
+			Xs=np.tile(Xs.reshape(-1,1),(1,n_th))
 			Rths=np.outer(Rs,th-np.pi)
 			Fts=[np.arctan2(F.imag/F.real) for F in Fs]
 			for j,d in enumerate(self.direction_map.keys()):
@@ -355,9 +355,9 @@ class SPYP(SPY):
 
 		X_r,R_r = X[::step],R[::step]
 		X_mr,R_mr = np.meshgrid(X_r,R_r)
-		XR_r = np.hstack((X_mr.reshape((-1,1)),R_mr.reshape((-1,1))))
+		XR_r = np.hstack((X_mr.reshape(-1,1),R_mr.reshape(-1,1)))
 		X_m,R_m = np.meshgrid(X,R)
-		XR = np.hstack((X_m.reshape((-1,1)),R_m.reshape((-1,1))))
+		XR = np.hstack((X_m.reshape(-1,1),R_m.reshape(-1,1)))
 		# Evaluation of projected value
 		U = self.eval(u, XR)
 		F = self.eval(fs[self.direction_map['x']],XR_r)
@@ -367,21 +367,24 @@ class SPYP(SPY):
 		dir=self.resolvent_path+str+"/quiver/"
 		dirCreator(dir)
 		if p0:
+			X,X_r=X-1,X_r-1
 			print("Evaluation of perturbations done ! Drawing quiver...",flush=True)
 			fig, ax = plt.subplots()
 			fig.set_size_inches(10,10)
 			fig.set_dpi(200)
-			ax.quiver(X_r,R_r,-F.reshape((X_r.size,-1)).real.T,-G.reshape((X_r.size,-1)).real.T)
-			ax.plot([np.min(X),1],[1,1],'k-')
+			ax.quiver(X_r,R_r,F.reshape(X_r.size,-1).real.T,G.reshape(X_r.size,-1).real.T)
+			ax.plot([np.min(X),0],[1,1],'k-')
 
 			"""# Plot response
-			U=U.reshape((X.size,-1)).real.T
-			c=ax.contourf(X,R,U,cmap='bwr',vmax=np.max(np.abs(U)),vmin=-np.max(np.abs(U)))
+			U=U.reshape(X.size,-1).real.T
+			c=ax.contourf(X,R,U,cmap='bwr')#,vmax=np.max(np.abs(U)),vmin=-np.max(np.abs(U)))
 			plt.colorbar(c)"""
 
-			plt.rcParams.update({'font.size': 16})
+			plt.rcParams.update({'font.size': 20})
 			plt.xlabel(r'$x$')
 			plt.ylabel(r'$r$')
+			plt.xticks([np.min(X),np.min(X)/2,0,np.max(X)/2,np.max(X)])
+			plt.yticks([np.min(R),(1+np.min(R))/2,1,(1+np.max(R))/2,np.max(R)])
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_tip".replace('.',',')+".png")
 			plt.close()
 
@@ -405,7 +408,7 @@ class SPYP(SPY):
 		dirCreator(dir)
 		if p0:
 			print("Evaluation of perturbations done ! Drawing quiver...",flush=True)
-			th = np.linspace(0,2*np.pi,n_th,endpoint=False)
+			th = np.linspace(0,2*np.pi,n_th)
 			U,F,G=azimuthalExtension(th,dat['m'],U,F,G,cartesian=True)
 			F,G=F[:,::step],G[:,::step]
 
@@ -414,10 +417,10 @@ class SPYP(SPY):
 			#plt.rcParams.update({'font.size': 20})
 			fig.set_dpi(200)
 			c=ax.contourf(th,rs,U,cmap='bwr')
-			ax.quiver(th[::step],rs_r,-F,-G,scale=s)
+			ax.quiver(th[::step],rs_r,F,G,scale=s)
 			ax.set_rmin(r_min)
 			ax.set_rorigin(o*r_min)
-			ax.set_rticks([r_min,r_min+(r_max-r_min)/2,r_max])
+			ax.set_rticks([r_min,1,r_max])
 
 			plt.colorbar(c)
 			#plt.title("Visualisation of "+str+r" vectors\non velocity at plane r-$\theta$"+f" at x={x}")
@@ -502,18 +505,18 @@ class SPYP(SPY):
 			surfs = [[]]*(1+2*all_dirs)
 			for t in np.linspace(0,np.pi/4,n,endpoint=False):
 				Ut = (U*np.exp(-1j*t)).real # Time-shift
-				surfs[0].append(go.Isosurface(x=X,y=Y,z=Z,value=Ut,
+				surfs[0].append(go.Isosurface(x=X-1,y=Y,z=Z,value=Ut,
 										   	  isomin=r*np.min(Ut),isomax=r*np.max(Ut),
 										   	  colorscale=scale, name="axial "+name,
 										   	  caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
 				if all_dirs:
 					Vt = (V*np.exp(-1j*t)).real
 					Wt = (W*np.exp(-1j*t)).real
-					surfs[1].append(go.Isosurface(x=X,y=Y,z=Z,value=Vt,
+					surfs[1].append(go.Isosurface(x=X-1,y=Y,z=Z,value=Vt,
 												isomin=r*np.min(Vt),isomax=r*np.max(Vt),
 												colorscale=scale, name="radial "+name,
 												caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))
-					surfs[2].append(go.Isosurface(x=X,y=Y,z=Z,value=Wt,
+					surfs[2].append(go.Isosurface(x=X-1,y=Y,z=Z,value=Wt,
 												isomin=r*np.min(Wt),isomax=r*np.max(Wt),
 												colorscale=scale, name="azimuthal "+name,
 												caps=dict(x_show=False, y_show=False, z_show=False),showscale=False))

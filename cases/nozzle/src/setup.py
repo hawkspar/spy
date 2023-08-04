@@ -29,7 +29,7 @@ U_m,a=.05,6
 
 # Easier standardisation across files
 Ss_ref = [1]
-ms_ref = [0]
+ms_ref = [-2]
 Sts_ref = np.hstack((.00730566/2,np.linspace(0,.1,4)))
 
 # Numerical Parameters

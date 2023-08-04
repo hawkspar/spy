@@ -14,31 +14,30 @@ from helpers import j
 
 # Shortcuts
 spyp=SPYP(params,data_path,"perturbations",direction_map)
-dat={'Re':Re,'m':-2,'St':7.3057e-03/2}
-angles_dir=spyp.resolvent_path+"angles/"
+dats=[{'Re':Re,'S':S,'m':-2,'St':7.3057e-03/2} for S in np.linspace(0,1,6)]
+source="response"
+angles_dir=spyp.resolvent_path+source+"/angles/"
 
-# Approximate k as division of u
-us=spyp.readMode("response",dat)
-u,_,_=ufl.split(us)
-FS = dfx.fem.FunctionSpace(spyp.mesh,ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),2))
-k2 = Function(FS)
-k2.interpolate(dfx.fem.Expression(ufl.real(u.dx(0)/u/j(spyp.mesh)),FS.element.interpolation_points()))
-spyp.printStuff(angles_dir,"k",k2)
+for dat in dats:
+	save_str=f"_S={dat['S']}"
+	# Approximate k as division of u
+	us=spyp.readMode(source,dat)
+	u,_,_=ufl.split(us)
+	FS = dfx.fem.FunctionSpace(spyp.mesh,ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),2))
+	k = Function(FS)
+	k.interpolate(dfx.fem.Expression(ufl.real(u.dx(0)/u/j(spyp.mesh)),FS.element.interpolation_points()))
 
-"""# Compute phase
-u,_,_=us.split()
-u.x.array[:]=np.arctan2(u.x.array.imag,u.x.array.real)
-u.x.scatter_forward()
-spyp.printStuff(angles_dir,"phase",u)
-# Approximate k as phase gradient
-k1 = Function(FS)
-k1.interpolate(dfx.fem.Expression(u.dx(0),FS.element.interpolation_points()))
-spyp.printStuff(angles_dir,"k_phase",k1)"""
+	# Helix angles
+	beta=Function(FS)
+	beta.interpolate(dfx.fem.Expression(-k/dat['m'],FS.element.interpolation_points()))
+	spyp.printStuff(angles_dir,"beta"+save_str,beta)
 
-# Helix angles
-#beta1=Function(FS)
-beta2=Function(FS)
-#beta1.interpolate(dfx.fem.Expression(-k1/dat['m'],FS.element.interpolation_points()))
-beta2.interpolate(dfx.fem.Expression(-k2/dat['m'],FS.element.interpolation_points()))
-#spyp.printStuff(angles_dir,"beta_phase",beta1)
-spyp.printStuff(angles_dir,"beta",beta2)
+	# Maximum centrifugal strength
+	spyb.loadBaseflow(Re,dat['S'],False)
+	U,_=ufl.split(spyb.Q)
+	FS = dfx.fem.FunctionSpace(spyb.mesh,ufl.FiniteElement("CG",spyb.mesh.ufl_cell(),2))
+	g = Function(FS)
+	g.interpolate(dfx.fem.Expression(U[2]/spyb.r/U[0],FS.element.interpolation_points()))
+	spyb.printStuff(angles_dir,"centrifuge_growth"+save_str,g)
+	g.interpolate(dfx.fem.Expression((U[2]/spyb.r).dx(1)/U[0].dx(1),FS.element.interpolation_points()))
+	spyb.printStuff(angles_dir,"centrifuge_growth_2"+save_str,g)

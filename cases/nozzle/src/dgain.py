@@ -10,9 +10,9 @@ from setup import *
 from spyp import SPYP # Must be after setup
 from helpers import findStuff
 
-dats=[{"S":1,"m":-2,"St":0}]
+dats=[{"S":1,"m":-2,"St":.00730566/2}]
 
-h=1e-4
+h=1e-6
 Sts_0_ref, Sts_ref = [0], []
 for St_0 in Sts_0_ref:
 	Sts_ref.append(St_0-h)
@@ -43,9 +43,10 @@ for dat in dats:
 	if p0:
 		dat['St']=St+h
 		gph_file=findStuff(spyp.resolvent_path+"gains/txt/",dat,distributed=False)
-		gph=np.loadtxt(gph_file)
+		gph=np.loadtxt(gph_file,dtype=float)
 		dat['St']=St-h
 		gmh_file=findStuff(spyp.resolvent_path+"gains/txt/",dat,distributed=False)
-		gmh=np.loadtxt(gmh_file)
+		gmh=np.loadtxt(gmh_file,dtype=float)
+		print(gph,gmh,h)
 
 		print("Derivative around ",St,":",(gph-gmh)/2/h)
