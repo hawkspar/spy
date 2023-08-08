@@ -58,8 +58,8 @@ for S in Ss:
 	A=dfx.fem.assemble_scalar(dfx.fem.form(k*ufl.dx)).real # Total weighting surface for averaging
 
 	def dot(u,v=None):
-		if v is None: return ufl.sqrt(ufl.real(ufl.dot(u,u))**2)
-		return ufl.sqrt(ufl.real(ufl.dot(u,v)))
+		if v is None: return ufl.sqrt(ufl.real(ufl.dot(u,u))) # compute ||u||
+		return ufl.sqrt(ufl.real(ufl.dot(u,v))**2) # compute |<u,v>|
 	# Compute dot proSct and orientation
 	ae,re = Function(FS_e),Function(FS_e)
 	ae.interpolate(dfx.fem.Expression(dot(Lambda,Sigma)*k,FS_e.element.interpolation_points()))
@@ -85,7 +85,7 @@ if p0:
 	ax.plot(Ss,res)
 	ax.set_xlabel(r'$S$')
 	ax.set_ylabel(r'$\frac{1}{A}\int\frac{|\Lambda\cdot\Sigma|}{||\Lambda||||\Sigma||}dA$')
-	fig.subplots_adjust(left=0.1)
+	fig.subplots_adjust(left=0.15)
 	fig.savefig(angles_dir+"res.png")
 
 	plt.plot(Ss,aes)
