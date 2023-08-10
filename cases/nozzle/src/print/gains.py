@@ -14,19 +14,21 @@ color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'tab:blue','-1':
 #color_code={'0':'tab:blue','1':'tab:red','2':'orange','3':'rebeccapurple','4':'olivedrab','5':'cyan'} # Pickering colorscheme
 dir="/home/shared/cases/nozzle/resolvent/gains/"
 dirCreator(dir+"plots/")
-stick_to_ref=False # Use all available gains or limit to those specified in setup ?
+stick_to_ref=True # Use all available gains or limit to those specified in setup ?
+ms_ref=[2,-2]
+Ss_ref=[1]
 square=False
 suboptimals=False
 sig_lbl=r'$\sigma^{(1)'+'2'*square+'}$'
 lims=[0,2]
-lims_zoom=[0,.05]
+lims_zoom=[1.2,1.8]
 # Read all the gains in a dictionary
 dat={}
 for file_name in listdir(dir+"txt/"):
 	if file_name[-3:]=="txt":
 		match = search(r'm=(-?\d*)', file_name)
 		m=match.group(1)
-		match = search(r'St=(\d*\,?\d*e\+?-?\d*)',file_name)
+		match = search(r'St=(\d*\,?\d*e?(\+|-)?\d*)',file_name)
 		St=match.group(1).replace(',','.')
 		match = search(r'Re=(\d*)',file_name)
 		Re=match.group(1)
@@ -45,9 +47,9 @@ for Re in dat.keys():
 		ms=[int(m) for m in dat[Re][S].keys()]
 		ms.sort()
 		ms=[str(m) for m in ms]
-		fig = plt.figure(figsize=(13,10),dpi=200)
+		fig = plt.figure(figsize=(13,10),dpi=500)
 		ax = plt.subplot(111)
-		fig_zoom = plt.figure(figsize=(13,10),dpi=200)
+		fig_zoom = plt.figure(figsize=(13,10),dpi=500)
 		ax_zoom = plt.subplot(111)
 		for m in ms: # Pretty ms in order
 			if stick_to_ref and (not np.any(np.isclose(int(m),ms_ref,atol=.5))): continue
@@ -61,10 +63,10 @@ for Re in dat.keys():
 			Sts,gains=(np.array(Sts)*2)[ids],(np.array(gains)**(1+square))[ids] # Usual St=fD/U not fR/U
 			# Nice smooth splines
 			gains_spl = CubicSpline(Sts, gains)
-			if int(m)<0: x0=0
+			"""if int(m)<0: x0=0
 			else:		 x0=1
 			min=fmin(lambda x: -gains_spl(x),0,xtol=params['atol'],maxiter=params['max_iter'])
-			print("(S;m)=(",S,';',m,"):S_max=",min[0])
+			print("(S;m)=(",S,';',m,"):S_max=",min[0])"""
 			Sts_fine=np.linspace(Sts[0],Sts[-1],1000)
 			ax.plot(	 Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)
 			ax_zoom.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],linewidth=3)
@@ -78,6 +80,7 @@ for Re in dat.keys():
 		ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		ax.legend(loc='center left',bbox_to_anchor=(1, 0.5))
 		fig.savefig(dir+"plots/"+f"Re={int(Re)}_S={S}.png")
+		plt.close(fig)
 
 		# Plot a log-log zoom around origin
 		ax_zoom.set_xlabel(r'$St$')
@@ -88,12 +91,13 @@ for Re in dat.keys():
 		ax_zoom.set_position([box.x0, box.y0, box.width*10/13, box.height])
 		ax_zoom.legend(loc='center left',bbox_to_anchor=(1, 0.5))
 		fig_zoom.savefig(dir+"plots/"+f"Re={int(Re)}_S={S}_zoom.png")
+		plt.close(fig_zoom)
 
 		# Plotting suboptimals
 		if suboptimals:
 			n=3
 			for m in dat[Re][S].keys(): # pretty ms in order
-				fig = plt.figure(figsize=(13,10),dpi=200)
+				fig = plt.figure(figsize=(13,10),dpi=500)
 				ax = plt.subplot(111)
 				Sts,gains=[[] for _ in range(n+1)],[[] for _ in range(n+1)]
 				for St in dat[Re][S][m].keys():
@@ -118,4 +122,4 @@ for Re in dat.keys():
 				ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
 				plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
 				plt.savefig(dir+"plots/"+f"Re={Re}_S={S}_m={m}.png")
-				plt.close()
+				plt.close(fig)

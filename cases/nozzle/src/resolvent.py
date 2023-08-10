@@ -14,8 +14,7 @@ from spyp import SPYP # Must be after setup
 with cProfile.Profile() as pr:
 	spyp=SPYP(params,data_path,pert_mesh,direction_map)
 
-	FE_constant=ufl.FiniteElement("CG",spyp.mesh.ufl_cell(),1)
-	indic_f = Function(FunctionSpace(spyp.mesh,FE_constant))
+	indic_f = Function(spyp.TH1)
 	indic_f.interpolate(forcingIndicator)
 	spyp.assembleNMatrix()
 	spyp.assembleMRMatrices(indic_f)

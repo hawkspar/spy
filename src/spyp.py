@@ -371,7 +371,7 @@ class SPYP(SPY):
 			print("Evaluation of perturbations done ! Drawing quiver...",flush=True)
 			fig, ax = plt.subplots()
 			fig.set_size_inches(10,10)
-			fig.set_dpi(200)
+			fig.set_dpi(500)
 			ax.quiver(X_r,R_r,F.reshape(X_r.size,-1).real.T,G.reshape(X_r.size,-1).real.T)
 			ax.plot([np.min(X),0],[1,1],'k-')
 
@@ -415,7 +415,7 @@ class SPYP(SPY):
 			fig, ax = plt.subplots(subplot_kw={"projection":'polar'})
 			fig.set_size_inches(10,10)
 			#plt.rcParams.update({'font.size': 20})
-			fig.set_dpi(200)
+			fig.set_dpi(500)
 			c=ax.contourf(th,rs,U,cmap='bwr')
 			ax.quiver(th[::step],rs_r,F,G,scale=s)
 			ax.set_rmin(r_min)

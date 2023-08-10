@@ -17,7 +17,7 @@ spyp=SPYP(params,data_path,"perturbations",direction_map)
 Ss=np.linspace(0,1,6)
 dat={'Re':Re,'m':-2,'St':7.3057e-03/2}
 source="response"
-angles_dir=spyp.resolvent_path+source+"/angles/"
+angles_dir=spyp.resolvent_path+source+"/phase/"
 
 if p0: aes,res=[],[]
 
