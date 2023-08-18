@@ -67,6 +67,10 @@ if p0:
 	plt.savefig(dir+"r2Ut2"+save_str+".png")
 	plt.close()
 
+v_ang = Function(spyb.TH1)
+v_ang.interpolate(dfx.fem.Expression(ud[2].dx(direction_map['r'])/spyb.r-ud[2]/spyb.r**2,spyb.TH1.element.interpolation_points()))
+spyb.printStuff(dir,"v_ang"+save_str,v_ang)
+
 FS = dfx.fem.FunctionSpace(spyb.mesh,ufl.TensorElement("CG",spyb.mesh.ufl_cell(),2,(3,3)))
 grds = Function(FS)
 crls = Function(spyb.TH0)

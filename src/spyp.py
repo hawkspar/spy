@@ -7,7 +7,6 @@ Created on Fri Dec 10 12:00:00 2021
 #source /usr/local/bin/dolfinx-complex-mode
 import glob 
 import dolfinx as dfx
-from os.path import isfile
 
 from spy import SPY
 from helpers import *
@@ -114,10 +113,12 @@ class SPYP(SPY):
 		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True) # Specify that A is not hermitian, but M is semi-definite
 
 		# File management shenanigans
-		save_string=f"Re={Re:d}_S={S:.2f}_m={m:d}".replace('.',',')
+		save_string=(f"Re={Re:d}_S="+str(S)+"_m={m:d}").replace('.',',')
 		for append in ["","values/"]: dirCreator(self.eig_path+append)
 		eig_name=self.eig_path+"values/"+save_string+f"_sig={sigma}".replace('.',',')+".txt"
-		if isfile(eig_name):
+		# Memoisation
+		d,_=findStuff(self.eig_path+"values/",{'Re':Re,'S':S,'m':m},distributed=False,return_distance=True)
+		if np.isclose(d,0,atol=self.params['atol']):
 			if p0: print("Found "+eig_name+" file, assuming it has enough eigenvalues, moving on...",flush=True)
 			return
 		if p0: print(f"Solver launch for sig={sigma}...",flush=True)
@@ -136,7 +137,7 @@ class SPYP(SPY):
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
 			u,_ = q.split()
-			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}".replace('.',','),u)
+			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}",u)
 
 	# Assemble important matrices for resolvent
 	def assembleMRMatrices(self,indic=1) -> None:
@@ -171,12 +172,12 @@ class SPYP(SPY):
 			# Folder creation
 			for append in ["","gains/","gains/txt/","forcing/","response/"]:
 				dirCreator(self.resolvent_path+append)
-			save_string=f"Re={Re:d}_S={S:.1f}"
-			save_string=(save_string+f"_m={m:d}_St={St:.4e}").replace('.',',')
+			save_string=(f"Re={Re:d}_+S="+str(S)+f"_m={m:d}_St={St:.4e}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/txt/"+save_string+".txt"
 			# Memoisation
-			if isfile(gains_name) and not overwrite:
-				if p0: print("Found "+gains_name+" file, assuming it has enough gains, moving on...",flush=True)
+			d,_=findStuff(self.resolvent_path+"gains/txt/",{'Re':Re,'S':S,'m':m,'St':St},distributed=False,return_distance=True)
+			if np.isclose(d,0,atol=self.params['atol']) and not overwrite:
+				if p0: print("Found gains file, assuming it has enough gains, moving on...",flush=True)
 				continue
 
 			# Equations
@@ -185,7 +186,7 @@ class SPYP(SPY):
 			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
-			if p0: print(f"Solver launch for (S,m,St)=({S:.1f},{m},{St:.4e})...",flush=True)
+			if p0: print(f"Solver launch for (S,m,St)=({S:.4e},{m},{St:.4e})...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0:
@@ -194,10 +195,10 @@ class SPYP(SPY):
 
 			# Pretty print
 			if p0:
-				print("# of CV eigenvalues : "+str(n),flush=True)
+				"""print("# of CV eigenvalues : "+str(n),flush=True)
 				print("# of iterations : "+str(EPS.getIterationNumber()),flush=True)
 				print("Error estimate : " +str(EPS.getErrorEstimate(0)), flush=True)
-				print("Squared first gain : " +str(EPS.getEigenvalue(0)), flush=True)
+				print("Squared first gain : " +str(EPS.getEigenvalue(0)), flush=True)"""
 				# Conversion back into numpy (we know gains to be real positive)
 				gains=np.array([EPS.getEigenvalue(i).real for i in range(n)], dtype=np.float)**.5
 				# Write gains

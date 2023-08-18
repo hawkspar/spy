@@ -61,7 +61,7 @@ def saveStuff(dir:str,name:str,fun:Function) -> None:
 	if p0: print("Saved "+proc_name+".npy",flush=True)
 
 # Memoisation routine - find closest in param
-def findStuff(path:str,params:dict,format=lambda _:True,distributed=True):
+def findStuff(path:str,params:dict,format=lambda _:True,distributed=True,return_distance=False):
 	closest_file_name=path
 	d=np.infty
 	for file_name in os.listdir(path):
@@ -73,6 +73,7 @@ def findStuff(path:str,params:dict,format=lambda _:True,distributed=True):
 				param_file = complex(match.group(1).replace(',','.')) # Take advantage of file format
 				fd += abs(params[param]-param_file)
 			if fd<d: d,closest_file_name=fd,path+file_name
+	if return_distance: return d,closest_file_name
 	return closest_file_name
 
 def loadStuff(path:str,params:dict,fun:Function) -> None:
@@ -125,7 +126,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 	if shift:
 		ST.setType('sinvert')
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
-		configureKSP(ST.getKSP(),params,shift)
+		configureKSP(ST.getKSP(),params,icntl=shift)
 	else:
 		configureKSP(ST.getKSP(),params,'cg',shift)
 	EPS.setFromOptions()

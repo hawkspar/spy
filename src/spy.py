@@ -57,10 +57,13 @@ class SPY:
 		loadStuff(self.q_path,{'Re':Re,'S':S},self.Q)
 		if loadNu: loadStuff(self.nut_path,{'Re':Re,'S':S},self.Nu)
 		
-	def saveBaseflow(self,Re:int,S:float,saveNu=False):
-		save_str=f"_Re={Re:d}_S={S:.2f}".replace('.',',')
+	def saveBaseflow(self,Re:int,S:float,saveNu=False,print=False):
+		save_str=f"_Re={Re:d}_S="+str(round(S,2))
 		saveStuff(self.q_path,"q"+save_str,self.Q)
 		if saveNu: saveStuff(self.nut_path,"nut"+save_str,self.Nu)
+		if print:
+			U,_=self.Q.split()
+			self.printStuff(self.baseflow_path+"print/","u"+save_str,U)
 	
 	# Heart of this entire code
 	def navierStokes(self) -> ufl.Form:

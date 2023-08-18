@@ -28,10 +28,9 @@ h=1e-4
 U_m,a=.05,6
 
 # Easier standardisation across files
-Ss_ref = [.6]
-ms_ref = [4]
-Sts_ref = [2.01/2]
-#Sts_ref = np.hstack((.00730566/2,np.linspace(0,.1,4)))
+Ss_ref = np.linspace(0,1,6)
+ms_ref = range(-5,6)
+Sts_ref = np.linspace(0,1,101)
 
 # Numerical Parameters
 params = {"rp":.97,    #relaxation_parameter
@@ -91,7 +90,7 @@ def boundaryConditionsBaseflow(spy:SPY,S:float) -> tuple:
 		spy.applyBCs(dofs[0],bcs)
 
 	# Handle homogeneous boundary conditions
-	spy.applyHomogeneousBCs([(inlet,['r']),(coflow,['r','th']),(nozzle,['x','r','theta']),(symmetry,['r','theta'])])
+	spy.applyHomogeneousBCs([(inlet,['r']),(coflow,['r','theta']),(nozzle,['x','r','theta']),(symmetry,['r','theta'])])
 	return class_th, u
 
 # u=0 at inlet, nozzle (linearise as baseflow)

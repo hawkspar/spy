@@ -21,6 +21,7 @@ class SPYB(SPY):
 	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
 		super().__init__(params, datapath, mesh_name, direction_map)
 		dirCreator(self.baseflow_path)
+		dirCreator(self.baseflow_path+"print/")
 		
 	# Careful here Re is only for printing purposes ; self.Re may be a more involved function
 	def baseflow(self,Re:int,S:float,refinement:bool=False,save:bool=True,baseflowInit=None) -> int:
@@ -28,6 +29,11 @@ class SPYB(SPY):
 		if baseflowInit!=None:
 			U,_=self.Q.split()
 			U.interpolate(baseflowInit)
+		# Memoisation
+		d,_=findStuff(self.baseflow_path+"print/",{'Re':Re,'S':S},distributed=False,return_distance=True)
+		if np.isclose(d,0,atol=self.params['atol']):
+			if p0: print("Found print file, assuming baseflow's fine, moving on...",flush=True)
+			return
 
 		# Compute form
 		base_form  = self.navierStokes() # No azimuthal decomposition for base flow
@@ -80,18 +86,15 @@ class SPYB(SPY):
 			self.defineFunctionSpaces()
 			# Interpolate Newton results on finer mesh
 			self.Q.interpolate(q)
-
-		if save:  # Memoisation
-			self.saveBaseflow(Re,S)
-			U,_=q.split()
-			self.printStuff(self.print_path,f"u_Re={Re:d}_S={S:.2f}",U)
+		# Memoisation
+		if save: self.saveBaseflow(Re,S)
 		
 		return n
 
 	# Helper
 	def smoother(self, a, L):
 		pb = LinearProblem(a*self.r*ufl.dx, L*self.r*ufl.dx, bcs=self.bcs,
-						   petsc_options={"ksp_type":"cg", "pc_type":"gamg", "pc_factor_mat_solver_type":"mumps",
+						   petsc_options={"ksp_type":"cg", "pc_type":"gamg", "pc_factor_mat_solver_type":"mumps", "pc_factor_in_place":True,
 						   				  "ksp_rtol":self.params['rtol'], "ksp_atol":self.params['atol'], "ksp_max_it":self.params['max_iter']})
 		if p0: print("Smoothing started...",flush=True)
 		u = pb.solve()

@@ -5,12 +5,12 @@ from mpi4py.MPI import COMM_WORLD as comm
 from setup import *
 from helpers import dirCreator, meshConvert, findStuff
 
-sanity_check=True
+sanity_check=False
 convert=False
 
 # Relevant parameters
 Res=[1000,10000,100000,200000]
-Ss=np.linspace(0,1.6,17)
+Ss=np.linspace(0,1,101)
 # Convert mesh
 if convert: meshConvert(base_mesh)
 

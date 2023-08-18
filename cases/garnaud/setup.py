@@ -34,11 +34,11 @@ def baseflowInit(x):
 	return u
 
 # Geometry
-def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,			 params['atol']) # Axis of symmetry at r=0
-def inlet( x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],x_p,	params['atol']) # Left border
-def outlet(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[0],x_max,params['atol']) # Right border
-def top(   x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],r_max,params['atol']) # Top boundary at r=R
-def wall(  x:ufl.SpatialCoordinate) -> np.ndarray: return (x[0]<params['atol'])*(x[1]>R-params['atol']) # Walls
+def symmetry(x:ufl.SpatialCoordinate) -> np.ndarray: return np.isclose(x[1],0,	  params['atol']) # Axis of symmetry at r=0
+def inlet( x:ufl.SpatialCoordinate)   -> np.ndarray: return np.isclose(x[0],x_p,  params['atol']) # Left border
+def outlet(x:ufl.SpatialCoordinate)   -> np.ndarray: return np.isclose(x[0],x_max,params['atol']) # Right border
+def top(   x:ufl.SpatialCoordinate)   -> np.ndarray: return np.isclose(x[1],r_max,params['atol']) # Top boundary at r=R
+def wall(  x:ufl.SpatialCoordinate)   -> np.ndarray: return (x[0]<params['atol'])*(x[1]>R-params['atol']) # Walls
 
 # Restriction on forcing area
 def forcingIndicator(x): return x[0]<-params['atol']

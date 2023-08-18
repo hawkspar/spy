@@ -7,6 +7,7 @@ Created on Tue Aug  8 17:27:00 2023
 from sys import path
 from pickle import dump, load
 from itertools import product
+from scipy.ndimage import gaussian_filter
 
 path.append('/home/shared/cases/nozzle/src/')
 
@@ -15,15 +16,18 @@ from spyp import SPYP
 from helpers import j, dirCreator
 
 # Parameter space
-Ss =np.linspace(0,1,101)
-Sts=np.linspace(0,1,101)
+Ss =np.linspace(0,.29,30)
+Sts=np.linspace(0,2,101)
 ms=[-2,2]
 dats=[{'Re':Re,'S':S,'m':m,'St':St} for S,m,St in product(Ss,ms,Sts)]
 source="response"
+prt=False # Use sparingly may tank performance
 # Shortcuts
 spyp=SPYP(params,data_path,"perturbations",direction_map)
 spyp.Re=Re
 dir=spyp.resolvent_path+source+"/phase/"
+dirCreator(spyp.resolvent_path)
+dirCreator(spyp.resolvent_path+source)
 dirCreator(dir)
 # Resolvent mask
 indic_f = Function(spyp.TH1)
@@ -33,7 +37,8 @@ spyp.assembleMRMatrices(indic_f)
 
 # Initialising saving structure
 if p0:
-	with open(dir+'res.pkl', 'rb') as fp: res=load(fp)
+	#with open(dir+'res.pkl', 'rb') as fp: res=load(fp)
+	res={}
 	for S in Ss:
 		if not str(S) in res.keys(): res[str(S)]={}
 		for m in ms:
@@ -54,10 +59,12 @@ def interp(v,v1,v2):
 
 for dat in dats:
 	# Memoisation
-	cont=False
+	cont=True
 	if p0:
-		try: res[str(dat['S'])][str(dat['m'])][str(dat['St'])]
-		except KeyError: cont=True
+		try:
+			res[str(dat['S'])][str(dat['m'])][str(dat['St'])]
+			print("Found data in dictionary, moving on...")
+		except KeyError: cont=False
 	cont = comm.scatter([cont for _ in range(comm.size)])
 	if cont: continue
 	# Compute only if it changed
@@ -67,28 +74,7 @@ for dat in dats:
 		spyp.interpolateBaseflow(spyb)
 
 		U,_=ufl.split(spyp.Q)
-		interp(Sigma,U[0].dx(1),(U[2]/spyp.r).dx(1))
-		#spyp.printStuff(angles_dir,"S"+save_str,Sigma)
-
-		# Integration area (shear layer defined as 10% of eddy viscosity)
-		k.interpolate(spyb.Nu)
-		A=k.x.array[:]
-		# Compute max eddy viscosity
-		AM = comm.gather(np.max(np.real(A)))
-		if p0: AM=max(AM)
-		AM = comm.scatter([AM for _ in range(comm.size)])
-		# Mask everything below 10%
-		k.x.array[A>=.1*AM]=1
-		k.x.array[A< .1*AM]=0
-		i_r0=np.isclose(spyp.mesh.geometry.x[:,1],0,params['atol']) # Cut out axis of symmetry
-		k.x.array[i_r0]=0
-		k.x.scatter_forward()
-		#spyp.printStuff(dir,"k",k)
-		# Total weighting surface for averaging
-		A=dfx.fem.assemble_scalar(dfx.fem.form(k*ufl.dx)).real
-		A=comm.gather(A)
-		if p0: A = sum(A)
-		
+		interp(Sigma,U[0].dx(1),(U[2]/spyp.r).dx(1))	
 		S_save=dat['S']
 
 	if m_save!=dat['m']:
@@ -102,15 +88,39 @@ for dat in dats:
 	spyp.resolvent(1,[dat['St']],Re,dat['S'],dat['m'])
 	# Approximate k as division of u
 	us=spyp.readMode(source,dat)
-	u,_,_=ufl.split(us)
-	interp(Lambda,ufl.real(u.dx(0)/u/j(spyp.mesh)),dat['m'])
-	
+	ux,ur,ut=ufl.split(us)
+	interp(Lambda,(ufl.real(ux.dx(0)/ux/j(spyp.mesh)+ur.dx(0)/ur/j(spyp.mesh)+ut.dx(0)/ut/j(spyp.mesh)))/3,dat['m'])
 
-	# Compute dot proSct and orientation
+	# Integration area (envelope defined as 10% of abs(u))
+	k.interpolate(dfx.fem.Expression(ufl.real(ux)**2+ufl.imag(ux)**2+\
+									 ufl.real(ur)**2+ufl.imag(ur)**2+\
+									 ufl.real(ut)**2+ufl.imag(ut)**2,spyp.TH1.element.interpolation_points()))
+	A=np.copy(np.real(k.x.array[:]))
+	# Compute max mode norm
+	AM = comm.gather(np.max(A))
+	if p0: AM=max(AM)
+	AM = comm.scatter([AM for _ in range(comm.size)])
+	# Mask everything below 10% (k for kernel)
+	k.x.array[A>=.1*AM]=1
+	k.x.array[A< .1*AM]=0
+	k.x.scatter_forward()
+	# Total weighting surface for averaging
+	A=dfx.fem.assemble_scalar(dfx.fem.form(k*ufl.dx)).real
+	A=comm.gather(A)
+	if p0: A = sum(A)
+
+	# Compute orientation
 	r = Function(spyp.TH1)
 	r.interpolate(dfx.fem.Expression(dot(Lambda,Sigma)/dot(Lambda)/dot(Sigma)*k,spyp.TH1.element.interpolation_points()))
 	r.x.array[:]=np.nan_to_num(r.x.array[:])
-	#spyp.printStuff(dir,"alignement"+save_str,re)
+
+	# Print stuff for sanity check purposes
+	if prt:
+		save_str=f"_S={dat['S']:.4e}_m={dat['m']:d}_St={dat['St']:.4e}"
+		spyp.printStuff(dir,"Sigma" +save_str,Sigma)	
+		spyp.printStuff(dir,"Lambda"+save_str,Lambda)
+		spyp.printStuff(dir,"kernel"+save_str,k)	
+		spyp.printStuff(dir,"alignement"+save_str,r)
 
 	# Compute and communicate integrals
 	r=dfx.fem.assemble_scalar(dfx.fem.form(r*ufl.dx)).real
@@ -121,10 +131,8 @@ for dat in dats:
 if p0:
 	with open(dir+'res.pkl', 'wb') as fp: dump(res, fp)
 	from matplotlib import pyplot as plt
-	fig = plt.figure()
-	plt.rcParams.update({'font.size': 20})
-	fig.set_size_inches(20,10)
-	fig.set_dpi(500)
+	fig = plt.figure(figsize=(20,10),dpi=500)
+	plt.rcParams.update({'font.size': 26})
 	gs = fig.add_gridspec(1, 2, wspace=0)
 	ax1, ax2 = gs.subplots(sharey=True)
 	# Loop of death
@@ -132,15 +140,18 @@ if p0:
 	for i,S in enumerate(Ss):
 		for j,St in enumerate(Sts):
 			resp[i,j],resn[i,j]=res[str(S)][str(ms[0])][str(St)],res[str(S)][str(ms[1])][str(St)]
+	"""# Smoothing
+	s=np.array([.5,.5])
+	resp,resn=gaussian_filter(resp,s),gaussian_filter(resn,s)"""
 	# Plotting contours
-	ax1.contourf(2*Sts,Ss,resp)
+	ax1.contourf(2*Sts,Ss,resn,cmap='seismic',vmin=0,vmax=1)
 	ax1.invert_xaxis()
-	c=ax2.contourf(2*Sts,Ss,resn)
+	c=ax2.contourf(2*Sts,Ss,resp,np.linspace(0,1,11),cmap='seismic',vmin=0,vmax=1)
 	# Common colorbar
-	fig.subplots_adjust(right=0.8)
-	cbar_ax = fig.add_axes([0.85, 0.15, 0.05, 0.7])
-	fig.colorbar(c, cax=cbar_ax)
+	fig.colorbar(c, ax=[ax1,ax2])
+	ax1.set_title(r'$m=-2$')
 	ax1.set_xlabel(r'$St$')
-	ax2.set_xlabel(r'$St$')
 	ax1.set_ylabel(r'$S$')
+	ax2.set_title(r'$m=2$')
+	ax2.set_xlabel(r'$St$')
 	fig.savefig(dir+"phase_contour.png")
