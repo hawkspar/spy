@@ -67,8 +67,16 @@ if p0:
 	plt.savefig(dir+"r2Ut2"+save_str+".png")
 	plt.close()
 
+d = Function(spyb.TH1)
+d.interpolate(dfx.fem.Expression(ud[1].dx(1),spyb.TH1.element.interpolation_points()))
+spyb.printStuff(dir,"drUx"+save_str,d)
+d.interpolate(dfx.fem.Expression((ud[2]/spyb.r).dx(1),spyb.TH1.element.interpolation_points()))
+spyb.printStuff(dir,"drUtr"+save_str,d)
+d.interpolate(dfx.fem.Expression((ud[2]*spyb.r).dx(1),spyb.TH1.element.interpolation_points()))
+spyb.printStuff(dir,"drrUt"+save_str,d)
+
 v_ang = Function(spyb.TH1)
-v_ang.interpolate(dfx.fem.Expression(ud[2].dx(direction_map['r'])/spyb.r-ud[2]/spyb.r**2,spyb.TH1.element.interpolation_points()))
+v_ang.interpolate(dfx.fem.Expression(ud[2].dx(1)/spyb.r-ud[2]/spyb.r**2,spyb.TH1.element.interpolation_points()))
 spyb.printStuff(dir,"v_ang"+save_str,v_ang)
 
 FS = dfx.fem.FunctionSpace(spyb.mesh,ufl.TensorElement("CG",spyb.mesh.ufl_cell(),2,(3,3)))

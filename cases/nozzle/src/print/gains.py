@@ -2,6 +2,7 @@ from sys import path
 from re import search
 from os import listdir
 from matplotlib import pyplot as plt
+
 from scipy.optimize import fmin
 from scipy.interpolate import CubicSpline, interp1d
 
@@ -23,9 +24,10 @@ Ss_ref=np.linspace(0,1,6)
 ms_ref=range(-4,5)
 square=False
 zoom,suboptimals=False,False
-double=True
-sig_lbl=r'$\sigma^{(1)'+'2'*square+'}$'
-lims=[0,2]
+sig_lbl_pre=r'$\sigma^{('
+sig_lbl_app=')'+'2'*square+'}$'
+x_lims=[0,2]
+y_lims=[20,70000]
 lims_zoom=[0,.05]
 # Read all the gains in a dictionary
 dat={}
@@ -52,72 +54,87 @@ for Re in dat.keys():
 		ms=[int(m) for m in dat[Re][S].keys()]
 		ms.sort()
 		ms=[str(m) for m in ms]
-		if double:
-			fig_double = plt.figure(figsize=(20,10),dpi=500)
-			gs = fig_double.add_gridspec(1, 2, wspace=0)
-			ax1, ax2 = gs.subplots(sharey=True)
-			lines=[]
-		else:
-			fig = plt.figure(figsize=(13,10),dpi=500)
-			ax = plt.subplot(111)
+		fig_double = plt.figure(figsize=(20,10),dpi=500)
+		gs = fig_double.add_gridspec(1, 2, wspace=0)
+		ax1, ax2 = gs.subplots(sharey=True)
+		lines=[]
 		if zoom:
 			fig_zoom = plt.figure(figsize=(13,10),dpi=500)
 			ax_zoom = plt.subplot(111)
 		for m in ms: # Pretty ms in order
 			if stick_to_ref and (not np.any(np.isclose(int(m),ms_ref,atol=.5))): continue
-			Sts,gains=[],[]
+			if suboptimals:
+				n=3
+				Sts,gains=[[] for _ in range(n+1)],[[] for _ in range(n+1)]
+				fig_sub = plt.figure(figsize=(13,10),dpi=500)
+				ax_sub = plt.subplot(111)
+			else: Sts,gains=[],[]
 			for St in dat[Re][S][m].keys():
 				#if stick_to_ref and (not np.any(np.isclose(float(St),Sts_ref,atol=.005))): continue
-				Sts.append(float(St))
-				gains.append(np.max(dat[Re][S][m][St]))
-			# Transforming messy lists into nice ordered arrays
-			ids=np.argsort(Sts)
-			Sts,gains=(np.array(Sts)*2)[ids],(np.array(gains)**(1+square))[ids] # Usual St=fD/U not fR/U
-			# Nice smooth splines
-			gains_spl = CubicSpline(Sts, gains)
-			"""if int(m)<0: x0=0
-			else:		 x0=1
-			min=fmin(lambda x: -gains_spl(x),0,xtol=params['atol'],maxiter=params['max_iter'])
-			print("(S;m)=(",S,';',m,"):S_max=",min[0])"""
-			Sts_fine=np.linspace(0,2,1001)
-			# Plotting
-			if double:
+				if suboptimals:
+					for i in range(min(dat[Re][S][m][St].size,n+1)):
+						Sts[i].append(float(St))
+						gains[i].append(dat[Re][S][m][St][i])
+				else:
+					Sts.append(float(St))
+					gains.append(np.max(dat[Re][S][m][St]))
+			if suboptimals:
+				for i in range(n):
+					# Transform into nice arrays
+					ids=np.argsort(Sts[i])
+					Sts[i],gains[i]=(np.array(Sts[i])*2)[ids],(np.array(gains[i])**(1+square))[ids]
+					# Nice smooth splines
+					gains_spl = CubicSpline(Sts[i], gains[i])
+					Sts_fine=np.linspace(x_lims[0],x_lims[1],1001)
+					ax_sub.plot(Sts_fine,gains_spl(Sts_fine),label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
+				
+				# Must plit for every m
+				plt.xlabel(r'$St$')
+				plt.ylabel(sig_lbl_pre+'i'+sig_lbl_app)
+				plt.yscale('log')
+				ax_sub.set_xlim(x_lims)
+				plt.xticks([0,.5,1,1.5,2])
+				box = ax_sub.get_position()
+				ax_sub.set_position([box.x0, box.y0, box.width*10/13, box.height])
+				plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
+				plt.savefig(plt_dir+f"Re={Re}_S={S}_m={m}_suboptimals.png")
+			else:					
+				# Transforming messy lists into nice ordered arrays
+				ids=np.argsort(Sts)
+				Sts,gains=(np.array(Sts)*2)[ids],(np.array(gains)**(1+square))[ids] # Usual St=fD/U not fR/U
+				# Nice smooth splines
+				gains_spl = CubicSpline(Sts, gains)
+				"""if int(m)<0: x0=0
+				else:		 x0=1
+				min=fmin(lambda x: -gains_spl(x),0,xtol=params['atol'],maxiter=params['max_iter'])
+				print("(S;m)=(",S,';',m,"):S_max=",min[0])"""
+				Sts_fine=np.linspace(0,2,1001)
+				# Plotting
 				if int(m)>=0: lines.append(ax2.plot(Sts_fine,gains_spl(Sts_fine),label=r'$|m|='+m+'$',color=color_code[m],				 marker=marker_code[m],markevery=[500],markersize=12,linewidth=3)[0])
 				if int(m)<=0:			   ax1.plot(Sts_fine,gains_spl(Sts_fine),					  color=color_code[str(abs(int(m)))],marker=marker_code[m],markevery=[500],markersize=12,linewidth=3)
-			else: ax.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],marker=marker_code[m],markevery=[(60*int(m)-450)*(int(m)>0)+800],markersize=12,linewidth=3)
-			if zoom: ax_zoom.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],marker=marker_code[m],markevery=[(60*int(m)-450)*(int(m)>0)+800],markersize=12,linewidth=3)
-		if double:
-			# Plot gains on a common figure
-			fig_double.subplots_adjust(right=.85)
-			fig_double.legend(handles=lines,bbox_to_anchor=(1, .65))
-			ax1.set_title(r'$m<0$')
-			ax1.set_xlabel(r'$St$')
-			ax1.set_ylabel(sig_lbl)
-			ax1.set_yscale('log')
-			ax1.set_xlim(lims)
-			ax1.invert_xaxis()
-			ax2.set_title(r'$m>0$')
-			ax2.set_xlabel(r'$St$')
-			ax2.set_xlim(lims)
-			fig_double.savefig(plt_dir+f"double_Re={int(Re)}_S={S}.png")
-			plt.close(fig_double)
-		else:
-			# Plot all gains
-			ax.set_xlabel(r'$St$')
-			ax.set_ylabel(sig_lbl)
-			ax.set_yscale('log')
-			ax.set_xlim(lims)
-			ax.set_xticks=[0,.5,1,1.5,2]
-			box = ax.get_position()
-			ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
-			ax.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-			fig.savefig(plt_dir+f"Re={int(Re)}_S={S}.png")
-			plt.close(fig)
+				if zoom: ax_zoom.plot(Sts_fine,gains_spl(Sts_fine),label=r'$m='+m+'$',color=color_code[m],marker=marker_code[m],markevery=[(60*int(m)-450)*(int(m)>0)+800],markersize=12,linewidth=3)
+		
+		# Plot gains on a common figure
+		fig_double.subplots_adjust(right=.85)
+		fig_double.legend(handles=lines,bbox_to_anchor=(1, .65))
+		ax1.set_title(r'$m<0$')
+		ax1.set_xlabel(r'$St$')
+		ax1.set_ylabel(sig_lbl_pre+'1'+sig_lbl_app)
+		ax1.set_yscale('log')
+		ax1.set_xlim(x_lims)
+		ax1.set_ylim(y_lims)
+		ax1.invert_xaxis()
+		ax2.set_title(r'$m>0$')
+		ax2.set_xlabel(r'$St$')
+		ax2.set_xlim(x_lims)
+		ax2.set_ylim(y_lims)
+		fig_double.savefig(plt_dir+f"double_Re={int(Re)}_S={S}.png")
+		plt.close(fig_double)
 
 		if zoom:
 			# Plot a log-log zoom around origin
 			ax_zoom.set_xlabel(r'$St$')
-			ax_zoom.set_ylabel(sig_lbl)
+			ax_zoom.set_ylabel(sig_lbl_pre+'1'+sig_lbl_app)
 			ax_zoom.set_yscale('log')
 			ax_zoom.set_xlim(lims_zoom)
 			plt.grid('x')
@@ -126,34 +143,3 @@ for Re in dat.keys():
 			ax_zoom.legend(loc='center left',bbox_to_anchor=(1, 0.5))
 			fig_zoom.savefig(plt_dir+f"Re={int(Re)}_S={S}_zoom.png")
 			plt.close(fig_zoom)
-
-		# Plotting suboptimals
-		if suboptimals:
-			n=3
-			for m in dat[Re][S].keys(): # pretty ms in order
-				fig = plt.figure(figsize=(13,10),dpi=500)
-				ax = plt.subplot(111)
-				Sts,gains=[[] for _ in range(n+1)],[[] for _ in range(n+1)]
-				for St in dat[Re][S][m].keys():
-					#if stick_to_ref and (not np.any(np.isclose(float(St),Sts_ref,atol=.005))): continue
-					for i in range(min(dat[Re][S][m][St].size,n+1)):
-						Sts[i].append(float(St))
-						gains[i].append(dat[Re][S][m][St][i])
-				for i in range(n):
-					# Transform into nice arrays
-					ids=np.argsort(Sts[i])
-					Sts[i],gains[i]=(np.array(Sts[i])*2)[ids],(np.array(gains[i])**(1+square))[ids]
-					# Nice smooth splines
-					gains_spl = CubicSpline(Sts[i], gains[i])
-					Sts_fine=np.linspace(Sts[i][0],Sts[i][-1],1000)
-					ax.plot(Sts_fine,gains_spl(Sts_fine),label=r'$i='+f'{i+1}$',color=color_code[m],alpha=(3*n/2-i)/3/n*2,linewidth=3) # Usual St=fD/U not fR/U
-				plt.xlabel(r'$St$')
-				plt.ylabel(sig_lbl)
-				plt.yscale('log')
-				ax.set_xlim(lims)
-				plt.xticks([0,.5,1,1.5,2])
-				box = ax.get_position()
-				ax.set_position([box.x0, box.y0, box.width*10/13, box.height])
-				plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-				plt.savefig(plt_dir+f"Re={Re}_S={S}_m={m}.png")
-				plt.close(fig)
