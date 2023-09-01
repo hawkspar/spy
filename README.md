@@ -125,7 +125,7 @@ bcs  = dfx.fem.dirichletbc(u, dofs, subspace) # Same as OpenFOAM
 spy.applyBCs(dofs[0],bcs)
 ```
 
-`nozzle\src\baseflow` implements an additional trick - it is possible to change a boundary condition on the fly during a computation by providing `profile` as a class with a `__call__` method and changing the attributes of the `profile` object. This is useful to avoid recomputing boundary conditions from scratch during a computation where a single parameter is varying.
+`nozzle\src\baseflow` implements an additional trick - it is possible to change a boundary condition on the fly during a computation by providing `profile` as a class with a `__call__` method and changing the attributes of the `profile` object. This is useful to avoid recomputing boundary conditions from scratch during a computation where a single parameter is varying. This trick is what prevents more encapsulation into `SPY.applyBCs`.
 
 If nothing is specified for a component on a boundary, it will default to stress-free $Pn=(grad U+grad U^T)n/Re$ one.
 
@@ -134,6 +134,8 @@ Right now, _SPY_ does not accomodate non-Dirichlet boundary conditions, you'll h
 ### About eddy viscosity
 
 _SPYB_ can handle an eddy viscosity but is unable to compute one ! The only way to include one right now is to compute one using _OpenFOAM_, convert it to _meshio_ friendly format using a custom _Paraview_ macro and feed it to `cases/nozzle/src/OpenFOAM_reader`. This will create a `baseflow` directory with a `nut` subfolder containing `.npy` files that _SPY_ can use. Note that _OpenFOAM_ and _SPY_ can operate on different meshes, as long as the _SPY_ one is included in the _OpenFOAM_ one.
+
+`cases/nozzle/src/OpenFOAM_reader` contains a couple of surprises that are essential to the `nozzle` case but which may prove detrimental to your case. For instance `SPYB.smootenNu` includes a smoothing of the eddy viscosity field as well as a cut-off.
 
 Given a list of OpenFOAM times of interest `times` and associated parameters `Res` and `Ss`, providing appropriate paths to the _OpenFOAM_ and _SPY_ cases, the following _Paraview_ macro will convert _OpenFOAM_ `.vtk` output into `.xmf` that _meshio_ can read.
 
@@ -203,7 +205,7 @@ The call signature is identical to _SPYB_. It can operate on a different mesh th
 
 Boundary conditions are applied like before.
 
-The slowest process here is always the building of a _LU_ preconditioner for the linearised Navier-Stokes `L` matrix.
+The slowest process here is always the building of a _LU_ preconditioner for the linearised Navier-Stokes `L` matrix (which doesn't include a time derivative).
 
 ### Using a baseflow
 
@@ -211,7 +213,7 @@ Use `SPYP.interpolateBaseflow` given a `SPYB` object to accomodate different mes
 
 ### Launching the computations
 
-For performance reasons and to accomodate loops, it is necessary to assemble matrices prior a run. Use `SPYP.assembleNMatrix` for the mass one, and `SPYP.assembleJMatrix` for the linearised Navier-Stokes equations given an `m`.
+For performance reasons and to accomodate loops, it is necessary to assemble matrices prior a run. Use `SPYP.assembleMMatrix` to compute `SPYP.M` so that $qMq$ with $q$ a Taylor-Hood vector including pressure gives the velocity $L^2$ norm. `SPYP.assembleLMatrix` for the linearised Navier-Stokes equations given an `m`, again without a time derivative.
 
 Eigenvalue computations are performed using `SPYP.eigenvalues` around a provided shift `sigma`, in number `k`. Again, `Re`, `S` and `m` are purely for saving purposes.
 
@@ -221,7 +223,7 @@ Eigenvalue calculations is highly dependant on the shift, and sadly it is not po
 
 ## Doing resolvent analysis
 
-The process is very similar to linear stability. The only difference is that an additional routine should be used prior launch `SPYP.assembleMRMatrices` where an indicator function can be used to constrain forcing.
+The process is very similar to linear stability. The only difference is that an additional routine should be used prior launch `SPYP.assembleWBRMatrices`. $W$ is so that $uWu$ gives the $L^2$ norm of $u$, so it is identical to $M$ when removing columns and rows of zeros and operates on a smaller subspace. $B$ is the extensor that prevents forcing of the incompressibility equations. An indicator function can be used in $B$ to constrain forcing. This actually quite critical to cases where noise in the baseflow values may be exploited to grow spurious modes and acts on the $B$ matrix in $Lq=Bf$. $R$ is the matrix-less resolvent operator.
 
 Launch is done using `SPYP.resolvent` specifying number of required modes, list of frequencies and again `Re`, `S` and `m` to print saving strings.
 
@@ -232,3 +234,5 @@ Resolvent analysis is a slow process even in parallel. It's normal to have compu
 There are more options to print modes. Loading modes is easy with `SPYP.readMode`, 2D cuts are named `SPYP.saveX` and 3D stuff `SPYP.computeX`. Inspiration on how to use these can be found in `cases/nozzle/src/print`
 
 Careful using isosurfaces, _Plotly_ is capricious and can only handle regular meshes - i.e. stuff from `numpy.meshgrid`.
+
+Because the nondimensionalisation of case `cases/nozzle` involves the radius of the jet not its diameter, all printing routines include a multiplication by two of the Strouhal number (dimensionless frequency) to make comparaison with the literature easier.

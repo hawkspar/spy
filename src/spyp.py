@@ -89,25 +89,25 @@ class SPYP(SPY):
 		return k
 
 	# To be run in complex mode, assemble crucial matrix
-	def assembleJMatrix(self,m:int) -> None:
+	def assembleLMatrix(self,m:int) -> None:
 		# Complex Jacobian of NS operator
-		J_form = self.linearisedNavierStokes(m)
-		self.J = assembleForm(J_form,self.bcs,diag=1)
+		L_form = self.linearisedNavierStokes(m)
+		self.L = assembleForm(L_form,self.bcs,diag=1)
 		if p0: print("Jacobian matrix computed !",flush=True)
 
-	def assembleNMatrix(self,indic=1) -> None:
+	def assembleMMatrix(self,indic=1) -> None:
 		# Shorthands
 		u, v = self.u, self.v
 		# Mass (m*m): here we choose L2 on velocity, no weight for pressure
-		N_form = ufl.inner(u,v)*self.r*indic*ufl.dx # Same multiplication process as base equations, indicator constrains response
-		self.N = assembleForm(N_form,self.bcs,indic==1)
+		M_form = ufl.inner(u,v)*self.r*indic*ufl.dx # Same multiplication process as base equations, indicator constrains response
+		self.M = assembleForm(M_form,self.bcs,indic==1)
 		if p0: print("Norm matrix computed !",flush=True)
 
 	# Modal analysis
 	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
 		# Solver
 		EPS = slp.EPS().create(comm)
-		EPS.setOperators(-self.J,self.N) # Solve Ax=sigma*Mx
+		EPS.setOperators(-self.L,self.M) # Solve Ax=sigma*Mx
 		EPS.setWhichEigenpairs(EPS.Which.TARGET_MAGNITUDE) # Find eigenvalues close to sigma
 		EPS.setTarget(sigma)
 		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True) # Specify that A is not hermitian, but M is semi-definite
@@ -140,18 +140,18 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}",u)
 
 	# Assemble important matrices for resolvent
-	def assembleMRMatrices(self,indic=1) -> None:
+	def assembleWBRMatrices(self,indic=1) -> None:
 		# Velocity and full space functions
 		v = self.v
 		w = ufl.TrialFunction(self.TH0c)
 		z = ufl.TestFunction( self.TH0c)
 		# Norms - required to have a proper maximisation problem in a cylindrical geometry
-		# Mass M (n*n): naive L2
-		M_form = ufl.inner(w,z)*self.r*ufl.dx
+		# Mass (n*n): naive L2 on smaller space
+		W_form = ufl.inner(w,z)*self.r*ufl.dx
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1)
 		B_form = ufl.inner(w,v)*self.r*indic*ufl.dx # Indicator here constrains forcing
 		# Assembling matrices
-		self.M = assembleForm(M_form,sym=True)
+		self.W = assembleForm(W_form,sym=True)
 		B 	   = assembleForm(B_form,self.bcs)
 		if p0: print("Mass & extensor matrices computed !",flush=True)
 
@@ -162,7 +162,7 @@ class SPYP(SPY):
 		# Resolvent operator : takes forcing, returns full state
 		self.R_obj = R_class(B,self.TH)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
-		LHS_obj  = LHS_class(self.R,self.N,self.TH)
+		LHS_obj  = LHS_class(self.R,self.W,self.TH)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm,True)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,overwrite:bool=False) -> None:
@@ -172,7 +172,7 @@ class SPYP(SPY):
 			# Folder creation
 			for append in ["","gains/","gains/txt/","forcing/","response/"]:
 				dirCreator(self.resolvent_path+append)
-			save_string=(f"Re={Re:d}_+S="+str(S)+f"_m={m:d}_St={St:.4e}").replace('.',',')
+			save_string=(f"Re={Re:d}_S="+str(S)+f"_m={m:d}_St={St:.4e}").replace('.',',')
 			gains_name=self.resolvent_path+"gains/txt/"+save_string+".txt"
 			# Memoisation
 			d,_=findStuff(self.resolvent_path+"gains/txt/",{'Re':Re,'S':S,'m':m,'St':St},distributed=False,return_distance=True)
@@ -181,9 +181,9 @@ class SPYP(SPY):
 				continue
 
 			# Equations
-			self.R_obj.setL(self.J-2j*np.pi*St*self.N,self.params)
+			self.R_obj.setL(self.L-2j*np.pi*St*self.M,self.params)
 			# Eigensolver
-			EPS.setOperators(self.LHS,self.M) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
+			EPS.setOperators(self.LHS,self.W) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
 			if p0: print(f"Solver launch for (S,m,St)=({S:.4e},{m},{St:.4e})...",flush=True)

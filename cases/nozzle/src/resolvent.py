@@ -16,8 +16,8 @@ with cProfile.Profile() as pr:
 
 	indic_f = Function(spyp.TH1)
 	indic_f.interpolate(forcingIndicator)
-	spyp.assembleNMatrix()
-	spyp.assembleMRMatrices(indic_f)
+	spyp.assembleMMatrix()
+	spyp.assembleWBRMatrices(indic_f)
 
 	for S in Ss_ref:
 		# Load baseflow
@@ -29,7 +29,7 @@ with cProfile.Profile() as pr:
 		for m in ms_ref:
 			boundaryConditionsPerturbations(spyp,m)
 			# For efficiency, matrices assembled once per Sts
-			spyp.assembleJMatrix(m)
+			spyp.assembleLMatrix(m)
 			# Resolvent analysis
 			spyp.resolvent(5,Sts_ref,Re,S,m)
 	
