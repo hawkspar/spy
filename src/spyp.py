@@ -18,8 +18,9 @@ class R_class:
 		self.KSP = pet.KSP().create(comm)
 		self.tmp1,self.tmp2=Function(TH),Function(TH)
 	
-	def setL(self,L:pet.Mat,params:dict):
-		self.KSP.setOperators(L)
+	# Set L-i\omega M
+	def setLmiwM(self,LmiwM:pet.Mat,params:dict):
+		self.KSP.setOperators(LmiwM)
 		configureKSP(self.KSP,params)
 
 	def mult(self,_,x:pet.Vec,y:pet.Vec) -> None: # Middle argument is necessary for EPS in SLEPc
@@ -38,16 +39,16 @@ class R_class:
 		self.B.multTranspose(v2,y)
 
 # Left hand side
-class LHS_class: # A = R^H N R
-	def __init__(self,R:pet.Mat,N:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
-		self.R,self.N=R,N
+class RHWR_class: # A = R^H W R
+	def __init__(self,R:pet.Mat,W:pet.Mat,TH:dfx.fem.FunctionSpace) -> None:
+		self.R,self.W=R,W
 		self.tmp1,self.tmp2=Function(TH),Function(TH) # Necessary to have 2 - they have the correct dims
 
 	def mult(self,_,x:pet.Vec,y:pet.Vec): # Middle argument is necessary for EPS in SLEPc
 		v1,v2=self.tmp1.vector,self.tmp2.vector
 		x1,x2=self.tmp1.x,	   self.tmp2.x
 		self.R.mult(x, v1); x1.scatter_forward()
-		self.N.mult(v1,v2); x2.scatter_forward()
+		self.W.mult(v1,v2); x2.scatter_forward()
 		self.R.multHermitian(v2,y)
 
 # Swirling Parallel Yaj Perturbations
@@ -95,12 +96,12 @@ class SPYP(SPY):
 		self.L = assembleForm(L_form,self.bcs,diag=1)
 		if p0: print("Jacobian matrix computed !",flush=True)
 
-	def assembleMMatrix(self,indic=1) -> None:
+	def assembleMMatrix(self) -> None:
 		# Shorthands
 		u, v = self.u, self.v
 		# Mass (m*m): here we choose L2 on velocity, no weight for pressure
-		M_form = ufl.inner(u,v)*self.r*indic*ufl.dx # Same multiplication process as base equations, indicator constrains response
-		self.M = assembleForm(M_form,self.bcs,indic==1)
+		M_form = ufl.inner(u,v)*self.r*ufl.dx # Same multiplication process as base equations
+		self.M = assembleForm(M_form,self.bcs)
 		if p0: print("Norm matrix computed !",flush=True)
 
 	# Modal analysis
@@ -140,19 +141,22 @@ class SPYP(SPY):
 			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}",u)
 
 	# Assemble important matrices for resolvent
-	def assembleWBRMatrices(self,indic=1) -> None:
+	def assembleWBRMatrices(self,indic_f=1,indic_u=1) -> None:
 		# Velocity and full space functions
-		v = self.v
+		u, v = self.u, self.v
 		w = ufl.TrialFunction(self.TH0c)
 		z = ufl.TestFunction( self.TH0c)
+		# Mass on response - takes in the output of R which includes pressure
+		if indic_u==1: HHWpsiH = self.M
+		else:		   HHWpsiH = assembleForm(ufl.inner(u,v)*self.r*indic_u*ufl.dx)
 		# Norms - required to have a proper maximisation problem in a cylindrical geometry
 		# Mass (n*n): naive L2 on smaller space
-		W_form = ufl.inner(w,z)*self.r*ufl.dx
+		Wphi_form = ufl.inner(w,z)*self.r*ufl.dx
 		# Quadrature-extensor B (m*n) reshapes forcing vector (n*1) to (m*1)
-		B_form = ufl.inner(w,v)*self.r*indic*ufl.dx # Indicator here constrains forcing
+		B_form = ufl.inner(w,v)*self.r*indic_f*ufl.dx # Indicator here constrains forcing
 		# Assembling matrices
-		self.W = assembleForm(W_form,sym=True)
-		B 	   = assembleForm(B_form,self.bcs)
+		self.Wphi = assembleForm(Wphi_form,sym=True)
+		B = assembleForm(B_form,self.bcs)
 		if p0: print("Mass & extensor matrices computed !",flush=True)
 
 		# Sizes
@@ -162,7 +166,7 @@ class SPYP(SPY):
 		# Resolvent operator : takes forcing, returns full state
 		self.R_obj = R_class(B,self.TH)
 		self.R     = pythonMatrix([[m_local,m],[n_local,n]],self.R_obj,comm)
-		LHS_obj  = LHS_class(self.R,self.W,self.TH)
+		LHS_obj  = RHWR_class(self.R,HHWpsiH,self.TH)
 		self.LHS = pythonMatrix([[n_local,n],[n_local,n]],LHS_obj,comm,True)
 
 	def resolvent(self,k:int,St_list,Re:int,S:float,m:int,overwrite:bool=False) -> None:
@@ -181,9 +185,9 @@ class SPYP(SPY):
 				continue
 
 			# Equations
-			self.R_obj.setL(self.L-2j*np.pi*St*self.M,self.params)
+			self.R_obj.setLmiwM(self.L-2j*np.pi*St*self.M,self.params)
 			# Eigensolver
-			EPS.setOperators(self.LHS,self.W) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
+			EPS.setOperators(self.LHS,self.Wphi) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
 			if p0: print(f"Solver launch for (S,m,St)=({S:.4e},{m},{St:.4e})...",flush=True)
@@ -352,7 +356,7 @@ class SPYP(SPY):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
-		u = self.readMode("response",dat).split()[self.direction_map['x']]
+		u = self.Q.split()[0][self.direction_map['x']]
 
 		X_r,R_r = X[::step],R[::step]
 		X_mr,R_mr = np.meshgrid(X_r,R_r)
@@ -376,10 +380,10 @@ class SPYP(SPY):
 			ax.quiver(X_r,R_r,F.reshape(X_r.size,-1).real.T,G.reshape(X_r.size,-1).real.T)
 			ax.plot([np.min(X),0],[1,1],'k-')
 
-			"""# Plot response
+			# Plot baseflow
 			U=U.reshape(X.size,-1).real.T
 			c=ax.contourf(X,R,U,cmap='bwr')#,vmax=np.max(np.abs(U)),vmin=-np.max(np.abs(U)))
-			plt.colorbar(c)"""
+			plt.colorbar(c)
 
 			plt.rcParams.update({'font.size': 20})
 			plt.xlabel(r'$x$')

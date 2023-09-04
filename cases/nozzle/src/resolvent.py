@@ -6,7 +6,6 @@ Created on Wed Oct  13 17:07:00 2021
 """
 import cProfile, pstats
 from pstats import SortKey
-from dolfinx.fem import FunctionSpace
 
 from setup import *
 from spyp import SPYP # Must be after setup

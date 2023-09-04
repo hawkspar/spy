@@ -127,8 +127,7 @@ def configureEPS(EPS:slp.EPS,k:int,params:dict,pb_type:slp.EPS.ProblemType,shift
 		ST.setType('sinvert')
 		ST.getOperator() # CRITICAL TO MUMPS ICNTL
 		configureKSP(ST.getKSP(),params,icntl=shift)
-	else:
-		configureKSP(ST.getKSP(),params,'cg',shift)
+	else: configureKSP(ST.getKSP(),params,'cg',shift)
 	EPS.setFromOptions()
 
 # Handler for representation purposes

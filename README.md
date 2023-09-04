@@ -6,6 +6,8 @@ The acronym means "Swirling Parallel Yet another jet code" as an hommage to Chuh
 
 It contains two subparts, _SPYB_ ("SPY Baseflow") and _SPYP_ ("SPY Perturbations").
 
+This little _README_ is intended as a small quick documentation, for details on the science, you're welcome to read the relevant chapter of my thesis !
+
 ## Capabilities - what this code can do for you
 
 _SPY_ handles :
@@ -22,7 +24,7 @@ Using a Newton solver, _SPYB_ can compute a baseflow satisfying :
 - 3 components of velocity
 - axisymmetric baseflow
 
-_SPYP_ can do linear stability analysis or resolvent calculations on perturbations satisfying :
+_SPYP_ can do global temporal stability analysis or resolvent calculations on perturbations satisfying :
 - incompressibility
 - 3 components of velocity
 - azimuthally decomposition
@@ -195,7 +197,7 @@ A useful tool is `SPYB.smoothenU` that uses a pseudo-Laplace equation to smoothe
 
 A couple `SPYB.computeX` methods exist to produce 3D _Plotly_ objects that can be put in relation to _SPYP_ 3D visualisations. Otherwise, just go digging in the `baseflow/print` folder of the case.
 
-## Doing linear stability
+## Doing global temporal stability analysis
 
 This requires going complex with `source /usr/local/bin/dolfinx-complex-mode` and use of the _SPYP_ object.
 
@@ -204,6 +206,8 @@ The call signature is identical to _SPYB_. It can operate on a different mesh th
 /!\ Reading meshes in parallel _FEniCsX_ is an order-dependant process ! That means that extra care should be taken to always load meshes in the same order - for instance initialising _SPYB_ in the `setup` file so that it is always read first ! /!\
 
 Boundary conditions are applied like before.
+
+There's a necessary subtlety when using _MUMPS_ in parallel over a large mesh. It seems to require extra memory, which is configured in `helpers.configureKSP`, setting the `icntl_14` parameter for working matrix size to be significantly higher than default.
 
 The slowest process here is always the building of a _LU_ preconditioner for the linearised Navier-Stokes `L` matrix (which doesn't include a time derivative).
 
@@ -223,7 +227,11 @@ Eigenvalue calculations is highly dependant on the shift, and sadly it is not po
 
 ## Doing resolvent analysis
 
-The process is very similar to linear stability. The only difference is that an additional routine should be used prior launch `SPYP.assembleWBRMatrices`. $W$ is so that $uWu$ gives the $L^2$ norm of $u$, so it is identical to $M$ when removing columns and rows of zeros and operates on a smaller subspace. $B$ is the extensor that prevents forcing of the incompressibility equations. An indicator function can be used in $B$ to constrain forcing. This actually quite critical to cases where noise in the baseflow values may be exploited to grow spurious modes and acts on the $B$ matrix in $Lq=Bf$. $R$ is the matrix-less resolvent operator.
+The process is very similar to global temporal stability. The only difference is that an additional routine should be used prior launch `SPYP.assembleWBRMatrices`. $W$ is so that $uWu$ gives the $L^2$ norm of $u$, so it is identical to $M$ when removing columns and rows of zeros and operates on a smaller subspace. $B$ is the extensor that prevents forcing of the incompressibility equations. $R$ is the matrix-free resolvent operator to avoid actually inverting $L-i\omega M$.
+
+The  only reason `SPYP.assembleMMatrices` and `SPYP.assembleWBRMatrices` are kept seperate is that one needs only the first to perform temporal stability analysis, whereas resolvent analysis needs the two of them to run.
+
+Two indicator functions can be used. `indic_f` acts on $B$ to constrain forcing. Usually this is a fonction going smoothly from 0 to 1 which allow for concentration of forcing in a specific area of space. This actually quite critical to cases where noise in the baseflow values may be exploited to grow spurious modes. `indic_u` acts on $W_\psi$ and penalises response in a specific area.
 
 Launch is done using `SPYP.resolvent` specifying number of required modes, list of frequencies and again `Re`, `S` and `m` to print saving strings.
 

@@ -4,6 +4,8 @@ Created on Wed Sept  28 09:28:00 2022
 
 @author: hawkspar
 """
+import cProfile, pstats
+from pstats import SortKey
 from setup import *
 from spy import loadStuff
 
@@ -26,10 +28,24 @@ else:
 	spyb.loadBaseflow(Re,0,False)
 	spyb.Re=Re
 # Swirl
-for S in Ss[1:]:
+for S in Ss[1:-1]:
 	class_th.S=S
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{"Re":Re,"S":S},spyb.Nu)
 	spyb.baseflow(Re,S,save=False)
 	spyb.smoothenU(1e-4,direction_map['r'])
 	spyb.saveBaseflow(Re,S,print=True)
+
+with cProfile.Profile() as pr:
+	S=S[-1]
+	class_th.S=S
+	u_inlet_th.interpolate(class_th)
+	loadStuff(spyb.nut_path,{"Re":Re,"S":S},spyb.Nu)
+	spyb.baseflow(Re,S,save=False)
+	spyb.smoothenU(1e-4,direction_map['r'])
+	spyb.saveBaseflow(Re,S,print=True)
+	
+	if p0:
+		pr.dump_stats('stats')
+		p = pstats.Stats('stats')
+		p.sort_stats(SortKey.CUMULATIVE).print_stats(10)
