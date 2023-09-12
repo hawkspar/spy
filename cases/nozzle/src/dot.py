@@ -24,7 +24,8 @@ Sts.sort()
 ms=[-2,2]
 dats=[{'Re':Re,'S':S,'m':m,'St':St} for S,m,St in product(Ss,ms,Sts)]
 source="response"
-prt=False # Use sparingly may tank performance
+prt=False # Use sparingly, may tank performance
+nc=50 # Step for intermediate saves
 # Shortcuts
 spyp=SPYP(params,data_path,"perturbations",direction_map)
 spyp.Re=Re
@@ -37,6 +38,7 @@ indic_f = Function(spyp.TH1)
 indic_f.interpolate(forcingIndicator)
 spyp.assembleMMatrix()
 spyp.assembleWBRMatrices(indic_f)
+# Number of interial waves
 nt=10
 
 # Initialising saving structure
@@ -78,6 +80,7 @@ def interp_vector(v,v1,v2):
 	v.x.array[:]=np.nan_to_num(v.x.array[:])
 
 #try:
+c=0
 for dat in dats:
 	S,m,St=dat['S'],dat['m'],dat['St']
 	save_str=f"_S={S:.1f}_m={m:d}_St={St:.3f}"
@@ -172,6 +175,12 @@ for dat in dats:
 		interp_scalar(gupta,k**2*((r*U[2])**2).dx(1)/r**3-2*k*m/r**2*U[2]*U[0].dx(1)-(k*U[0].dx(1)+m*(U[2]/r).dx(1))**2/4)
 		spyp.printStuff(dir,"gupta"+save_str,gupta)
 		if p0: print("A=",A,"avg=",avg,"dev=",np.sqrt(sum(dev)/A))
+	# Intermediate save
+	c+=1
+	if p0 and c%nc==0:
+		print("INTERMEDIATE SAVE",flush=True)
+		for name,res in [('avgs',avgs),('devs',devs),('gains',gains)]:
+			with open(dir+name+'.pkl', 'wb') as fp: dump(res, fp)
 #except: pass
 #finally:
 # Writing everything into a double contour plot
@@ -188,9 +197,9 @@ if p0:
 		for i,S in enumerate(Ss):
 			for j,St in enumerate(Sts):
 				resp[i,j],resn[i,j]=res[str(S)][str(ms[0])][str(St)],res[str(S)][str(ms[1])][str(St)]
-		"""# Smoothing
-		s=np.array([.5,.5])
-		resp,resn=gaussian_filter(resp,s),gaussian_filter(resn,s)"""
+		# Smoothing
+		s=np.array([.75,.75])
+		resp,resn=gaussian_filter(resp,s),gaussian_filter(resn,s)
 		# Plotting contours
 		if name=='avgs':
 			ax1.contourf(  2*Sts,Ss,resn,					 cmap='seismic',vmin=0,vmax=1)

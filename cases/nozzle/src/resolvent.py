@@ -10,6 +10,10 @@ from pstats import SortKey
 from setup import *
 from spyp import SPYP # Must be after setup
 
+Ss_ref=[1]
+ms_ref=[-2]
+pert_mesh+="_fine"
+
 with cProfile.Profile() as pr:
 	spyp=SPYP(params,data_path,pert_mesh,direction_map)
 

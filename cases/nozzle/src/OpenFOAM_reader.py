@@ -11,6 +11,7 @@ convert=False
 # Relevant parameters
 Res=[1000,10000,100000,200000]
 Ss=np.linspace(0,1,101)
+pert_mesh+="_fine"
 # Convert mesh
 if convert: meshConvert(base_mesh)
 

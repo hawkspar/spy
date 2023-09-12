@@ -194,7 +194,9 @@ class SPYP(SPY):
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0:
-				if p0: open(gains_name, mode='w').close() # Memoisation is important ! In case of 0 CV save the effort next time
+				if p0:
+					print("Solver failed to converge.",flush=True)
+					open(gains_name, mode='w').close() # Memoisation is important ! In case of 0 CV save the effort next time
 				continue
 
 			# Pretty print
