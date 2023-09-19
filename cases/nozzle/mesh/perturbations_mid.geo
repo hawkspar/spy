@@ -1,7 +1,7 @@
 // Gmsh project created on Fri May 15 17:21:02 2020
 Mesh.MshFileVersion = 2.2;
 R=1; L=50*R; H=15*R;
-r=.5e-3; h=1e-4;
+r=1.5e-3; h=1e-4;
 
 // First base rectangle around the nozzle
 Point(1) = {0, 0, 0,   30*r};

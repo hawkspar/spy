@@ -31,9 +31,9 @@ class SPYB(SPY):
 			U.interpolate(baseflowInit)
 		# Memoisation
 		d,_=findStuff(self.baseflow_path+"print/",{'Re':Re,'S':S},distributed=False,return_distance=True)
-		if np.isclose(d,0,atol=self.params['atol']):
+		"""if np.isclose(d,0,atol=self.params['atol']):
 			if p0: print("Found print file, assuming baseflow's fine, moving on...",flush=True)
-			return
+			return"""
 
 		# Compute form
 		base_form  = self.navierStokes() # No azimuthal decomposition for base flow

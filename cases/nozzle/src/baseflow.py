@@ -11,7 +11,7 @@ from spy import loadStuff
 
 # Relevant parameters
 Res=[1000,10000,100000,200000]
-Ss =np.linspace(0,1,101)
+Ss =np.linspace(0,1,11)
 compute_low_Re=True
 
 if compute_low_Re:
@@ -37,7 +37,7 @@ for S in Ss[1:-1]:
 	spyb.saveBaseflow(Re,S,print=True)
 
 with cProfile.Profile() as pr:
-	S=S[-1]
+	S=Ss[-1]
 	class_th.S=S
 	u_inlet_th.interpolate(class_th)
 	loadStuff(spyb.nut_path,{"Re":Re,"S":S},spyb.Nu)

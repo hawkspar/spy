@@ -10,15 +10,16 @@ from pstats import SortKey
 from setup import *
 from spyp import SPYP # Must be after setup
 
-Ss_ref=[1]
-ms_ref=[-2]
-pert_mesh+="_fine"
+Ss_ref=[0]
+ms_ref=[0]
+Sts_ref=[0]
 
 with cProfile.Profile() as pr:
 	spyp=SPYP(params,data_path,pert_mesh,direction_map)
 
 	indic_f = Function(spyp.TH1)
 	indic_f.interpolate(forcingIndicator)
+	spyp.printStuff(spyp.resolvent_path,"indic_f",indic_f)
 	spyp.assembleMMatrix()
 	spyp.assembleWBRMatrices(indic_f)
 

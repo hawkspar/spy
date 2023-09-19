@@ -53,10 +53,10 @@ class RHWR_class: # A = R^H W R
 
 # Swirling Parallel Yaj Perturbations
 class SPYP(SPY):
-	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict) -> None:
+	def __init__(self, params:dict, datapath:str, mesh_name:str, direction_map:dict,append:str="") -> None:
 		super().__init__(params, datapath, mesh_name, direction_map)
-		self.eig_path=self.case_path+"eigenvalues/"
-		self.resolvent_path=self.case_path+"resolvent/"
+		self.eig_path=self.case_path+"eigenvalues"+append+"/"
+		self.resolvent_path=self.case_path+"resolvent"+append+"/"
 
 	# Handle, notice pressure is just ignored as baseflow pressure has no impact on perturbations
 	def interpolateBaseflow(self,spy:SPY) -> None:
@@ -190,7 +190,7 @@ class SPYP(SPY):
 			EPS.setOperators(self.LHS,self.Wphi) # Solve B^T*L^-1H*Q*L^-1*B*f=sigma^2*M*f (cheaper than a proper SVD)
 			configureEPS(EPS,k,self.params,slp.EPS.ProblemType.GHEP) # Specify that A is hermitian (by construction), & M is semi-definite
 			# Heavy lifting
-			if p0: print(f"Solver launch for (S,m,St)=({S:.4e},{m},{St:.4e})...",flush=True)
+			if p0: print(f"Solver launch for (S,m,St)=({S},{m},{St:.4e})...",flush=True)
 			EPS.solve()
 			n=EPS.getConverged()
 			if n==0:
@@ -354,11 +354,11 @@ class SPYP(SPY):
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_x={x:00.1f}".replace('.',',')+".png")
 			plt.close()
 
-	def saveLiftUpTip(self,str:str,dat:dict,X:np.ndarray,R:np.ndarray,step:int):
+	def saveLiftUpTip(self,str:str,dat:dict,X:np.ndarray,R:np.ndarray,step:int,lvls=list):
 		import matplotlib.pyplot as plt
 
 		fs = self.readMode(str,dat).split()
-		u = self.Q.split()[0][self.direction_map['x']]
+		u = (self.Q.split()[0]).split()[self.direction_map['x']]
 
 		X_r,R_r = X[::step],R[::step]
 		X_mr,R_mr = np.meshgrid(X_r,R_r)
@@ -384,7 +384,7 @@ class SPYP(SPY):
 
 			# Plot baseflow
 			U=U.reshape(X.size,-1).real.T
-			c=ax.contourf(X,R,U,cmap='bwr')#,vmax=np.max(np.abs(U)),vmin=-np.max(np.abs(U)))
+			c=ax.contourf(X,R,U,lvls,cmap='bwr',alpha=.8)#,vmax=np.max(np.abs(U)),vmin=-np.max(np.abs(U)))
 			plt.colorbar(c)
 
 			plt.rcParams.update({'font.size': 20})
@@ -393,6 +393,53 @@ class SPYP(SPY):
 			plt.xticks([np.min(X),np.min(X)/2,0,np.max(X)/2,np.max(X)])
 			plt.yticks([np.min(R),(1+np.min(R))/2,1,(1+np.max(R))/2,np.max(R)])
 			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_tip".replace('.',',')+".png")
+			plt.close()
+
+	def saveLiftUpTip2(self,str:str,dat:dict,X:np.ndarray,R:np.ndarray,lvls:list):
+		import matplotlib.pyplot as plt
+
+		fs = self.readMode(str,dat).split()
+		us = (self.Q.split()[0]).split()
+
+		X_m,R_m = np.meshgrid(X,R)
+		XR = np.hstack((X_m.reshape(-1,1),R_m.reshape(-1,1)))
+		# Evaluation of projected value
+		U = self.eval(us[self.direction_map['x']],XR)
+		V = self.eval(us[self.direction_map['r']],XR)
+		F = self.eval(fs[self.direction_map['x']],XR)
+		G = self.eval(fs[self.direction_map['r']],XR)
+
+		# Actual plotting
+		dir=self.resolvent_path+str+"/quiver/"
+		dirCreator(dir)
+		if p0:
+			X=X-1
+			U,V=U.real,V.real
+			nU=np.sqrt(U**2+V**2)
+			nF=np.sqrt(F*F.conj()+G*G.conj())
+			print("Evaluation of perturbations done ! Drawing streamlines...",flush=True)
+
+			plt.rcParams.update({'font.size': 20})
+			fig, ax = plt.subplots()
+			fig.set_size_inches(11,10)
+			fig.set_dpi(500)
+			ax.set_aspect('equal')
+			# Baseflow streamlines
+			plt.streamplot(X,R,U.reshape(X.size,-1).T,V.reshape(X.size,-1).T,color='k',broken_streamlines=False,linewidth=nU.reshape(X.size,-1).T/np.max(nU),density=(1,.5))
+			plt.plot([np.min(X),0],[1,1],'k-',linewidth=2)
+
+			# Tangential component
+			o=(V*F-U*G)/nU/np.max(nF)
+			c=ax.contourf(X,R,np.abs(o.reshape(X.size,-1).T),lvls,cmap='Reds',alpha=.8)#,vmax=np.max(np.abs(U)),vmin=-np.max(np.abs(U)))
+			plt.colorbar(c)
+			plt.xlabel(r'$x$')
+			plt.ylabel(r'$r$')
+			#plt.xticks([np.min(X),np.min(X)/2,0,np.max(X)/2,np.max(X)])
+			plt.xticks([np.min(X),np.min(X)/2,0,np.max(X)])
+			plt.yticks([np.min(R),(1+np.min(R))/2,1,(1+np.max(R))/2,np.max(R)])
+			ax.set_xlim(np.min(X),np.max(X))
+			ax.set_ylim(np.min(R),np.max(R))
+			plt.savefig(dir+str+f"_Re={dat['Re']:d}_S={dat['S']:.1f}_m={dat['m']:d}_St={dat['St']:00.4e}_LU".replace('.',',')+".png")
 			plt.close()
 
 	def save2DQuiver(self,str:str,dat:dict,x:float,r_min:float,r_max:float,n_r:int,n_th:int,step:int,s:float,o:float=.9):

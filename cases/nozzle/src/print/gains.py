@@ -14,7 +14,7 @@ from helpers import dirCreator
 color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'tab:blue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
 marker_code={'-4':'1','-3':'2','-2':'3','-1':'4','0':None,'1':'4','2':'3','3':'2','4':'1'}
 #color_code={'0':'tab:blue','1':'tab:red','2':'orange','3':'rebeccapurple','4':'olivedrab','5':'cyan'} # Pickering colorscheme
-dir="/home/shared/cases/nozzle/resolvent/gains/"
+dir="/home/shared/cases/nozzle/resolvent_58k/gains/"
 dat_dir,plt_dir=dir+"txt/",dir+"plots/"
 dirCreator(dir)
 dirCreator(dat_dir)
@@ -116,11 +116,11 @@ for Re in dat.keys():
 			if suboptimals:
 				for i in range(n):
 					lines=plot(ax1,ax2,r'$i='+str(i)+'$',Sts[i],gains[i],m)
-				tinkerFig(ax1,ax2,fig,f"suboptimals_Re={Re}_S={S}_m={m}.png")
+				tinkerFig(ax1,ax2,fig,f"suboptimals_Re={Re}_S={S}_m={m}.png",lines)
 			else:
 				lines=plot(ax1,ax2,r'$|m|='+m+'$',Sts,gains,m,lines,ax_zoom)
 		
-		tinkerFig(ax1,ax2,fig,f"Re={Re}_{S}.png")
+		tinkerFig(ax1,ax2,fig,f"Re={Re}_S={S}.png",lines)
 
 		if zoom:
 			# Plot a log-log zoom around origin
