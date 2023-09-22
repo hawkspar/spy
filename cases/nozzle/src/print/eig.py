@@ -13,10 +13,12 @@ from warnings import simplefilter, catch_warnings
 path.append('/home/shared/cases/nozzle/src/')
 
 from setup import *
+from handlers import *
 from helpers import dirCreator
 
 # Shorthands
-color_code={'-5':'lightgreen','-4':'darkgreen','-3':'cyan','-2':'lightblue','-1':'darkblue','0':'black','1':'darkred','2':'tab:red','3':'darkorange','4':'magenta','5':'tab:pink'}
+x_lims=[-1e-1,1e-1]
+y_lims=[-1e-2,1e-2]
 
 dat={}
 dir="/home/shared/cases/nozzle/eigenvalues/"
@@ -24,11 +26,11 @@ file_names = [f for f in listdir(dir+"values/") if f[-3:]=="txt"]
 for file_name in listdir(dir+"values/"):
     if file_name[-3:]=="txt":
         match = search(r'm=(-?\d*)', file_name)
-        m=match.group(1)
+        m=int(match.group(1))
         match = search(r'Re=(\d*)',file_name)
-        Re=match.group(1)
+        Re=int(match.group(1))
         match = search(r'S=(\d*\,?\d*)',file_name)
-        S=match.group(1)
+        S=float(match.group(1).replace(',','.'))
         if not Re in dat.keys(): 		dat[Re]      ={}
         if not S  in dat[Re].keys():	dat[Re][S]   ={}
         if not m  in dat[Re][S].keys(): dat[Re][S][m]=set()
@@ -51,7 +53,10 @@ for Re in dat.keys():
                 plt.scatter(eigs.imag[~msk],eigs.real[~msk],edgecolors=color_code[m],facecolors=color_code[m]) # Unstable eigenvalues
             #plt.plot([-np.min(eigs.imag),np.max(eigs.imag)],[0,0],'k--')
             #plt.axis([-2,2,-2,2])
+            plt.xlim(x_lims)
+            plt.ylim(y_lims)
+            plt.gca().set_aspect('equal')
             plt.xlabel(r'$\omega$')
             plt.ylabel(r'$\sigma$')
-            plt.savefig(dir+f"plots/eigenvalues_Re={Re}_S={S}_m={m}".replace('.',',')+".png") # Usual Re is based on D
+            plt.savefig(dir+f"plots/eigenvalues_S={S}_m={m}".replace('.',',')+".png") # Usual Re is based on D
             plt.close()

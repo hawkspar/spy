@@ -105,7 +105,7 @@ class SPYP(SPY):
 		if p0: print("Norm matrix computed !",flush=True)
 
 	# Modal analysis
-	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int) -> None:
+	def eigenvalues(self,sigma:complex,k:int,Re:int,S:float,m:int,load=True) -> None:
 		# Solver
 		EPS = slp.EPS().create(comm)
 		EPS.setOperators(-self.L,self.M) # Solve Ax=sigma*Mx
@@ -114,13 +114,13 @@ class SPYP(SPY):
 		configureEPS(EPS,k,self.params,slp.EPS.ProblemType.PGNHEP,True) # Specify that A is not hermitian, but M is semi-definite
 
 		# File management shenanigans
-		save_string=(f"Re={Re:d}_S="+str(S)+"_m={m:d}").replace('.',',')
+		save_string=(f"Re={Re:d}_S="+str(S)+f"_m={m:d}").replace('.',',')
 		for append in ["","values/"]: dirCreator(self.eig_path+append)
 		eig_name=self.eig_path+"values/"+save_string+f"_sig={sigma}".replace('.',',')+".txt"
 		# Memoisation
-		d,_=findStuff(self.eig_path+"values/",{'Re':Re,'S':S,'m':m},distributed=False,return_distance=True)
-		if np.isclose(d,0,atol=self.params['atol']):
-			if p0: print("Found "+eig_name+" file, assuming it has enough eigenvalues, moving on...",flush=True)
+		d,name=findStuff(self.eig_path+"values/",{'Re':Re,'S':S,'m':m},distributed=False,return_distance=True)
+		if np.isclose(d,0,atol=self.params['atol']) and load:
+			if p0: print("Found "+name+" file, assuming it has enough eigenvalues, moving on...",flush=True)
 			return
 		if p0: print(f"Solver launch for sig={sigma}...",flush=True)
 		EPS.solve()
@@ -138,7 +138,7 @@ class SPYP(SPY):
 		for i in range(min(n,3)):
 			EPS.getEigenvector(i,q.vector)
 			u,_ = q.split()
-			self.printStuff(self.eig_path+"values/print/",save_string+f"_l={eigs[i]}",u)
+			self.printStuff(self.eig_path+"print/",save_string+f"_l={eigs[i]}",u)
 
 	# Assemble important matrices for resolvent
 	def assembleWBRMatrices(self,indic_f=1,indic_u=1) -> None:
